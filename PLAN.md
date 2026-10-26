@@ -42,7 +42,18 @@ No feature code written yet. Continue from "Next steps" below.
   already has. Its glowing centre hub node is not for us: the folder is not a
   topic, so the map has no centre. The prototype still wins where the two
   disagree.
-- Secondary visual reference, from the user: https://www.dasprakashsekar.site/
+- The rest of that site is a reference too, for the chrome around the map
+  (header, cards, chips, buttons, empty states): a near-black ground with a
+  faint 1px grid and one soft low-alpha radial glow; small mono uppercase
+  eyebrow labels over large, tight headings (our breadcrumb and card titles);
+  status chips as a bordered pill with a coloured dot and mono text (our
+  legend, join chips and badges); a light primary pill button with an arrow
+  glyph and outlined secondary pills (our Pick up here and the outlined
+  actions); stat tiles, a big number over a small label in a bordered grid
+  (our "N topics · N sessions · N active" line); a mono file-path chip in a
+  card header (our files chips); numbered section eyebrows ("01 about/…")
+  for the settings groups; a dark-first palette, generous spacing and
+  restrained motion. Borrow the feel, never copy its content or text.
 - The source artifact is PUBLIC (shared 2026-10-27, no sign-in needed):
   https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0
   (`#play-…` opens the interactive view). The Artifact tool's `read` on that
