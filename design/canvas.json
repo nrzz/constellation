@@ -1,0 +1,56 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Artboard-2hhm.dc.html": {
+      "h": 600,
+      "page": "page-oxvu72",
+      "title": "Artboard 1",
+      "w": 800,
+      "x": 0,
+      "y": 0
+    },
+    "TopicMap.dc.html": {
+      "h": 904,
+      "is_interactive": true,
+      "title": "Constellation: interactive prototype",
+      "w": 900,
+      "x": 0,
+      "y": 0
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-26T19:02:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "focused",
+    "file": "TopicMap.dc.html"
+  },
+  "notes": {
+    "title2": {
+      "kind": "title1",
+      "maxW": 1920,
+      "text": "Constellation: every topic on one field, click to focus",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    }
+  },
+  "order": [
+    "TopicMap.dc.html",
+    "Artboard-2hhm.dc.html"
+  ],
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Page 1"
+    },
+    {
+      "id": "page-oxvu72",
+      "name": "Page 2"
+    }
+  ],
+  "title": "Constellation topic map"
+}

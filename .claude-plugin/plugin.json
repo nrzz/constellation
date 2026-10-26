@@ -1,0 +1,98 @@
+{
+  "name": "constellation",
+  "version": "0.1.0",
+  "description": "Maps your Claude Code sessions as a constellation of topics: one folder, many topic chains, every new session picks up its chain's latest handoff note",
+  "author": { "name": "Naresh", "url": "https://github.com/nrzz" },
+  "homepage": "https://github.com/nrzz/constellation",
+  "repository": "https://github.com/nrzz/constellation",
+  "license": "MIT",
+  "keywords": ["mod", "sessions", "topics", "handoff", "pane", "desktop"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "scope": {
+      "type": "string",
+      "title": "Scope",
+      "description": "Which transcripts the map reads: this folder's, or every folder's",
+      "options": ["folder", "all"],
+      "default": "folder"
+    },
+    "groupBasis": {
+      "type": "string",
+      "title": "Grouping",
+      "description": "auto clusters unassigned sessions into topics; manual leaves them Unsorted until you assign them",
+      "options": ["auto", "manual"],
+      "default": "auto"
+    },
+    "majorRule": {
+      "type": "string",
+      "title": "Major topic rule",
+      "description": "What earns a labelled pill: either (count or recent), count, or recent",
+      "options": ["either", "count", "recent"],
+      "default": "either"
+    },
+    "majorMinSessions": {
+      "type": "number",
+      "title": "Major count threshold",
+      "description": "Sessions a topic needs to count as major under the count rule",
+      "default": 3,
+      "min": 1,
+      "max": 20
+    },
+    "recentDays": {
+      "type": "number",
+      "title": "Recent days",
+      "description": "A non-archived session active within this many days makes its topic major under the recent rule",
+      "default": 7,
+      "min": 1,
+      "max": 90
+    },
+    "numbering": {
+      "type": "string",
+      "title": "Chain numbering",
+      "description": "Order of the numbered steps in focus mode",
+      "options": ["oldestFirst", "newestFirst"],
+      "default": "oldestFirst"
+    },
+    "showRelated": {
+      "type": "boolean",
+      "title": "Related anchors",
+      "description": "Show linked topics as dashed anchor pills along the bottom in focus mode",
+      "default": true
+    },
+    "handoffNotes": {
+      "type": "string",
+      "title": "Handoff notes",
+      "description": "auto regenerates a short note after each turn (uses haiku); manual uses only /park; ask offers a button after each turn",
+      "options": ["auto", "manual", "ask"],
+      "default": "auto"
+    },
+    "autoJoin": {
+      "type": "string",
+      "title": "Auto join",
+      "description": "suggest marks the best-matching topic after your first prompt; auto joins it when the match is clear; off never suggests",
+      "options": ["suggest", "auto", "off"],
+      "default": "suggest"
+    },
+    "rangeDays": {
+      "type": "number",
+      "title": "Time range (days)",
+      "description": "Sessions older than this are dimmed and left out of chains; 45 means all time; pinned sessions ignore it",
+      "default": 30,
+      "min": 1,
+      "max": 45
+    },
+    "useModelForTitles": {
+      "type": "boolean",
+      "title": "Name topics with the model",
+      "description": "Name auto topics with one short haiku call instead of their most frequent words",
+      "default": false
+    },
+    "openOnStart": {
+      "type": "string",
+      "title": "On session start",
+      "description": "band shows the join chooser above the prompt; pane opens the map; none does nothing",
+      "options": ["band", "pane", "none"],
+      "default": "band"
+    }
+  }
+}

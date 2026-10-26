@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Constellation topic map prototype</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0B0E13}
+*{box-sizing:border-box}
+a{color:#F2A33A}a:hover{color:#FFC67A}
+button,input{font:inherit}
+input::placeholder{color:#6F7988}
+.nw{position:absolute;transition:left .5s cubic-bezier(.2,.8,.2,1),top .5s cubic-bezier(.2,.8,.2,1),opacity .35s}
+.nw:hover,.nw:focus-within{z-index:6}
+.dotbtn{display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:0;border:0;background:transparent;cursor:pointer;border-radius:999px}
+.dotbtn:focus-visible{outline:2px solid #E8ECF2;outline-offset:2px}
+.dot{display:block;border-radius:999px;transition:width .25s,height .25s,box-shadow .25s,background .25s}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border-radius:999px;background:#161B23;color:#E8ECF2;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer;transition:box-shadow .25s,transform .2s}
+.pill:hover{transform:scale(1.04)}
+.pill:focus-visible{outline:2px solid #E8ECF2;outline-offset:3px}
+.num{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:999px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;transition:box-shadow .25s}
+.lbl{position:absolute;font-size:11.5px;line-height:1.25;color:#C9D1DC;pointer-events:none;white-space:nowrap}
+.tip{position:absolute;width:210px;padding:8px 10px;background:#1C222C;border:1px solid #2E3644;border-radius:10px;font-size:11.5px;line-height:1.4;color:#D7DCE4;opacity:0;visibility:hidden;transition:opacity .15s;pointer-events:none;text-align:left;white-space:normal;z-index:9}
+.nw:hover .tip,.nw:focus-within .tip{opacity:1;visibility:visible}
+.tip-above{bottom:calc(100% + 8px)}.tip-below{top:calc(100% + 8px)}
+.tip-c{left:50%;transform:translateX(-50%)}.tip-l{left:0}.tip-r{right:0}
+.edges{position:absolute;left:0;top:0}
+.edges path,.edges polyline{transition:opacity .35s}
+@media (prefers-reduced-motion: no-preference){
+  .pulse{animation:pulse 1.6s ease-in-out infinite}
+  .emerge{animation:emerge .45s cubic-bezier(.2,.8,.2,1)}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(242,163,58,.5)}60%{box-shadow:0 0 0 8px rgba(242,163,58,0)}}
+  @keyframes emerge{from{opacity:0;transform:scale(.4)}}
+}
+</style>
+</helmet>
+<div style="width: 900px; height: 904px; padding: 20px; display: flex; flex-direction: column; gap: 12px; background: #0B0E13; color: #E8ECF2; font-family: 'IBM Plex Sans', system-ui, sans-serif">
+  <div style="display: flex; align-items: center; gap: 12px">
+    <span style="display: inline-flex; color: {{accent}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2"></circle><circle cx="12" cy="7" r="2"></circle><circle cx="19" cy="13" r="2"></circle><path d="M7.6 15.6L10.8 8.8"></path><path d="M13.9 7.9L17.2 12"></path><path d="M8 17h9"></path></svg></span>
+    <div style="min-width: 0; display: flex; flex-direction: column; gap: 1px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase">Constellation</span>
+      <span style="font-size: 11.5px; color: #8B95A5; white-space: nowrap">web-app{{crumb}}</span>
+    </div>
+    <label for="cm-search" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap">Search sessions and notes</label>
+    <input id="cm-search" type="search" placeholder="Search sessions and notes" defaultValue="" onChange="{{onSearch}}" style="margin-left: 8px; width: 220px; min-height: 38px; padding: 0 12px; border: 1px solid #252C37; border-radius: 10px; background: #10141A; color: #E8ECF2; font-size: 13px">
+    <div style="display: flex; align-items: center; gap: 8px; padding: 0 10px; min-height: 38px; border: 1px solid #252C37; border-radius: 10px; background: #10141A">
+      <input type="range" min="1" max="45" step="1" value="{{rangeDays}}" onChange="{{onRange}}" aria-label="Days of history to show" style="width: 120px; accent-color: {{accent}}">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #C9D1DC; min-width: 56px">{{rangeLabel}}</span>
+      <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
+        <button type="button" aria-pressed="{{c.on}}" onClick="{{c.pick}}" style="min-height: 26px; padding: 0 8px; border: 1px solid {{c.border}}; border-radius: 999px; background: {{c.bg}}; color: {{c.fg}}; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer">{{c.label}}</button>
+      </sc-for>
+    </div>
+    <div style="margin-left: auto; display: flex; gap: 4px; padding: 3px; background: #10141A; border: 1px solid #252C37; border-radius: 10px">
+      <button type="button" aria-pressed="{{isMap}}" onClick="{{showMap}}" style="min-height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: {{mapBg}}; color: {{mapFg}}; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer">Map</button>
+      <button type="button" aria-pressed="{{isList}}" onClick="{{showList}}" style="min-height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: {{listBg}}; color: {{listFg}}; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer">List</button>
+    </div>
+    <button type="button" aria-pressed="{{showSettings}}" aria-label="Settings" onClick="{{toggleSettings}}" style="width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid {{gearBorder}}; border-radius: 10px; background: {{gearBg}}; color: {{gearFg}}; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg></button>
+  </div>
+  <sc-if value="{{isMap}}" hint-placeholder-val="{{true}}">
+    <div tabIndex="0" onKeyDown="{{onKey}}" aria-label="Topic map. Tab moves between topics, Enter focuses one, arrow keys step through its numbered sessions, Escape goes back." style="position: relative; width: 860px; height: 520px; border: 1px solid #1C222B; border-radius: 16px; background: #0B0E13; overflow: hidden; outline: none">
+      <svg class="edges" width="860" height="520" viewBox="0 0 860 520" aria-hidden="true">
+        <defs>
+          <pattern id="cm-grid" width="60" height="60" patternUnits="userSpaceOnUse"><path d="M60 0H0V60" fill="none" stroke="#151A22" stroke-width="1"></path></pattern>
+          <marker id="cm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1L9 5L1 9z" fill="{{focusColor}}"></path></marker>
+        </defs>
+        <rect width="860" height="520" fill="url(#cm-grid)"></rect>
+        <path d="{{starsSmall}}" stroke="#3A4252" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.6"></path>
+        <path d="{{starsBig}}" stroke="#55607A" stroke-width="2.4" stroke-linecap="round" fill="none" opacity="0.6"></path>
+        <path d="{{crossDim}}" fill="none" stroke="#2A3240" stroke-width="1" stroke-dasharray="2 5" opacity="{{crossDimOpacity}}"></path>
+        <path d="{{crossBright}}" fill="none" stroke="{{tracedColor}}" stroke-width="1.2" stroke-dasharray="2 5" opacity="0.8"></path>
+        <path d="{{linesDim}}" fill="none" stroke="#2E3644" stroke-width="1" opacity="{{linesDimOpacity}}"></path>
+        <path d="{{linesBright}}" fill="none" stroke="{{tracedColor}}" stroke-width="1.2" opacity="0.75"></path>
+        <polyline points="{{chainPoints}}" fill="none" stroke="{{focusColor}}" stroke-width="1.6" marker-mid="url(#cm-arrow)" marker-end="url(#cm-arrow)" opacity="{{chainOpacity}}"></polyline>
+      </svg>
+      <div style="position: absolute; left: 50%; top: 14px; transform: translateX(-50%); padding: 7px 14px; border: 1px solid #2A3240; border-radius: 999px; background: rgba(16, 20, 26, 0.9); font-size: 12px; color: #C9D1DC; white-space: nowrap; pointer-events: none; z-index: 4">{{hint}}</div>
+      <sc-if value="{{inFocus}}" hint-placeholder-val="{{true}}">
+        <button type="button" onClick="{{backToMap}}" style="position: absolute; left: 14px; top: 12px; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid #2A3240; border-radius: 999px; background: rgba(16, 20, 26, 0.9); color: #C9D1DC; font-size: 12px; cursor: pointer; z-index: 4"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>All topics</button>
+      </sc-if>
+      <sc-for list="{{topicNodes}}" as="t" hint-placeholder-count="4">
+        <div class="nw" style="left: {{t.left}}px; top: {{t.top}}px; transform: translate(-50%, -50%); opacity: {{t.opacity}}">
+          <sc-if value="{{t.major}}" hint-placeholder-val="{{true}}">
+            <button type="button" class="pill" aria-label="{{t.aria}}" onClick="{{t.pick}}" onMouseEnter="{{t.enter}}" onMouseLeave="{{t.leave}}" onFocus="{{t.enter}}" onBlur="{{t.leave}}" onDragOver="{{t.dragOver}}" onDrop="{{t.drop}}" style="border: 1.5px {{t.borderStyle}} {{t.color}}; box-shadow: 0 0 0 {{t.glowPx}}px {{t.glow}}"><span style="width: 8px; height: 8px; border-radius: 999px; background: {{t.color}}"></span>{{t.name}}<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; color: {{t.color}}">{{t.countLabel}}</span></button>
+          </sc-if>
+          <sc-if value="{{t.minor}}" hint-placeholder-val="{{true}}">
+            <div style="position: relative; width: 28px; height: 28px">
+              <button type="button" class="dotbtn" aria-label="{{t.aria}}" onClick="{{t.pick}}" onMouseEnter="{{t.enter}}" onMouseLeave="{{t.leave}}" onFocus="{{t.enter}}" onBlur="{{t.leave}}" onDragOver="{{t.dragOver}}" onDrop="{{t.drop}}"><span class="dot" style="width: 11px; height: 11px; background: #161B23; border: 1.5px {{t.borderStyle}} {{t.color}}; box-shadow: 0 0 0 {{t.glowPx}}px {{t.glow}}"></span></button>
+              <span class="lbl" style="top: 6px; {{t.labelPos}}; font-family: 'IBM Plex Mono', monospace; color: {{t.labelColor}}">{{t.name}} <span style="color: {{t.color}}">{{t.countLabel}}</span></span>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+      <sc-for list="{{anchorNodes}}" as="a" hint-placeholder-count="2">
+        <div class="nw emerge" style="left: {{a.left}}px; top: {{a.top}}px; transform: translate(-50%, -50%); opacity: 0.8">
+          <button type="button" aria-label="{{a.aria}}" onClick="{{a.pick}}" style="display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px; border: 1px dashed {{a.color}}; border-radius: 999px; background: rgba(22, 27, 35, 0.9); color: #C9D1DC; font-size: 12px; cursor: pointer; white-space: nowrap"><span style="width: 7px; height: 7px; border-radius: 999px; background: {{a.color}}"></span>{{a.name}}<span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8B95A5">{{a.via}}</span></button>
+        </div>
+      </sc-for>
+      <sc-for list="{{sessionNodes}}" as="s" hint-placeholder-count="6">
+        <div class="{{s.wrapClass}}" style="left: {{s.left}}px; top: {{s.top}}px; width: {{s.box}}px; height: {{s.box}}px; opacity: {{s.opacity}}">
+          <sc-if value="{{s.numbered}}" hint-placeholder-val="{{true}}">
+            <button type="button" class="dotbtn" aria-label="{{s.aria}}" onClick="{{s.pick}}" onMouseEnter="{{s.enter}}" onMouseLeave="{{s.leave}}"><span class="num {{s.pulseClass}}" style="background: {{s.fill}}; color: {{s.numColor}}; border: 2px {{s.borderStyle}} {{s.ring}}; box-shadow: 0 0 0 {{s.glowPx}}px {{s.glow}}">{{s.number}}</span></button>
+            <span class="lbl" style="left: -54px; top: 38px; width: 140px; text-align: center; white-space: normal; color: {{s.labelColor}}">{{s.title}}<br><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: {{s.metaColor}}">{{s.meta}}</span></span>
+          </sc-if>
+          <sc-if value="{{s.plain}}" hint-placeholder-val="{{true}}">
+            <button type="button" class="dotbtn" aria-label="{{s.aria}}" draggable="true" onClick="{{s.pick}}" onMouseEnter="{{s.enter}}" onMouseLeave="{{s.leave}}" onDragStart="{{s.dragStart}}" onDragEnd="{{s.dragEnd}}"><span class="dot {{s.pulseClass}}" style="width: {{s.size}}px; height: {{s.size}}px; background: {{s.fill}}; border: 1.5px {{s.borderStyle}} {{s.ring}}; box-shadow: 0 0 0 {{s.glowPx}}px {{s.glow}}"></span></button>
+          </sc-if>
+          <sc-if value="{{s.pinned}}" hint-placeholder-val="{{true}}">
+            <span aria-hidden="true" style="position: absolute; right: -2px; top: -4px; font-size: 10px; color: {{accent}}">★</span>
+          </sc-if>
+          <div class="tip {{s.tipClass}}"><span style="display: block; font-weight: 500; color: #E8ECF2">{{s.title}}</span><span style="display: block; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8B95A5; margin: 2px 0 4px">{{s.meta}}</span>{{s.note}}</div>
+        </div>
+      </sc-for>
+      <div style="position: absolute; left: 14px; bottom: 12px; display: flex; gap: 14px; font-size: 11px; color: #8B95A5; pointer-events: none">
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 999px; background: {{accent}}"></span>active</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 999px; border: 1.5px solid #8B95A5"></span>idle</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 999px; border: 1.5px dashed #6F7988"></span>shipped</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span style="color: {{accent}}">★</span>pinned</span>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{isList}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column; gap: 8px; width: 860px; height: 520px; overflow: auto; padding-right: 4px">
+      <sc-for list="{{listTopics}}" as="lt" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: #10141A; border: 1px solid {{lt.border}}; border-radius: 12px">
+          <button type="button" aria-expanded="{{lt.open}}" onClick="{{lt.pick}}" style="display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0; border: 0; background: transparent; color: #E8ECF2; text-align: left; cursor: pointer">
+            <span style="width: 9px; height: 9px; border-radius: 999px; background: {{lt.color}}"></span>
+            <span style="flex: 1; font-size: 14px; font-weight: 500">{{lt.name}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8B95A5">{{lt.kind}} · {{lt.count}} · {{lt.last}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8B95A5">{{lt.caret}}</span>
+          </button>
+          <sc-if value="{{lt.open}}" hint-placeholder-val="{{true}}">
+            <sc-for list="{{lt.sessions}}" as="ls" hint-placeholder-count="3">
+              <button type="button" onClick="{{ls.pick}}" style="display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 8px 0 18px; border: 0; border-radius: 8px; background: {{ls.bg}}; color: #E8ECF2; text-align: left; cursor: pointer">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{lt.color}}; min-width: 18px">{{ls.number}}</span>
+                <span style="width: 8px; height: 8px; border-radius: 999px; background: {{ls.dot}}; border: 1.5px {{ls.borderStyle}} {{ls.dotRing}}"></span>
+                <span style="flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ls.title}}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8B95A5">{{ls.ageLabel}}</span>
+              </button>
+            </sc-for>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+  <sc-if value="{{isCardSettings}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column; gap: 10px; width: 860px; min-height: 220px; padding: 14px 16px; background: #10141A; border: 1px solid #20262F; border-radius: 14px">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #8B95A5">Settings · changes apply to the map above</span>
+        <button type="button" onClick="{{toggleSettings}}" style="min-height: 32px; padding: 0 12px; border: 1px solid #2A313D; border-radius: 8px; background: transparent; color: #C9D1DC; font-size: 12px; cursor: pointer">Done</button>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px">
+        <sc-for list="{{settingRows}}" as="r" hint-placeholder-count="5">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 12.5px; color: #C9D1DC">{{r.label}} <span style="color: #6F7988">{{r.help}}</span></span>
+            <div style="display: flex; gap: 4px; padding: 3px; background: #0B0E13; border: 1px solid #252C37; border-radius: 9px; align-self: flex-start">
+              <sc-for list="{{r.options}}" as="o" hint-placeholder-count="3">
+                <button type="button" aria-pressed="{{o.on}}" onClick="{{o.pick}}" style="min-height: 30px; padding: 0 11px; border: 0; border-radius: 7px; background: {{o.bg}}; color: {{o.fg}}; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer">{{o.label}}</button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{isCardSession}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; gap: 20px; width: 860px; min-height: 220px; padding: 14px 16px; background: #10141A; border: 1px solid #20262F; border-radius: 14px">
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span class="num" style="width: 28px; height: 28px; font-size: 12px; background: {{focusSoft}}; color: {{focusColor}}; border: 1.5px solid {{focusColor}}">{{selNumber}}</span>
+          <span style="font-size: 15px; font-weight: 500">{{selTitle}}</span>
+          <span style="padding: 3px 8px; border-radius: 999px; background: {{selBadgeBg}}; color: {{selBadgeFg}}; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase">{{selStatus}}</span>
+        </div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8B95A5">{{selMeta}}</span>
+        <div style="display: flex; flex-direction: column; gap: 3px">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: #8B95A5">Handoff note</span>
+          <p style="margin: 0; font-size: 13.5px; line-height: 1.5; color: #D7DCE4">{{selNote}}</p>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px">
+          <sc-for list="{{selFiles}}" as="f" hint-placeholder-count="2">
+            <span style="padding: 3px 8px; border: 1px solid #252C37; border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #C9D1DC">{{f.name}}</span>
+          </sc-for>
+        </div>
+      </div>
+      <div style="width: 300px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-content: start">
+        <button type="button" onClick="{{pickUpSelected}}" style="grid-column: 1 / -1; min-height: 42px; border: 0; border-radius: 10px; background: {{accent}}; color: #12161D; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer">Pick up here</button>
+        <button type="button" onClick="{{messageSelected}}" style="min-height: 38px; border: 1px solid #2A313D; border-radius: 10px; background: transparent; color: #E8ECF2; font-size: 12.5px; cursor: pointer">Message</button>
+        <button type="button" onClick="{{branchSelected}}" style="min-height: 38px; border: 1px solid #2A313D; border-radius: 10px; background: transparent; color: #E8ECF2; font-size: 12.5px; cursor: pointer">New session from here</button>
+        <button type="button" onClick="{{pinSelected}}" style="min-height: 38px; border: 1px solid #2A313D; border-radius: 10px; background: transparent; color: #E8ECF2; font-size: 12.5px; cursor: pointer">{{pinLabel}}</button>
+        <button type="button" onClick="{{moveSelected}}" style="min-height: 38px; border: 1px solid #2A313D; border-radius: 10px; background: transparent; color: #E8ECF2; font-size: 12.5px; cursor: pointer">Move to topic</button>
+        <button type="button" onClick="{{archiveSelected}}" style="grid-column: 1 / -1; min-height: 38px; border: 1px solid rgba(255, 138, 117, 0.45); border-radius: 10px; background: transparent; color: #FF8A75; font-size: 12.5px; cursor: pointer">{{archiveLabel}}</button>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{isCardTopic}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; gap: 20px; width: 860px; min-height: 220px; padding: 14px 16px; background: #10141A; border: 1px solid #20262F; border-radius: 14px">
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 10px; height: 10px; border-radius: 999px; background: {{cardColor}}"></span>
+          <span style="font-size: 15px; font-weight: 500">{{cardName}}</span>
+          <span style="padding: 3px 8px; border-radius: 999px; background: #1C222C; color: #9AA3B2; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase">{{cardKind}}</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8B95A5">{{cardMeta}}</span>
+        </div>
+        <p style="margin: 0; font-size: 13.5px; line-height: 1.5; color: #D7DCE4">{{cardSummary}}</p>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8B95A5">Related</span>
+          <sc-for list="{{cardRelated}}" as="rel" hint-placeholder-count="2">
+            <button type="button" onClick="{{rel.pick}}" style="min-height: 28px; padding: 0 10px; border: 1px solid #252C37; border-radius: 999px; background: transparent; color: #C9D1DC; font-size: 12px; cursor: pointer">{{rel.name}} <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8B95A5">{{rel.via}}</span></button>
+          </sc-for>
+          <span style="font-size: 12px; color: #6F7988">{{cardRelatedNone}}</span>
+        </div>
+        <span style="font-size: 11.5px; color: #6F7988">{{cardHint}}</span>
+      </div>
+      <div style="width: 300px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-content: start">
+        <button type="button" onClick="{{cardFocus}}" style="grid-column: 1 / -1; min-height: 42px; border: 0; border-radius: 10px; background: {{accent}}; color: #12161D; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer">{{cardFocusLabel}}</button>
+        <button type="button" onClick="{{cardPickUp}}" style="min-height: 38px; border: 1px solid #2A313D; border-radius: 10px; background: transparent; color: #E8ECF2; font-size: 12.5px; cursor: pointer">Pick up latest</button>
+        <button type="button" onClick="{{cardTidy}}" style="min-height: 38px; border: 1px solid #2A313D; border-radius: 10px; background: transparent; color: #E8ECF2; font-size: 12.5px; cursor: pointer">{{tidyLabel}}</button>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{isCardChoose}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; flex-direction: column; gap: 10px; width: 860px; min-height: 220px; padding: 14px 16px; background: #10141A; border: 1px solid {{accentLine}}; border-radius: 14px">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span style="display: inline-flex; color: {{accent}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3"></path><path d="M18 3v4h-4"></path><path d="M20 12a8 8 0 0 1-14 5.3"></path><path d="M6 21v-4h4"></path></svg></span>
+        <span style="font-size: 15px; font-weight: 500">New session in web-app · which topic is it continuing?</span>
+        <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8B95A5">{{statsLine}}</span>
+      </div>
+      <span style="font-size: 12.5px; line-height: 1.5; color: #9AA3B2">This folder holds every topic below. The suggestion comes from matching your first prompt against each topic's titles, notes and files. Confirm it or pick another.</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
+        <sc-for list="{{joinChips}}" as="j" hint-placeholder-count="4">
+          <button type="button" onClick="{{j.pick}}" style="display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 1px solid {{j.border}}; border-radius: 10px; background: {{j.bg}}; color: #E8ECF2; font-size: 13px; cursor: pointer"><span style="width: 8px; height: 8px; border-radius: 999px; background: {{j.color}}"></span>{{j.name}}<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8B95A5">{{j.meta}}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: {{accent}}">{{j.tag}}</span></button>
+        </sc-for>
+        <button type="button" onClick="{{startNewTopic}}" style="min-height: 40px; padding: 0 12px; border: 1px dashed #3A4252; border-radius: 10px; background: transparent; color: #C9D1DC; font-size: 13px; cursor: pointer">+ New topic</button>
+      </div>
+      <span style="font-size: 11.5px; color: #6F7988">Choosing a topic makes this session its next numbered step and adds that topic's latest handoff note to your context. Nothing is chosen for you unless auto-join is on.</span>
+    </div>
+  </sc-if>
+  <sc-if value="{{isCardJoined}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; align-items: center; gap: 20px; width: 860px; min-height: 220px; padding: 14px 16px; background: #10141A; border: 1px solid #20262F; border-radius: 14px">
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span class="num" style="width: 28px; height: 28px; font-size: 12px; background: {{accentSoft}}; color: {{accent}}; border: 1.5px dashed {{accent}}">{{joinedStep}}</span>
+          <span style="font-size: 15px; font-weight: 500">{{joinedTitle}}</span>
+        </div>
+        <span style="font-size: 13px; line-height: 1.5; color: #9AA3B2">{{joinedSummary}}</span>
+        <span style="font-size: 11.5px; color: #6F7988">Hover a topic to trace it, click to focus. Drag a session dot onto another topic to move it.</span>
+      </div>
+      <div style="width: 300px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-content: start">
+        <button type="button" onClick="{{focusJoined}}" style="grid-column: 1 / -1; min-height: 42px; border: 0; border-radius: 10px; background: {{accent}}; color: #12161D; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer">Focus my topic</button>
+        <button type="button" onClick="{{changeTopic}}" style="min-height: 38px; border: 1px solid #2A313D; border-radius: 10px; background: transparent; color: #E8ECF2; font-size: 12.5px; cursor: pointer">Change topic</button>
+        <button type="button" onClick="{{parkNote}}" style="min-height: 38px; border: 1px solid #2A313D; border-radius: 10px; background: transparent; color: #E8ECF2; font-size: 12.5px; cursor: pointer">Park a note</button>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{hasToast}}" hint-placeholder-val="{{true}}">
+    <div style="display: flex; align-items: center; gap: 10px; width: 860px; padding: 8px 12px; background: rgba(95, 211, 166, 0.1); border: 1px solid rgba(95, 211, 166, 0.4); border-radius: 10px; font-size: 13px; color: #D7DCE4">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5FD3A6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+      <span style="flex: 1; min-width: 0">{{toast}}</span>
+      <sc-if value="{{hasUndo}}" hint-placeholder-val="{{true}}">
+        <button type="button" onClick="{{undoLast}}" style="min-height: 32px; padding: 0 12px; border: 1px solid rgba(95, 211, 166, 0.5); border-radius: 8px; background: transparent; color: #5FD3A6; font-size: 12px; font-weight: 500; cursor: pointer">{{undoLabel}}</button>
+      </sc-if>
+      <button type="button" aria-label="Dismiss" onClick="{{dismissToast}}" style="width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: #8B95A5; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#F2A33A","options":["#F2A33A","#5FD3A6","#9B8CFF","#7FB8FF"]},"$preview":{"width":900,"height":904}}'>
+class Component extends DCLogic {
+  data() {
+    return {
+      topics: [
+        { id: 't-checkout', name: 'Checkout tests', color: '#F2A33A', x: 500, y: 240, seed: 0.6, sessions: [
+          { id: 's1', title: 'Fix flaky cart wait', age: 0.1, ageLabel: '2h', status: 'active', turns: 14, branch: 'main', note: 'Replaced the fixed 500 ms wait with findByText. Suite is green; still need to re-run on CI.', files: ['Cart.test.tsx', 'test-utils.ts'] },
+          { id: 's2', title: 'Checkout total rounding', age: 1, ageLabel: '1d', status: 'idle', turns: 22, branch: 'fix/rounding', note: 'Totals now use integer paise. Two snapshot tests still fail on the discount line.', files: ['total.ts', 'Checkout.tsx'] },
+          { id: 's3', title: 'Mock payment API', age: 3, ageLabel: '3d', status: 'idle', turns: 31, branch: 'test/mock-payments', note: 'MSW handlers cover success and timeout. Refund path is untested.', files: ['msw/handlers.ts', 'payments.ts'] },
+          { id: 's4', title: 'Speed up test suite', age: 6, ageLabel: '6d', status: 'idle', turns: 9, branch: 'main', note: 'Parallel workers cut the run from 4m to 1m 40s. Nothing left to do.', files: ['vitest.config.ts'] },
+          { id: 's5', title: 'Coupon edge cases', age: 12, ageLabel: '12d', status: 'archived', turns: 17, branch: 'fix/coupons', note: 'Archived after merge. Expired-coupon test added.', files: ['coupon.test.ts'] }
+        ] },
+        { id: 't-auth', name: 'Auth refactor', color: '#9B8CFF', x: 280, y: 150, seed: 2.1, sessions: [
+          { id: 'a1', title: 'Tokens to httpOnly cookies', age: 2, ageLabel: '2d', status: 'idle', turns: 28, branch: 'feat/cookie-auth', note: 'Login and logout moved to cookies. Refresh flow still reads localStorage.', files: ['auth.ts', 'middleware.ts'] },
+          { id: 'a2', title: 'Refresh token race', age: 4, ageLabel: '4d', status: 'idle', turns: 12, branch: 'feat/cookie-auth', note: 'Two tabs refreshing at once invalidate each other. Mutex idea not tried yet.', files: ['refresh.ts'] },
+          { id: 'a3', title: 'Session timeout UX', age: 9, ageLabel: '9d', status: 'archived', turns: 8, branch: 'main', note: 'Modal warns 60s before expiry. Shipped.', files: ['TimeoutModal.tsx'] }
+        ] },
+        { id: 't-pages', name: 'Orders pagination', color: '#5FD3A6', x: 690, y: 380, seed: 1.2, sessions: [
+          { id: 'p1', title: 'Cursor pagination API', age: 1, ageLabel: '1d', status: 'idle', turns: 19, branch: 'feat/cursor-pages', note: 'Cursor endpoint done. Client still calls the old offset route.', files: ['orders.route.ts'] },
+          { id: 'p2', title: 'Infinite scroll list', age: 5, ageLabel: '5d', status: 'idle', turns: 24, branch: 'feat/cursor-pages', note: 'IntersectionObserver loads the next page. Jumps on fast scroll.', files: ['OrdersList.tsx'] },
+          { id: 'p3', title: 'Page size setting', age: 8, ageLabel: '8d', status: 'archived', turns: 6, branch: 'main', note: 'Setting saved per user. Shipped.', files: ['settings.ts'] },
+          { id: 'p4', title: 'Empty state', age: 15, ageLabel: '15d', status: 'archived', turns: 5, branch: 'main', note: 'Empty and error states added. Shipped.', files: ['EmptyOrders.tsx'] }
+        ] },
+        { id: 't-ci', name: 'CI pipeline', color: '#7FB8FF', x: 420, y: 420, seed: 3.4, sessions: [
+          { id: 'c1', title: 'Cache node_modules', age: 7, ageLabel: '7d', status: 'idle', turns: 10, branch: 'ci/cache', note: 'Cache hits on main; misses on PR branches. Key needs the lockfile hash.', files: ['ci.yml'] },
+          { id: 'c2', title: 'Parallel test shards', age: 11, ageLabel: '11d', status: 'archived', turns: 13, branch: 'main', note: 'Four shards. Shipped.', files: ['ci.yml'] },
+          { id: 'c3', title: 'Flaky lint step', age: 40, ageLabel: '40d', status: 'archived', turns: 4, branch: 'main', note: 'Pinned eslint version. Shipped.', files: ['package.json'] }
+        ] },
+        { id: 't-tokens', name: 'Design tokens', color: '#ED93B1', x: 150, y: 330, seed: 0.2, sessions: [
+          { id: 'd1', title: 'Tailwind theme tokens', age: 3, ageLabel: '3d', status: 'idle', turns: 15, branch: 'chore/tokens', note: 'Colors and spacing moved to CSS variables. Typography next.', files: ['tailwind.config.ts', 'tokens.css'] },
+          { id: 'd2', title: 'Dark mode contrast', age: 20, ageLabel: '20d', status: 'archived', turns: 11, branch: 'main', note: 'All text passes 4.5:1. Shipped.', files: ['tokens.css'] }
+        ] },
+        { id: 't-docs', name: 'Docs site', color: '#B4B2A9', x: 110, y: 110, seed: 1.9, sessions: [
+          { id: 'o1', title: 'Docs search', age: 18, ageLabel: '18d', status: 'archived', turns: 7, branch: 'main', note: 'Shipped.', files: ['search.ts'] }
+        ] },
+        { id: 't-analytics', name: 'Analytics events', color: '#B4B2A9', x: 740, y: 110, seed: 2.8, sessions: [
+          { id: 'n1', title: 'Checkout funnel events', age: 25, ageLabel: '25d', status: 'archived', turns: 9, branch: 'main', note: 'Shipped.', files: ['analytics.ts'] }
+        ] },
+        { id: 't-errors', name: 'Error boundaries', color: '#B4B2A9', x: 800, y: 250, seed: 0.9, sessions: [
+          { id: 'e1', title: 'Route error boundary', age: 33, ageLabel: '33d', status: 'archived', turns: 6, branch: 'main', note: 'Shipped.', files: ['error.tsx'] }
+        ] }
+      ],
+      links: [
+        ['t-checkout', 't-ci', 'ci.yml'],
+        ['t-auth', 't-checkout', 'Checkout.tsx'],
+        ['t-pages', 't-tokens', 'OrdersList.tsx'],
+        ['t-ci', 't-pages', 'ci.yml'],
+        ['t-checkout', 't-analytics', 'analytics.ts']
+      ]
+    };
+  }
+
+  renderVals() {
+    var self = this;
+    var st = this.state || {};
+    var accent = this.props.accent ?? '#F2A33A';
+    var toRgba = function (hex, alpha) {
+      var h = String(hex || '').replace('#', '');
+      if (h.length === 3) { h = h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2); }
+      var n = parseInt(h.slice(0, 6), 16);
+      if (isNaN(n)) { return hex; }
+      return 'rgba(' + ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + alpha + ')';
+    };
+    var set = function (patch) { return function () { self.setState(patch); }; };
+    var D = this.data();
+
+    var majorRule = st.majorRule || 'either';
+    var minSessions = st.minSessions || 3;
+    var newestFirst = !!st.newestFirst;
+    var showRelated = st.showRelated !== false;
+    var autoSummary = st.autoSummary || 'auto';
+    var showSettings = !!st.showSettings;
+    var moves = st.moves || {}, archived = st.archived || {}, pins = st.pins || {};
+    var hover = st.hover || null, focusId = st.focusTopic || null, selectedId = st.selected || null;
+    var query = (st.query || '').trim().toLowerCase();
+    var rangeDays = st.rangeDays || 30;
+    var maxAge = rangeDays >= 45 ? 100000 : rangeDays;
+    var view = st.view || 'map';
+    var moveMode = !!st.moveMode, dragging = st.dragging || null;
+    var toast = st.toast || '', undo = st.undo || null;
+    var joined = st.joined || null;
+
+    var byId = {};
+    D.topics.forEach(function (t) { byId[t.id] = { id: t.id, name: t.name, color: t.color, x: t.x, y: t.y, seed: t.seed, sessions: [] }; });
+    D.topics.forEach(function (t) { t.sessions.forEach(function (s) { var target = byId[moves[s.id]] || byId[t.id]; target.sessions.push(s); }); });
+    var topics = D.topics.map(function (t) { var tt = byId[t.id]; tt.sessions.sort(function (a, b) { return a.age - b.age; }); return tt; });
+    var statusOf = function (s) { return archived[s.id] ? 'archived' : s.status; };
+    var inRange = function (s) { return s.age <= maxAge || !!pins[s.id]; };
+    var sMatch = function (s) { return !query || (s.title + ' ' + s.note).toLowerCase().indexOf(query) >= 0; };
+    var tMatch = function (t) { return !query || t.name.toLowerCase().indexOf(query) >= 0 || t.sessions.some(sMatch); };
+    var isMajor = function (t) {
+      var byCount = t.sessions.length >= minSessions;
+      var byRecent = t.sessions.some(function (s) { return s.age <= 7 && statusOf(s) !== 'archived'; });
+      return majorRule === 'count' ? byCount : (majorRule === 'recent' ? byRecent : (byCount || byRecent));
+    };
+    var topicOf = function (sid) { for (var i = 0; i < topics.length; i++) { for (var j = 0; j < topics[i].sessions.length; j++) { if (topics[i].sessions[j].id === sid) { return topics[i]; } } } return null; };
+    var findSession = function (sid) { var t = topicOf(sid); if (!t) { return null; } for (var j = 0; j < t.sessions.length; j++) { if (t.sessions[j].id === sid) { return t.sessions[j]; } } return null; };
+    var relatedOf = function (tid) { var out = []; D.links.forEach(function (l) { if (l[0] === tid) { out.push({ id: l[1], via: l[2] }); } else if (l[1] === tid) { out.push({ id: l[0], via: l[2] }); } }); return out; };
+    var mapPos = function (t, i) {
+      var major = isMajor(t);
+      var a = t.seed + i * 2.399;
+      var r = (major ? 58 : 40) + ((i * 37) % 3) * 14;
+      var x = Math.min(836, Math.max(24, t.x + r * Math.cos(a)));
+      var y = Math.min(496, Math.max(24, t.y + r * Math.sin(a)));
+      return { x: x, y: y };
+    };
+    var moveSession = function (sid, tid) {
+      var s = findSession(sid), from = topicOf(sid);
+      if (!s || !from) { return; }
+      if (from.id === tid) { self.setState({ moveMode: false, dragging: null, toast: '“' + s.title + '” is already in ' + from.name + '.', undo: null }); return; }
+      var next = {}; for (var k in moves) { next[k] = moves[k]; }
+      next[sid] = tid;
+      self.setState({ moves: next, moveMode: false, dragging: null, selected: null, toast: 'Moved “' + s.title + '” to ' + byId[tid].name + '.', undo: { type: 'moves', value: moves, label: 'Undo move' } });
+    };
+
+    var inFocus = !!focusId && !!byId[focusId];
+    var focus = inFocus ? byId[focusId] : null;
+    var traced = hover || focusId;
+    var tracedTopic = traced ? byId[traced] : null;
+    var relatedIds = {};
+    if (traced) { relatedOf(traced).forEach(function (r) { relatedIds[r.id] = r.via; }); }
+
+    var stars = function (count, step, offset) { var p = ''; for (var i = 0; i < count; i++) { var x = ((i * step + offset) % 860).toFixed(1); var y = ((i * 97.3 + offset * 1.7 + 31) % 520).toFixed(1); p += 'M' + x + ' ' + y + 'l0.01 0'; } return p; };
+
+    var linesDim = '', linesBright = '', crossDim = '', crossBright = '', chainPoints = '';
+    var topicNodes = [], sessionNodes = [], anchorNodes = [], chainIds = [];
+
+    if (!inFocus) {
+      topics.forEach(function (t) {
+        var major = isMajor(t);
+        var isTraced = traced === t.id;
+        var related = !!relatedIds[t.id];
+        var anyInRange = t.sessions.some(inRange);
+        var opacity = 1;
+        if (traced) { opacity = isTraced ? 1 : (related ? 0.8 : 0.3); }
+        if (!tMatch(t)) { opacity = Math.min(opacity, 0.25); }
+        if (!anyInRange) { opacity = Math.min(opacity, 0.4); }
+        var dropTarget = (dragging || (moveMode && selectedId)) && topicOf(dragging || selectedId) && topicOf(dragging || selectedId).id !== t.id;
+        topicNodes.push({
+          id: t.id, name: t.name, color: t.color, major: major, minor: !major,
+          left: t.x.toFixed(1), top: t.y.toFixed(1), opacity: opacity.toFixed(2),
+          countLabel: query ? (t.sessions.filter(sMatch).length + ' match') : (t.sessions.length + (joined === t.id ? ' · you' : '')),
+          aria: t.name + ', ' + (major ? 'major topic' : 'minor topic') + ', ' + t.sessions.length + ' sessions. Press Enter to focus.',
+          borderStyle: dropTarget ? 'dashed' : 'solid',
+          glowPx: isTraced ? 5 : (dropTarget ? 4 : 0), glow: toRgba(t.color, isTraced ? 0.22 : 0.3),
+          labelPos: t.x > 700 ? 'right: 34px; text-align: right' : 'left: 34px',
+          labelColor: isTraced ? '#E8ECF2' : '#8B95A5',
+          enter: set({ hover: t.id }), leave: set({ hover: null }),
+          pick: (moveMode && selectedId) ? function () { moveSession(selectedId, t.id); } : set({ focusTopic: t.id, selected: null, hover: null, toast: '', showSettings: false }),
+          dragOver: function (e) { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (x) {} },
+          drop: function (e) { e.preventDefault(); var id = dragging; try { id = e.dataTransfer.getData('text/plain') || id; } catch (x) {} if (id) { moveSession(id, t.id); } }
+        });
+        t.sessions.forEach(function (s, i) {
+          var p = mapPos(t, i);
+          var status = statusOf(s);
+          var inR = inRange(s);
+          var isSel = s.id === selectedId;
+          if (inR) {
+            var seg = 'M' + t.x + ' ' + t.y + 'L' + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
+            if (isTraced) { linesBright += seg; } else { linesDim += seg; }
+          }
+          var size = isTraced ? 10 : (major ? 7 : 5);
+          if (isSel) { size = 12; }
+          var op = inR ? 1 : 0.18;
+          if (traced && !isTraced) { op = Math.min(op, 0.25); }
+          if (!sMatch(s)) { op = Math.min(op, 0.15); }
+          if (query && sMatch(s)) { size = Math.max(size, 9); }
+          sessionNodes.push({
+            id: s.id, title: s.title, note: s.note, meta: s.ageLabel + ' ago · ' + s.branch + ' · ' + s.turns + ' turns',
+            aria: s.title + ', ' + status + ', ' + s.ageLabel + ' ago, in ' + t.name,
+            wrapClass: 'nw', box: 28, left: (p.x - 14).toFixed(1), top: (p.y - 14).toFixed(1), opacity: op.toFixed(2),
+            numbered: false, plain: true, number: '',
+            size: size, fill: status === 'active' ? t.color : (status === 'idle' ? '#161B23' : '#1C222C'),
+            ring: status === 'archived' ? '#6F7988' : t.color, borderStyle: status === 'archived' ? 'dashed' : 'solid',
+            glowPx: isSel ? 4 : ((query && sMatch(s)) ? 3 : 0), glow: toRgba(t.color, 0.3),
+            pulseClass: status === 'active' && isTraced ? 'pulse' : 'plain',
+            pinned: !!pins[s.id], labelColor: '#C9D1DC', metaColor: '#8B95A5', numColor: '#E8ECF2',
+            tipClass: (p.y > 150 ? 'tip-above' : 'tip-below') + ' ' + (p.x < 120 ? 'tip-l' : (p.x > 740 ? 'tip-r' : 'tip-c')),
+            enter: set({ hover: t.id }), leave: set({ hover: null }),
+            pick: set({ focusTopic: t.id, selected: s.id, hover: null, toast: '', showSettings: false }),
+            dragStart: function (e) { try { e.dataTransfer.setData('text/plain', s.id); e.dataTransfer.effectAllowed = 'move'; } catch (x) {} self.setState({ dragging: s.id, hover: null }); },
+            dragEnd: function () { self.setState({ dragging: null }); }
+          });
+        });
+      });
+      D.links.forEach(function (l) {
+        var a = byId[l[0]], b = byId[l[1]];
+        if (!a || !b) { return; }
+        var seg = 'M' + a.x + ' ' + a.y + 'L' + b.x + ' ' + b.y;
+        if (traced && (l[0] === traced || l[1] === traced)) { crossBright += seg; } else { crossDim += seg; }
+      });
+    } else {
+      var ordered = focus.sessions.slice().sort(function (a, b) { return newestFirst ? (a.age - b.age) : (b.age - a.age); });
+      var shown = ordered.filter(inRange);
+      var hereIdx = joined === focus.id ? (newestFirst ? 0 : shown.length) : -1;
+      if (hereIdx >= 0) { shown = shown.slice(0, hereIdx).concat([{ id: 'here', title: 'This session', age: 0, ageLabel: 'now', status: 'here', turns: 0, branch: '', note: 'You are here. Click an earlier step, then Pick up here, to pull its handoff note into this session.', files: [] }]).concat(shown.slice(hereIdx)); }
+      var n = shown.length;
+      var FX = 430, FY = 92;
+      topicNodes.push({
+        id: focus.id, name: focus.name, color: focus.color, major: true, minor: false,
+        left: FX + '', top: FY + '', opacity: '1',
+        countLabel: (hereIdx >= 0 ? n - 1 : n) + ' of ' + focus.sessions.length + (hereIdx >= 0 ? ' · you' : ''), aria: focus.name + ', focused. Press Escape to return to the map.',
+        borderStyle: 'solid', glowPx: 6, glow: toRgba(focus.color, 0.2), labelPos: 'left: 34px', labelColor: '#E8ECF2',
+        enter: set({}), leave: set({}), pick: set({ focusTopic: null, selected: null, toast: '' }),
+        dragOver: function (e) { e.preventDefault(); }, drop: function (e) { e.preventDefault(); }
+      });
+      shown.forEach(function (s, i) {
+        var x = n === 1 ? 430 : 120 + i * (620 / (n - 1));
+        var y = 262 + (i % 2 === 0 ? -26 : 26);
+        var status = statusOf(s);
+        var isSel = s.id === selectedId;
+        var isHere = s.id === 'here';
+        var latest = focus.sessions.length > 0 && s.id === focus.sessions[0].id;
+        chainIds.push(s.id);
+        chainPoints += x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+        linesDim += 'M' + FX + ' ' + FY + 'L' + x.toFixed(1) + ' ' + y.toFixed(1);
+        var op = sMatch(s) || isHere ? 1 : 0.25;
+        sessionNodes.push({
+          id: s.id, title: s.title, note: s.note, meta: isHere ? 'now · you' : (s.ageLabel + ' ago · ' + s.turns + ' turns' + (latest ? ' · latest' : '')),
+          aria: 'Step ' + (i + 1) + ' of ' + n + ': ' + s.title + (isHere ? ', this session' : ', ' + status + ', ' + s.ageLabel + ' ago'),
+          wrapClass: 'nw emerge', box: 32, left: (x - 16).toFixed(1), top: (y - 16).toFixed(1), opacity: op.toFixed(2),
+          numbered: true, plain: false, number: (i + 1) + '', size: 0,
+          fill: isHere ? toRgba(accent, 0.16) : (isSel ? focus.color : (status === 'active' ? toRgba(focus.color, 0.25) : '#161B23')),
+          numColor: isHere ? accent : (isSel ? '#12161D' : (status === 'archived' ? '#9AA3B2' : '#E8ECF2')),
+          ring: isHere ? accent : (status === 'archived' ? '#6F7988' : focus.color), borderStyle: (isHere || status === 'archived') ? 'dashed' : 'solid',
+          glowPx: latest ? 5 : 0, glow: toRgba(focus.color, 0.22),
+          pulseClass: status === 'active' ? 'pulse' : 'plain',
+          pinned: !!pins[s.id], labelColor: isHere ? accent : (isSel ? '#E8ECF2' : (status === 'archived' ? '#8B95A5' : '#C9D1DC')), metaColor: latest ? focus.color : '#8B95A5',
+          tipClass: (i % 2 === 0 ? 'tip-above' : 'tip-below') + ' ' + (x < 120 ? 'tip-l' : (x > 740 ? 'tip-r' : 'tip-c')),
+          enter: set({}), leave: set({}),
+          pick: isHere ? set({ selected: null, toast: 'You are here. Click an earlier step, then Pick up here, to pull its note into this session.', undo: null }) : set({ selected: isSel ? null : s.id, toast: '', showSettings: false }),
+          dragStart: function (e) { e.preventDefault(); }, dragEnd: function () {}
+        });
+      });
+      if (showRelated) {
+        var rel = relatedOf(focus.id);
+        rel.forEach(function (r, i) {
+          var rt = byId[r.id];
+          if (!rt) { return; }
+          anchorNodes.push({ id: rt.id, name: rt.name, color: rt.color, via: r.via, aria: 'Related topic ' + rt.name + ' via ' + r.via + '. Press Enter to focus it.',
+            left: (430 + (i - (rel.length - 1) / 2) * 230).toFixed(1), top: '470', pick: set({ focusTopic: rt.id, selected: null, toast: '' }) });
+        });
+      }
+    }
+
+    var sel = selectedId ? findSession(selectedId) : null;
+    var selTopic = sel ? topicOf(sel.id) : null;
+    var selStatus = sel ? statusOf(sel) : '';
+    var selNumber = '';
+    if (sel && inFocus) { var idx = chainIds.indexOf(sel.id); selNumber = idx >= 0 ? (idx + 1) + '' : '·'; } else if (sel) { selNumber = '·'; }
+    var cardTopic = inFocus ? focus : (hover ? byId[hover] : null);
+    var isCardSettings = showSettings;
+    var isCardSession = !showSettings && !!sel;
+    var isCardTopic = !showSettings && !sel && !!cardTopic;
+    var isCardChoose = !showSettings && !sel && !cardTopic && !joined;
+    var isCardJoined = !showSettings && !sel && !cardTopic && !!joined;
+    var joinedTopic = joined && byId[joined] ? byId[joined] : null;
+    var joinedStep = joinedTopic ? (newestFirst ? '1' : (joinedTopic.sessions.length + 1) + '') : '1';
+    var joinedLatest = joinedTopic && joinedTopic.sessions.length ? joinedTopic.sessions[0] : null;
+    var byRecency = topics.slice().sort(function (a, b) { return a.sessions[0].age - b.sessions[0].age; });
+    var joinChips = byRecency.map(function (t, i) {
+      var step = newestFirst ? 1 : t.sessions.length + 1;
+      return { name: t.name, color: t.color, meta: t.sessions.length + ' · ' + t.sessions[0].ageLabel + ' ago', tag: i === 0 ? 'suggested' : '',
+        border: i === 0 ? toRgba(accent, 0.45) : '#252C37', bg: i === 0 ? toRgba(accent, 0.08) : 'transparent',
+        pick: set({ joined: t.id, focusTopic: t.id, selected: null, hover: null, showSettings: false, toast: 'Joined ' + t.name + ' as step ' + step + '. Handoff note from “' + t.sessions[0].title + '” added to this session.', undo: null }) };
+    });
+
+    var totalSessions = 0, activeCount = 0;
+    topics.forEach(function (t) { totalSessions += t.sessions.length; t.sessions.forEach(function (s) { if (statusOf(s) === 'active') { activeCount += 1; } }); });
+
+    var withUndo = function (patch, type, value, label) { patch.undo = { type: type, value: value, label: label }; return set(patch); };
+    var cardIdle = cardTopic ? cardTopic.sessions.filter(function (s) { return statusOf(s) === 'idle'; }) : [];
+    var cardShipped = cardTopic ? cardTopic.sessions.filter(function (s) { return statusOf(s) === 'archived'; }).length : 0;
+    var cardLatest = cardTopic && cardTopic.sessions.length ? cardTopic.sessions[0] : null;
+    var tidyTargets = cardTopic ? cardIdle.filter(function (s) { return !cardLatest || s.id !== cardLatest.id; }) : [];
+    var tidyMap = {}; for (var ak in archived) { tidyMap[ak] = archived[ak]; } tidyTargets.forEach(function (s) { tidyMap[s.id] = true; });
+
+    var seg = function (label, value, key, current) {
+      var on = current === value;
+      return { label: label, on: on, bg: on ? toRgba(accent, 0.16) : 'transparent', fg: on ? accent : '#8B95A5', pick: (function () { var patch = {}; patch[key] = value; return set(patch); })() };
+    };
+    var settingRows = [
+      { label: 'Major topic rule', help: 'what gets a labelled pill', options: [seg('Either', 'either', 'majorRule', majorRule), seg('Count', 'count', 'majorRule', majorRule), seg('Recent 7d', 'recent', 'majorRule', majorRule)] },
+      { label: 'Count threshold', help: 'sessions to count as major', options: [seg('2', 2, 'minSessions', minSessions), seg('3', 3, 'minSessions', minSessions), seg('5', 5, 'minSessions', minSessions)] },
+      { label: 'Numbering in focus', help: 'order of the chain', options: [seg('Oldest first', false, 'newestFirst', newestFirst), seg('Newest first', true, 'newestFirst', newestFirst)] },
+      { label: 'Related anchors in focus', help: 'linked topics at the bottom', options: [seg('Show', true, 'showRelated', showRelated), seg('Hide', false, 'showRelated', showRelated)] },
+      { label: 'Handoff notes', help: 'how a session gets its note', options: [seg('Manual /park', 'manual', 'autoSummary', autoSummary), seg('Auto summary', 'auto', 'autoSummary', autoSummary), seg('Ask at end', 'ask', 'autoSummary', autoSummary)] }
+    ];
+
+    var chip = function (label, days) { var on = rangeDays === days; return { label: label, on: on, pick: set({ rangeDays: days }), border: on ? toRgba(accent, 0.45) : '#252C37', bg: on ? toRgba(accent, 0.12) : 'transparent', fg: on ? '#E8ECF2' : '#8B95A5' }; };
+
+    var listTopics = topics.map(function (t) {
+      var open = t.id === focusId;
+      var ordered2 = t.sessions.slice().sort(function (a, b) { return newestFirst ? (a.age - b.age) : (b.age - a.age); });
+      return {
+        id: t.id, name: t.name, color: t.color, kind: isMajor(t) ? 'major' : 'minor', count: t.sessions.length + ' sessions', last: t.sessions[0].ageLabel + ' ago',
+        open: open, caret: open ? '▾' : '▸', border: open ? toRgba(t.color, 0.45) : '#20262F',
+        pick: set({ focusTopic: open ? null : t.id, selected: null, toast: '' }),
+        sessions: (function () {
+          var rows = ordered2.filter(function (s) { return inRange(s) && sMatch(s); }).map(function (s) {
+            var status = statusOf(s); var isSel = s.id === selectedId;
+            return { id: s.id, number: '', title: s.title, ageLabel: s.ageLabel, bg: isSel ? toRgba(t.color, 0.14) : 'transparent',
+              dot: status === 'active' ? t.color : (status === 'idle' ? '#161B23' : '#1C222C'), dotRing: status === 'archived' ? '#6F7988' : t.color, borderStyle: status === 'archived' ? 'dashed' : 'solid',
+              pick: set({ selected: isSel ? null : s.id, focusTopic: t.id, toast: '' }) };
+          });
+          if (t.id === joined) {
+            var here = { id: 'here', number: '', title: 'This session · you', ageLabel: 'now', bg: toRgba(accent, 0.1), dot: accent, dotRing: accent, borderStyle: 'dashed', pick: set({}) };
+            if (newestFirst) { rows.unshift(here); } else { rows.push(here); }
+          }
+          rows.forEach(function (r, i) { r.number = (i + 1) + ''; });
+          return rows;
+        })()
+      };
+    });
+
+    var onKey = function (e) {
+      var key = e.key;
+      if (inFocus) {
+        var cur = chainIds.indexOf(selectedId);
+        if (key === 'ArrowRight' || key === 'ArrowDown') { e.preventDefault(); if (chainIds.length) { self.setState({ selected: chainIds[(cur + 1) % chainIds.length] }); } }
+        else if (key === 'ArrowLeft' || key === 'ArrowUp') { e.preventDefault(); if (chainIds.length) { self.setState({ selected: chainIds[(cur - 1 + chainIds.length) % chainIds.length] }); } }
+        else if (key === 'Enter' && sel) { e.preventDefault(); self.setState({ toast: 'Handoff note from “' + sel.title + '” added to this session.', undo: null }); }
+        else if (key === 'Escape') { e.preventDefault(); if (selectedId) { self.setState({ selected: null }); } else { self.setState({ focusTopic: null, hover: null }); } }
+      } else if (key === 'Escape') { self.setState({ hover: null, moveMode: false, selected: null, dragging: null }); }
+    };
+
+    var hint = inFocus
+      ? (selectedId ? 'Enter picks up · ← → step through the chain · Esc back' : (joined === focus.id ? focus.name + ' · you are step ' + joinedStep + ' · click an earlier step for its note' : focus.name + ' · ' + chainIds.length + ' sessions in order · click one for its note'))
+      : (moveMode && sel ? 'Moving “' + sel.title + '”: click or drop onto a topic' : (hover && tracedTopic ? tracedTopic.name + ' · ' + tracedTopic.sessions.length + ' sessions · click to focus' : 'Hover or focus a topic to trace it · click to focus'));
+
+    return {
+      accent: accent, accentSoft: toRgba(accent, 0.12), accentLine: toRgba(accent, 0.45),
+      crumb: inFocus ? ' › ' + focus.name + (sel ? ' › ' + sel.title : '') : ' › ' + topics.length + ' topics',
+      onSearch: function (e) { self.setState({ query: e.target.value }); },
+      onRange: function (e) { self.setState({ rangeDays: Number(e.target.value) || 1 }); },
+      rangeDays: rangeDays, rangeLabel: rangeDays >= 45 ? 'All time' : 'Last ' + rangeDays + 'd',
+      chips: [chip('7d', 7), chip('30d', 30), chip('All', 45)],
+      isMap: view === 'map', isList: view === 'list',
+      mapBg: view === 'map' ? toRgba(accent, 0.14) : 'transparent', mapFg: view === 'map' ? accent : '#8B95A5',
+      listBg: view === 'list' ? toRgba(accent, 0.14) : 'transparent', listFg: view === 'list' ? accent : '#8B95A5',
+      showMap: set({ view: 'map' }), showList: set({ view: 'list' }),
+      showSettings: showSettings, toggleSettings: set({ showSettings: !showSettings }),
+      gearBorder: showSettings ? toRgba(accent, 0.45) : '#252C37', gearBg: showSettings ? toRgba(accent, 0.12) : '#10141A', gearFg: showSettings ? accent : '#8B95A5',
+      onKey: onKey, hint: hint, inFocus: inFocus, backToMap: set({ focusTopic: null, selected: null, hover: null, toast: '' }),
+      starsSmall: stars(70, 137.5, 11), starsBig: stars(18, 211.7, 53),
+      crossDim: crossDim, crossBright: crossBright, crossDimOpacity: traced ? '0.35' : '0.8',
+      linesDim: linesDim, linesBright: linesBright, linesDimOpacity: traced && !inFocus ? '0.35' : '0.8',
+      tracedColor: tracedTopic ? tracedTopic.color : accent,
+      chainPoints: chainPoints.trim(), chainOpacity: inFocus ? '0.9' : '0', focusColor: inFocus ? focus.color : accent, focusSoft: toRgba(inFocus ? focus.color : accent, 0.14),
+      topicNodes: topicNodes, sessionNodes: sessionNodes, anchorNodes: anchorNodes,
+      listTopics: listTopics,
+      isCardSettings: isCardSettings, isCardSession: isCardSession, isCardTopic: isCardTopic, isCardChoose: isCardChoose, isCardJoined: isCardJoined,
+      joinChips: joinChips,
+      startNewTopic: set({ joined: 'new', focusTopic: null, selected: null, toast: 'This session starts a new topic. Name it with /topic <name>; it joins the map with its first handoff note.', undo: null }),
+      joinedStep: joinedStep,
+      joinedTitle: joinedTopic ? 'This session is step ' + joinedStep + ' of ' + joinedTopic.name : 'This session starts a new topic',
+      joinedSummary: joinedLatest ? 'Handoff note from “' + joinedLatest.title + '” (' + joinedLatest.ageLabel + ' ago) is in your context: ' + joinedLatest.note : 'Name it with /topic <name>. It appears on the map once it has a handoff note.',
+      focusJoined: joinedTopic ? set({ focusTopic: joinedTopic.id, selected: null, hover: null, toast: '' }) : set({ toast: 'New topics appear on the map once they have a handoff note.', undo: null }),
+      changeTopic: set({ joined: null, focusTopic: null, selected: null, hover: null, toast: '' }),
+      parkNote: set({ toast: 'Parked: “Replaced the fixed wait; CI run still pending.” Saved as this session’s handoff note for the next step.', undo: null }),
+      settingRows: settingRows,
+      selNumber: selNumber, selTitle: sel ? sel.title : '', selStatus: selStatus,
+      selMeta: sel ? (sel.ageLabel + ' ago · ' + sel.branch + ' · ' + sel.turns + ' turns · in ' + (selTopic ? selTopic.name : '')) : '',
+      selBadgeBg: selStatus === 'active' ? toRgba(selTopic ? selTopic.color : accent, 0.16) : '#1C222C', selBadgeFg: selStatus === 'active' ? (selTopic ? selTopic.color : accent) : '#9AA3B2',
+      selNote: sel ? sel.note : '', selFiles: sel ? sel.files.map(function (f) { return { name: f }; }) : [],
+      pinLabel: sel && pins[sel.id] ? 'Unpin' : 'Pin', archiveLabel: selStatus === 'archived' ? 'Unarchive' : 'Archive',
+      pickUpSelected: sel ? set({ toast: 'Handoff note from “' + sel.title + '” added to this session.', undo: null }) : set({}),
+      messageSelected: sel ? set({ toast: 'Message sent to “' + sel.title + '”. Its reply arrives here.', undo: null }) : set({}),
+      branchSelected: sel ? set({ toast: 'Opening a new session on ' + (selTopic ? selTopic.name : 'this topic') + ', seeded from “' + sel.title + '”. Desktop asks you to confirm the folder.', undo: null }) : set({}),
+      pinSelected: sel ? (function () { var next = {}; for (var k in pins) { next[k] = pins[k]; } if (next[sel.id]) { delete next[sel.id]; } else { next[sel.id] = true; } return set({ pins: next, toast: (pins[sel.id] ? 'Unpinned “' : 'Pinned “') + sel.title + '”. Pinned sessions ignore the time range.', undo: null }); })() : set({}),
+      moveSelected: sel ? set({ moveMode: true, focusTopic: null, hover: null, toast: 'Click a topic on the map, or drop the dot onto one, to move “' + sel.title + '”.', undo: null }) : set({}),
+      archiveSelected: sel ? (function () { var next = {}; for (var k in archived) { next[k] = archived[k]; } if (selStatus === 'archived') { delete next[sel.id]; } else { next[sel.id] = true; } return withUndo({ archived: next, toast: (selStatus === 'archived' ? 'Unarchived “' : 'Archived “') + sel.title + '”.' }, 'archived', archived, 'Undo'); })() : set({}),
+      cardName: cardTopic ? cardTopic.name : '', cardColor: cardTopic ? cardTopic.color : accent, cardKind: cardTopic ? (isMajor(cardTopic) ? 'major' : 'minor') : '',
+      cardMeta: cardTopic ? (cardTopic.sessions.length + ' sessions · ' + cardIdle.length + ' idle · ' + cardShipped + ' shipped') : '',
+      cardSummary: cardLatest ? ('Latest: ' + cardLatest.title + ' (' + cardLatest.ageLabel + ' ago). ' + cardLatest.note) : '',
+      cardRelated: cardTopic ? relatedOf(cardTopic.id).map(function (r) { return { name: byId[r.id] ? byId[r.id].name : r.id, via: r.via, pick: set({ focusTopic: r.id, selected: null, hover: null, toast: '' }) }; }) : [],
+      cardRelatedNone: cardTopic && relatedOf(cardTopic.id).length === 0 ? 'none' : '',
+      cardHint: inFocus ? 'Numbers follow time order. The glowing number is the latest session.' : 'Click the topic to focus it and see its sessions in order.',
+      cardFocus: cardTopic ? (inFocus ? set({ focusTopic: null, selected: null, toast: '' }) : set({ focusTopic: cardTopic.id, selected: null, hover: null, toast: '' })) : set({}),
+      cardFocusLabel: inFocus ? 'Back to all topics' : 'Focus this topic',
+      cardPickUp: cardLatest ? set({ toast: 'Handoff note from “' + cardLatest.title + '” added to this session.', undo: null }) : set({}),
+      tidyLabel: tidyTargets.length ? 'Archive ' + tidyTargets.length + ' idle' : 'Nothing to tidy',
+      cardTidy: tidyTargets.length ? withUndo({ archived: tidyMap, toast: 'Archived ' + tidyTargets.length + ' idle session' + (tidyTargets.length > 1 ? 's' : '') + ' in ' + cardTopic.name + '. The real mod asks before each.' }, 'archived', archived, 'Undo') : set({}),
+      statsLine: topics.length + ' topics · ' + totalSessions + ' sessions · ' + activeCount + ' active',
+      hasToast: !!toast, toast: toast, dismissToast: set({ toast: '', undo: null }),
+      hasUndo: !!undo, undoLabel: undo ? undo.label : 'Undo',
+      undoLast: undo ? (function () { var patch = { toast: 'Undone.', undo: null }; patch[undo.type] = undo.value; return set(patch); })() : set({})
+    };
+  }
+}
+</script>
+</body>
+</html>

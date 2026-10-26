@@ -1,0 +1,18 @@
+{
+  "name": "constellation",
+  "owner": { "name": "Naresh", "url": "https://github.com/nrzz" },
+  "metadata": {
+    "description": "Constellation: a Claude Code mod that maps a folder's sessions as topic chains with handoff notes"
+  },
+  "plugins": [
+    {
+      "name": "constellation",
+      "source": "./",
+      "description": "Maps your Claude Code sessions as a constellation of topics; every new session joins a topic chain and picks up its latest handoff note",
+      "version": "0.1.0",
+      "author": { "name": "Naresh" },
+      "license": "MIT",
+      "keywords": ["mod", "sessions", "topics", "handoff"]
+    }
+  ]
+}

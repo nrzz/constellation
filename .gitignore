@@ -1,0 +1,7 @@
+# written by the Claude Code engine when the mod is loaded from this folder
+.claude-plugin/types/
+.mcpb-cache/
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
