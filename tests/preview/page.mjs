@@ -118,7 +118,7 @@ footer { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
       <li>The terminal has no SVG: it gets the text-mode map above, with real pointer and arrow-key input. On the Desktop an experimental setting lays that map\u2019s invisible pointer layer over the picture; a local session has to confirm it lands on it.</li>
     </ul>
   </section>
-  <footer>Rendered ${new Date().toISOString().slice(0, 10)} by tests/preview/render.mjs and page.mjs · fonts: IBM Plex Sans and Mono with system fallbacks</footer>
+  <footer>Rendered ${new Date().toISOString().replace('T', ' ').slice(0, 16)} UTC by tests/preview/render.mjs and page.mjs · fonts: IBM Plex Sans and Mono with system fallbacks</footer>
 </div>
 `
 writeFileSync(join(out, 'preview.html'), html)
