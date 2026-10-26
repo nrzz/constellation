@@ -26,11 +26,10 @@ No feature code written yet. Continue from "Next steps" below.
   Pick up here / Message / New session from here / Pin / Move / Unarchive),
   `04-list-view.jpg` (outline with numbered session rows), `05-settings.jpg`
   (segmented controls under the list). `design/canvas.json` — the canvas index.
-- Secondary visual reference, from the user: ONLY the skills-graph section of
-  https://www.dasprakashsekar.site/ (scroll to the field headed "Hover or
-  focus a project to trace its stack"; the user's screenshot of it is
-  `design/screens/06-reference-skill-graph.png`). Nothing else on that site
-  is a reference. Take from it: edges drawn in the traced topic's own colour,
+- Secondary visual reference, from the user: https://www.dasprakashsekar.site/.
+  The part that matters most is its skills-graph section (scroll to the field
+  headed "Hover or focus a project to trace its stack"; the user's screenshot
+  of it is `design/screens/06-reference-skill-graph.png`). Take from it: edges drawn in the traced topic's own colour,
   thin lines from the pill to each of its nodes, so a traced topic reads as
   one coloured constellation while untraced edges sit at very low alpha; many
   edges stay calm that way; nodes as small coloured dots with a soft glow
