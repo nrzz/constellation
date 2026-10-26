@@ -26,19 +26,23 @@ No feature code written yet. Continue from "Next steps" below.
   Pick up here / Message / New session from here / Pin / Move / Unarchive),
   `04-list-view.jpg` (outline with numbered session rows), `05-settings.jpg`
   (segmented controls under the list). `design/canvas.json` — the canvas index.
+- Secondary visual reference, from the user: ONLY the skills-graph section of
+  https://www.dasprakashsekar.site/ (scroll to the field headed "Hover or
+  focus a project to trace its stack"; the user's screenshot of it is
+  `design/screens/06-reference-skill-graph.png`). Nothing else on that site
+  is a reference. Take from it: edges drawn in the traced topic's own colour,
+  thin lines from the pill to each of its nodes, so a traced topic reads as
+  one coloured constellation while untraced edges sit at very low alpha; many
+  edges stay calm that way; nodes as small coloured dots with a soft glow
+  halo (a larger low-alpha circle under the dot) and a mono label beside
+  them; a light pill with dark text for the hub that is traced (our topic
+  pills keep the prototype's dark fill and coloured border at rest, and may
+  brighten their fill when traced); two alphas for depth (far ~0.15, traced
+  ~0.8) and two dot sizes; the hint pill at the top, which the prototype
+  already has. Its glowing centre hub node is not for us: the folder is not a
+  topic, so the map has no centre. The prototype still wins where the two
+  disagree.
 - Secondary visual reference, from the user: https://www.dasprakashsekar.site/
-  (a dark portfolio). Borrow its atmosphere where the Mods elements allow it,
-  without copying it: a near-black ground (#0a0d12-ish) with a faint 1px grid
-  and one soft radial glow (teal/blue, low alpha) behind the hero → in our
-  Svg, a faint radial glow behind the focused or traced topic; small mono
-  uppercase eyebrow labels over large, tight headings → our breadcrumb and
-  card titles; status chips as a bordered pill with a coloured dot and
-  mono text → our legend, join chips and "active" badges; primary buttons as
-  light pills with an arrow glyph, secondary as outlined pills → our Pick up
-  here (accent) and the outlined actions; stat tiles (a big number over a
-  small label, in a bordered grid) → our "N topics · N sessions · N active"
-  line in the chooser; a mono file-path chip in a card header → our files
-  chips; generous spacing and restrained motion. The prototype still wins where the two disagree.
 - The source artifact is PUBLIC (shared 2026-10-27, no sign-in needed):
   https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0
   (`#play-…` opens the interactive view). The Artifact tool's `read` on that
