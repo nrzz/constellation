@@ -119,5 +119,28 @@ for (const [name, view] of Object.entries(views)) {
   sizes[name] = svg.length
   writeFileSync(join(outDir, `${name}.svg`), svg)
 }
+
+// The terminal's text-mode map: client/map.js run against a fake surface of 100x24 cells,
+// its absolutely placed Texts laid into a character grid.
+const client = await import(pathToFileURL(join(repo, 'client', 'map.js')).href)
+function textMap(view, columns = 100, rows = 24) {
+  const grid = Array.from({ length: rows }, () => Array(columns).fill(' '))
+  const Box = props => ({ type: 'Box', props })
+  const Text = props => ({ type: 'Text', props })
+  const surface = { elements: { Box, Text }, state: undefined, setState: next => { surface.state = next }, columns, rows, every: () => () => {}, onPointer: () => () => {}, onKey: () => () => {}, post: () => {} }
+  const tree = client.default(draw.fieldOf(view), surface)
+  const textOf = el => (el.type === 'Text' ? String(el.props.children ?? '') : (Array.isArray(el.props.children) ? el.props.children : [el.props.children]).filter(Boolean).map(textOf).join(''))
+  for (const child of tree.props.children ?? []) {
+    if (!child || child.props.position !== 'absolute') continue
+    const text = textOf(child)
+    const top = child.props.top ?? 0
+    const left = child.props.left ?? 0
+    if (top < 0 || top >= rows) continue
+    for (let i = 0; i < text.length && left + i < columns; i += 1) grid[top][left + i] = text[i]
+  }
+  return grid.map(line => line.join('').replace(/\s+$/, '')).join('\n')
+}
+writeFileSync(join(outDir, 'terminal-map.txt'), textMap(views.map))
+writeFileSync(join(outDir, 'terminal-focus.txt'), textMap(views.focus))
 writeFileSync(join(outDir, 'model.json'), JSON.stringify({ topics: model.topics.map(t => ({ id: t.id, name: t.name, color: t.color, isMajor: t.isMajor, sessions: t.sessions.length, placed: placed[t.id] })), links: model.links, sizes }, null, 2))
-console.log(`wrote ${Object.keys(views).map(n => `${n}.svg (${sizes[n]} chars)`).join(', ')} and model.json to ${outDir}`)
+console.log(`wrote ${Object.keys(views).map(n => `${n}.svg (${sizes[n]} chars)`).join(', ')}, terminal-map.txt, terminal-focus.txt and model.json to ${outDir}`)

@@ -1084,7 +1084,7 @@ export function fieldOf(view: View): FieldProps {
       rel.forEach((r, i) => {
         const rt = model.topicById[r.id]
         const ap = apos[i]
-        if (rt && ap) nodes.push(node({ id: rt.id, kind: 'topic', x: ap.x, y: ap.y, label: `${clip(rt.name, 18)} ${r.via}`, color: rt.color, isMajor: false, isDim: true, title: rt.name }))
+        if (rt && ap) nodes.push(node({ id: rt.id, kind: 'topic', x: ap.x, y: ap.y, label: `${clip(rt.name, 14)} · ${clip(r.via, 10)}`, color: rt.color, isMajor: false, isDim: true, title: rt.name }))
       })
     }
   }

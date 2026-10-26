@@ -130,7 +130,9 @@ export default function Map(props, surface) {
     // One dim dot midway marks a link between topics; the text grid has no lines.
     children.push(Box({ position: 'absolute', top: s.row((l.y1 + l.y2) / 2), left: s.col((l.x1 + l.x2) / 2), children: [Text({ color: DIM, children: '┄' })] }))
   }
-  for (const n of nodes) {
+  // Sessions first, then steps, then topics, so a label is never overwritten by a glyph.
+  const order = { session: 0, step: 1, you: 1, topic: 2 }
+  for (const n of [...nodes].sort((a, b) => (order[a.kind] ?? 0) - (order[b.kind] ?? 0))) {
     const isHover = state.hover !== null && (n.id === state.hover || n.topicId === state.hover)
     const isCursor = walk[state.cursor % Math.max(1, walk.length)] && walk[state.cursor % walk.length].id === n.id
     const color = n.isArchived ? DIM : n.color || ACCENT
