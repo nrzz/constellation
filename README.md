@@ -131,6 +131,7 @@ Set them in `/config`, or live in the pane's settings view (saved to the store).
 | `rangeDays` | 1–45 | 30 | Sessions older than this are dimmed and left out of chains; 45 means all time |
 | `useModelForTitles` | true, false | false | Name auto topics with one short haiku call instead of their most frequent words |
 | `openOnStart` | band, pane, none | band | What a new session shows: the chooser band, the pane, or nothing |
+| `desktopHits` | true, false | false | Experimental: an invisible pointer layer over the map on the Desktop, so clicks and drags on the picture itself trace, pick and move. Off until a local check confirms it covers the picture |
 
 ## Model use and cost
 
@@ -165,7 +166,9 @@ messaging are not offered there.
 - On the Desktop the SVG is a sandboxed picture: clicks and drags on it do not
   reach the mod, so picking goes through the buttons under the field and
   moving a session is "Move to topic" then a pick. The terminal's text-mode
-  map takes clicks and drags.
+  map takes clicks and drags. `desktopHits` lays that map's pointer layer,
+  drawing nothing, over the SVG; whether the Desktop places it exactly over
+  the picture is the check a local session has to make.
 - Arrow keys cannot be bound by a mod on the Desktop; the terminal map gets
   them through its Client.
 - Transcripts over 4 MiB cannot be read by a mod; such a session shows as a

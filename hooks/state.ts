@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   rangeDays: 30,
   useModelForTitles: false,
   openOnStart: 'band',
+  desktopHits: false,
 }
 
 export const EMPTY_STORE: StoreData = { topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {}, goals: {}, seen: {} }
@@ -69,6 +70,7 @@ const CHOICES: { [K in keyof MapSettings]: readonly MapSettings[K][] | 'number' 
   rangeDays: 'number',
   useModelForTitles: 'boolean',
   openOnStart: ['band', 'pane', 'none'],
+  desktopHits: 'boolean',
 }
 
 const RANGES: Partial<Record<keyof MapSettings, [number, number]>> = {

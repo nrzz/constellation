@@ -26,7 +26,7 @@ import {
   suggestFor,
   viewOf,
 } from './actions'
-import { drawBand, drawPane, fieldOf } from './draw'
+import { altOf, drawBand, drawPane, fieldOf, svgOf } from './draw'
 import type { Table } from './draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
@@ -34,6 +34,9 @@ import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-1' })
 const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-2' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
+
+/** Rows the Desktop hit layer takes: about the Svg's 520 px at the code font's line height; tune once seen locally. */
+const HIT_ROWS = 30
 
 const COMMANDS = [
   { name: 'map', description: 'Open or close the Constellation topic map', argumentHint: '[settings|close|export [path]]' },
@@ -172,6 +175,19 @@ export const register: Register = (on, options) => {
       const { Client } = $.ui.resolve({ ...e, surface: 'terminal' as const })
       const rows = Math.max(14, Math.min(26, Math.floor((e.props.scroll.bodyRows || 40) * 0.55)))
       const field = <Client key="map" module="../client/map.js" props={fieldOf(view)} height={rows} />
+      return drawPane(tableOf($, e), view, actionsFor($), field)
+    }
+    if (e.surface === 'desktop' && view.settings.desktopHits) {
+      // Experimental: the same Client, drawing nothing, laid over the Svg to take pointer hits on the picture.
+      const { Box, Client, Svg } = $.ui.resolve({ ...e, surface: 'desktop' as const })
+      const field = (
+        <Box flexDirection="column" key="field">
+          <Svg source={svgOf(view)} alt={altOf(view)} />
+          <Box position="absolute" top={0} left={0} width="100%" height={HIT_ROWS}>
+            <Client key="map" module="../client/map.js" props={{ ...fieldOf(view), hits: true }} width="100%" height={HIT_ROWS} />
+          </Box>
+        </Box>
+      )
       return drawPane(tableOf($, e), view, actionsFor($), field)
     }
     return drawPane(tableOf($, e), view, actionsFor($))

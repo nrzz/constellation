@@ -444,10 +444,13 @@ by `e.surface`; a Client's props must hold no `undefined`.
    the repo into `~/.claude/dev-mods/<session-id>/constellation`. Open `/map`
    on the Desktop and in a terminal; compare with `design/TopicMap.dc.html`
    and the preview page; fix what differs; commit `fix: …`.
-2. Spike the Desktop hit layer: a `Client` in a `Box position="absolute"`
-   over the `Svg`. If it sits over the picture and takes clicks, wire it to
-   the same `ui.message` handler and drop the topic button row on the
-   Desktop; if not, keep the buttons and say so in the README.
+2. Try the Desktop hit layer: turn on `desktopHits` in the pane's settings.
+   It lays the text-mode map's Client, drawing nothing, in a
+   `Box position="absolute"` over the `Svg` (30 rows; `HIT_ROWS` in
+   register.tsx). If it covers the picture and clicks trace, pick and drag,
+   make it the default and drop the topic button row on the Desktop; if the
+   Desktop places it elsewhere, tune `HIT_ROWS` or leave it off and say so
+   in the README.
 3. Watch the first real folder: large transcripts, the auto topic names, the
    join suggestions; tune the stopword list and the scoring if needed.
 4. Release: tag v0.1.0, confirm the marketplace install on a clean machine.

@@ -57,6 +57,7 @@ export type MapSettings = {
   rangeDays: number
   useModelForTitles: boolean
   openOnStart: 'band' | 'pane' | 'none'
+  desktopHits: boolean
 }
 
 export type ToastState = { text: string; hasUndo: boolean }

@@ -646,6 +646,7 @@ const SETTING_ROWS: { key: keyof MapSettings; label: string; help: string; optio
   { key: 'autoJoin', label: 'Auto join', help: 'after the first prompt', options: [{ value: 'suggest', label: 'Suggest' }, { value: 'auto', label: 'Auto' }, { value: 'off', label: 'Off' }] },
   { key: 'useModelForTitles', label: 'Topic names', help: 'name auto topics with haiku', options: [{ value: false, label: 'Frequent words' }, { value: true, label: 'Model' }] },
   { key: 'openOnStart', label: 'On session start', help: 'what shows when a session begins', options: [{ value: 'band', label: 'Band' }, { value: 'pane', label: 'Pane' }, { value: 'none', label: 'Nothing' }] },
+  { key: 'desktopHits', label: 'Desktop hit layer', help: 'experimental: clicks on the picture itself', options: [{ value: false, label: 'Off' }, { value: true, label: 'On' }] },
 ]
 
 function tokens(n: number): string {
@@ -941,20 +942,22 @@ export function drawCard(T: Table, view: View, act: Actions): RenderElement {
   return drawJoinedCard(T, view, act)
 }
 
-/** The pane: header, the field (Svg where the surface has it, else the outline), its controls, the card and the toast. */
+/**
+ * The pane: header, the field, its controls, the card and the toast. The field
+ * is the Svg where the surface has one, or what the entry point hands in: the
+ * terminal's text-mode map, or the Desktop's Svg with the hit layer over it.
+ */
 export function drawPane(T: Table, view: View, act: Actions, field?: RenderElement): RenderElement {
   const { Box, Text, Svg } = T
   const { ui } = view
-  const isSvgMap = ui.view === 'map' && Svg !== undefined
-  const isClientMap = ui.view === 'map' && Svg === undefined && field !== undefined
+  const isMap = ui.view === 'map' && (field !== undefined || Svg !== undefined)
   const toast = drawToast(T, view, act)
   return (
     <Box flexDirection="column" gap="xs">
       {drawHeader(T, view, act)}
-      {isSvgMap && Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null}
-      {isClientMap ? field : null}
-      {isSvgMap || isClientMap ? drawControls(T, view, act) : drawList(T, view, act)}
-      {!Svg && ui.view === 'map' && !field ? (
+      {isMap ? (field ?? (Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null)) : null}
+      {isMap ? drawControls(T, view, act) : drawList(T, view, act)}
+      {!isMap && ui.view === 'map' ? (
         <Text dimColor size="footnote">
           This surface draws no vector field: the outline above is the map. Hotkeys 1–9 select a step.
         </Text>

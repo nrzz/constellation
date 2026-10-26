@@ -9,7 +9,9 @@
 //
 // Props (JSON): { mode: 'map' | 'focus', hint, nodes: [{ id, kind, x, y, label,
 // color, isMajor, isDim, isSelected, isTraced, isArchived, isActive, topicId }],
-// links: [{ x1, y1, x2, y2 }], legend }.
+// links: [{ x1, y1, x2, y2 }], legend, hits? }. With `hits` it draws nothing
+// and only reports the pointer and the keys: the Desktop's experimental hit
+// layer over the Svg.
 
 const FIELD_W = 860
 const FIELD_H = 520
@@ -119,6 +121,9 @@ export default function Map(props, surface) {
     })
   }
 
+  if (props.hits) {
+    return Box({ flexDirection: 'column', width: '100%', height: s.rows, children: [] })
+  }
   const children = []
   children.push(Box({ position: 'absolute', top: 0, left: Math.max(0, Math.floor((s.columns - String(props.hint || '').length) / 2)), children: [Text({ dimColor: true, children: String(props.hint || '') })] }))
   for (const l of links) {

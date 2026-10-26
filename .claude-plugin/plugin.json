@@ -2,32 +2,52 @@
   "name": "constellation",
   "version": "0.1.0",
   "description": "Maps your Claude Code sessions as a constellation of topics: one folder, many topic chains, every new session picks up its chain's latest handoff note",
-  "author": { "name": "Naresh", "url": "https://github.com/nrzz" },
+  "author": {
+    "name": "Naresh",
+    "url": "https://github.com/nrzz"
+  },
   "homepage": "https://github.com/nrzz/constellation",
   "repository": "https://github.com/nrzz/constellation",
   "license": "MIT",
-  "keywords": ["mod", "sessions", "topics", "handoff", "pane", "desktop"],
+  "keywords": [
+    "mod",
+    "sessions",
+    "topics",
+    "handoff",
+    "pane",
+    "desktop"
+  ],
   "types": "./types/index.d.ts",
   "userConfig": {
     "scope": {
       "type": "string",
       "title": "Scope",
       "description": "Which transcripts the map reads: this folder's, or every folder's",
-      "options": ["folder", "all"],
+      "options": [
+        "folder",
+        "all"
+      ],
       "default": "folder"
     },
     "groupBasis": {
       "type": "string",
       "title": "Grouping",
       "description": "auto clusters unassigned sessions into topics; manual leaves them Unsorted until you assign them",
-      "options": ["auto", "manual"],
+      "options": [
+        "auto",
+        "manual"
+      ],
       "default": "auto"
     },
     "majorRule": {
       "type": "string",
       "title": "Major topic rule",
       "description": "What earns a labelled pill: either (count or recent), count, or recent",
-      "options": ["either", "count", "recent"],
+      "options": [
+        "either",
+        "count",
+        "recent"
+      ],
       "default": "either"
     },
     "majorMinSessions": {
@@ -50,7 +70,10 @@
       "type": "string",
       "title": "Chain numbering",
       "description": "Order of the numbered steps in focus mode",
-      "options": ["oldestFirst", "newestFirst"],
+      "options": [
+        "oldestFirst",
+        "newestFirst"
+      ],
       "default": "oldestFirst"
     },
     "showRelated": {
@@ -63,14 +86,22 @@
       "type": "string",
       "title": "Handoff notes",
       "description": "auto regenerates a short note after each turn (uses haiku); manual uses only /park; ask offers a button after each turn",
-      "options": ["auto", "manual", "ask"],
+      "options": [
+        "auto",
+        "manual",
+        "ask"
+      ],
       "default": "auto"
     },
     "autoJoin": {
       "type": "string",
       "title": "Auto join",
       "description": "suggest marks the best-matching topic after your first prompt; auto joins it when the match is clear; off never suggests",
-      "options": ["suggest", "auto", "off"],
+      "options": [
+        "suggest",
+        "auto",
+        "off"
+      ],
       "default": "suggest"
     },
     "rangeDays": {
@@ -91,8 +122,18 @@
       "type": "string",
       "title": "On session start",
       "description": "band shows the join chooser above the prompt; pane opens the map; none does nothing",
-      "options": ["band", "pane", "none"],
+      "options": [
+        "band",
+        "pane",
+        "none"
+      ],
       "default": "band"
+    },
+    "desktopHits": {
+      "type": "boolean",
+      "title": "Desktop hit layer (experimental)",
+      "description": "Lays an invisible pointer layer over the map on the Desktop so clicks and drags on the picture itself trace, pick and move; off until a local check confirms it sits over the picture",
+      "default": false
     }
   }
 }
