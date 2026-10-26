@@ -6,8 +6,10 @@ chain of sessions; every new session joins a chain and picks up that chain's
 latest handoff note, so same-topic sessions stop piling up in the Desktop
 sidebar.
 
-Status: scaffold. The design is approved (`design/TopicMap.dc.html`) and the
-full build plan, API notes and next steps are in [PLAN.md](PLAN.md). Phase 1
+Status: scaffold. The design is approved: the interactive prototype is public at
+https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0 and its
+source is `design/TopicMap.dc.html`. The full build plan, API notes and next
+steps are in [PLAN.md](PLAN.md). Phase 1
 (the Svg map, join chooser, handoff injection, list view) and Phase 2 (the
 Client hit layer) are not built yet.
 

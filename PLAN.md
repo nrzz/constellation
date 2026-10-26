@@ -14,11 +14,37 @@ No feature code written yet. Continue from "Next steps" below.
   prototype framework `x-dc` / `DCLogic`; do NOT port its code, reproduce the
   look and behaviour with Mods elements). The prototype wins on appearance;
   the written spec below wins on data and logic.
-- `design/Constellation-interactive-prototype.html`, `design/Constellation-topic-map.pdf`
-  — exports of the same prototype. `design/canvas.json` — its canvas index.
-- Source artifact: https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6 (Design canvas,
-  artboard `project/TopicMap.dc.html`). The built-in browser needs a claude.ai
-  sign-in to render it; the source file is complete.
+- `design/Constellation-interactive-prototype.html` — a self-contained bundle
+  of the same prototype that runs in any browser with JavaScript (open the
+  file; it unpacks itself). `design/Constellation-topic-map.pdf` — a one-page
+  rendered picture of the artboard (Read it with `pages: "1"` where poppler is
+  installed). `design/screens/` — screenshots of the rendered prototype
+  (Read them as images): `01-map-join-chooser.jpg` (map + join chooser card,
+  the default state), `02-focus-chain-topic-card.jpg` (Checkout tests focused:
+  numbered zigzag chain, arrows, latest glowing, related anchors, topic card),
+  `03-focus-session-card.jpg` (step 1 selected: tooltip, session card with
+  Pick up here / Message / New session from here / Pin / Move / Unarchive),
+  `04-list-view.jpg` (outline with numbered session rows), `05-settings.jpg`
+  (segmented controls under the list). `design/canvas.json` — the canvas index.
+- Secondary visual reference, from the user: https://www.dasprakashsekar.site/
+  (a dark portfolio). Borrow its atmosphere where the Mods elements allow it,
+  without copying it: a near-black ground (#0a0d12-ish) with a faint 1px grid
+  and one soft radial glow (teal/blue, low alpha) behind the hero → in our
+  Svg, a faint radial glow behind the focused or traced topic; small mono
+  uppercase eyebrow labels over large, tight headings → our breadcrumb and
+  card titles; status chips as a bordered pill with a coloured dot and
+  mono text → our legend, join chips and "active" badges; primary buttons as
+  light pills with an arrow glyph, secondary as outlined pills → our Pick up
+  here (accent) and the outlined actions; stat tiles (a big number over a
+  small label, in a bordered grid) → our "N topics · N sessions · N active"
+  line in the chooser; a mono file-path chip in a card header → our files
+  chips; generous spacing and restrained motion. The prototype still wins where the two disagree.
+- The source artifact is PUBLIC (shared 2026-10-27, no sign-in needed):
+  https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0
+  (`#play-…` opens the interactive view). The Artifact tool's `read` on that
+  link returns the same `project/TopicMap.dc.html`; re-read it only if the
+  user says the design changed. Send the user to that link when you want them
+  to compare something against the prototype.
 
 Visual tokens: background #0B0E13, panels #10141A, borders #1C222B (cards
 #20262F, inputs #252C37), text #E8ECF2, muted #8B95A5 (dim #6F7988, labels
@@ -208,6 +234,29 @@ approves tool calls or makes network requests, and spends model usage only for
 notes, titles and join suggestions when those settings are on. README:
 install, commands (/map, /map settings, /topic, /park, /pickup), settings
 table, Desktop vs terminal behaviour, known limits.
+
+## Working agreements with the user
+
+- Own the outcome: decide by evidence, do not ask for things a careful
+  colleague would settle; stop to ask only when a decision would be hard to
+  undo (a destructive action, a change of scope). The user wants progress
+  reports, not permission requests.
+- Work phase by phase; one conventional commit per phase (`feat: phase 1 …`,
+  `feat: phase 2 …`, `docs: …`), pushed to `main` of
+  https://github.com/nrzz/constellation.
+- Token-lean public tool: the mod must never waste the user's tokens. Lean
+  defaults, every model call documented in the README with its cost (notes:
+  one haiku call of ≤120 output tokens per main-loop turn when `handoffNotes`
+  is `auto`; titles: one 30-token haiku call per auto topic only when
+  `useModelForTitles` is on; join suggestions are local token matching, zero
+  model use), and a zero-token path (`handoffNotes: manual`,
+  `useModelForTitles: false`).
+- The mod never approves tool calls and never touches the network.
+- Show the work: after Phase 1 the user wants to see the pane (in the cloud:
+  the Svg preview artifact, see below; locally: the real pane).
+- House style of the user's other tools (github.com/nrzz): README with an
+  install block, a commands list, a settings table, Desktop vs terminal
+  behaviour, known limits; MIT.
 
 ## Continuing in a cloud session (read this first there)
 
