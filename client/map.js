@@ -132,7 +132,11 @@ export default function Map(props, surface) {
   }
   // Sessions first, then steps, then topics, so a label is never overwritten by a glyph.
   const order = { session: 0, step: 1, you: 1, topic: 2 }
+  // In focus mode the related anchors share one row in the field; here they alternate rows so their labels fit.
+  const anchors = props.mode === 'focus' ? nodes.filter(n => n.kind === 'topic' && n.isDim) : []
   for (const n of [...nodes].sort((a, b) => (order[a.kind] ?? 0) - (order[b.kind] ?? 0))) {
+    const anchorIndex = anchors.indexOf(n)
+    const rowOffset = anchorIndex >= 0 ? anchorIndex % 2 : 0
     const isHover = state.hover !== null && (n.id === state.hover || n.topicId === state.hover)
     const isCursor = walk[state.cursor % Math.max(1, walk.length)] && walk[state.cursor % walk.length].id === n.id
     const color = n.isArchived ? DIM : n.color || ACCENT
@@ -141,7 +145,7 @@ export default function Map(props, surface) {
     children.push(
       Box({
         position: 'absolute',
-        top: s.row(n.y),
+        top: Math.min(s.rows - 2, s.row(n.y) + rowOffset),
         left: s.col(n.x),
         children: [
           Text({
