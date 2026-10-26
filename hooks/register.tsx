@@ -1,46 +1,188 @@
-// Constellation: the hooks module entry. Scaffold commit: registers the /map
-// command and opens an empty pane, so the manifest, hooks.json and this file
-// validate and load. Phase 1 fills in scan.ts, cluster.ts, layout.ts,
-// draw.tsx and the band; see PLAN.md.
-import { atom, read } from 'claude-code'
-import type { Register } from 'claude-code'
+// Constellation: the hooks module entry.
+//
+// Wires the engine's events to the scanner, the clustering, the drawing and
+// the actions: a scan at session start, the band with the join chooser, the
+// /map pane, /topic, /park and /pickup, the handoff note injected beside the
+// next prompt, a note generated after each turn when that setting is on,
+// tracing on focus, and Escape backing out of focus mode before it closes.
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, ResolveInput } from 'claude-code'
 
-const PANE = 'constellation'
-const revision = atom({ plugin: 'constellation', key: 'revision' } as const, 0)
+import {
+  actionsFor,
+  backedOut,
+  bootstrap,
+  createTopic,
+  describeTopics,
+  parkNote,
+  periodicRescan,
+  pickUpStep,
+  rescan,
+  scheduleNote,
+  scheduleRescan,
+  suggestFor,
+  viewOf,
+} from './actions'
+import { drawBand, drawPane } from './draw'
+import type { Table } from './draw'
+import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
-export const register: Register = on => {
-  on('session.start', async ($, e, next) => {
+// The atoms are declared where they are read, as `claude plugin validate` asks.
+const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-1' })
+const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-1' })
+const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
+
+const COMMANDS = [
+  { name: 'map', description: 'Open or close the Constellation topic map', argumentHint: '[settings|close]' },
+  { name: 'topic', description: 'Join or create a Constellation topic for this session', argumentHint: '[name]' },
+  { name: 'park', description: 'Save a handoff note for this session on the Constellation map', argumentHint: '<note>' },
+  { name: 'pickup', description: 'Add the handoff note of a step of your Constellation topic to the next prompt', argumentHint: '[n]' },
+] as const
+
+async function registerCommands($: EngineInterface): Promise<void> {
+  for (const command of COMMANDS) {
     try {
-      await $.command.register({
-        name: 'map',
-        description: 'Open or close the Constellation topic map',
-        argumentHint: '[settings|close]',
-        immediate: true,
-      })
+      await $.command.register({ ...command, immediate: true })
     } catch (error) {
-      $.ui.log(`constellation: /map not registered: ${String(error)}`, { to: 'debug' })
+      $.ui.log(`constellation: /${command.name} not registered: ${String(error)}`, { to: 'debug' })
+    }
+  }
+}
+
+/** The surface's constructors as the drawing takes them: the optional ones where the table has them. */
+function tableOf<E extends ResolveInput>($: EngineInterface, e: E): Table {
+  const T = $.ui.resolve(e)
+  return {
+    Box: T.Box,
+    Text: T.Text,
+    Button: T.Button,
+    Input: 'Input' in T ? T.Input : undefined,
+    Select: 'Select' in T ? T.Select : undefined,
+    Svg: 'Svg' in T ? T.Svg : undefined,
+  }
+}
+
+async function openPane($: EngineInterface): Promise<void> {
+  await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
+}
+
+async function start($: EngineInterface, options: PluginOptions, cwd: string, isInteractive: boolean): Promise<void> {
+  try {
+    await bootstrap($, options, cwd)
+  } catch (error) {
+    $.ui.log(`constellation: start failed: ${String(error)}`, { to: 'debug' })
+  }
+  const settings = await read($, settingsAtom)
+  if (settings.openOnStart === 'pane' && isInteractive) {
+    try {
+      await openPane($)
+    } catch (error) {
+      $.ui.log(`constellation: pane not opened: ${String(error)}`, { to: 'debug' })
+    }
+  }
+}
+
+export const register: Register = (on, options) => {
+  on('session.start', async ($, e, next) => {
+    await registerCommands($)
+    await start($, options, e.cwd, e.isInteractive)
+    $.clock.every(120_000, () => void periodicRescan($))
+    return next(e)
+  })
+
+  on('classic.SessionStart', async ($, e, next) => {
+    if (e.source === 'clear' || e.source === 'resume' || e.source === 'fork') {
+      await start($, options, e.cwd, true)
     }
     return next(e)
   })
 
   on('command.run', { command: 'map' }, async ($, e) => {
-    const isOpen = (await $.ui.panes()).some(pane => pane.id === PANE)
-    if (isOpen && e.args.trim() === 'close') {
-      await $.ui.close({ id: PANE })
-      return {}
+    const arg = e.args.trim().toLowerCase()
+    const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
+    if (arg === 'close') {
+      if (isOpen) await $.ui.close({ id: PANE })
+      return { text: 'Constellation closed.' }
     }
-    await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
-    return {}
+    if (arg === 'settings') {
+      await update($, uiAtom, u => ({ ...u, showSettings: true, selected: null }))
+    } else if (isOpen) {
+      await $.ui.close({ id: PANE })
+      return { text: 'Constellation closed.' }
+    }
+    const placed = await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
+    void rescan($)
+    return { text: placed.isPlaced ? 'Constellation opened.' : `Constellation is open but not drawn: ${placed.reason}` }
+  })
+
+  on('command.run', { command: 'topic' }, async ($, e) => {
+    const name = e.args.trim()
+    if (!name) return { text: await describeTopics($) }
+    await createTopic($, name)
+    const me = await read($, meAtom)
+    return { text: me.topicId ? `This session is in the topic ${name}.` : `Could not join ${name}.` }
+  })
+
+  on('command.run', { command: 'park' }, async ($, e) => {
+    const text = e.args.trim()
+    if (!text) return { text: 'Usage: /park <note>. The note is saved as this session’s handoff note for the next session on its topic.' }
+    await parkNote($, text, 'manual', { quiet: true })
+    return { text: `Parked: “${text}”.` }
+  })
+
+  on('command.run', { command: 'pickup' }, async ($, e) => ({ text: await pickUpStep($, e.args) }))
+
+  on('prompt.submit', async ($, e, next) => {
+    if (e.command || e.isMeta) return next(e)
+    const me = await read($, meAtom)
+    const settings = await read($, settingsAtom)
+    const context = [...(e.context ?? [])]
+    let pendingNote = me.pendingNote
+    if (pendingNote === null && me.topicId === null && !me.isNewTopic && me.prompts === 0 && settings.autoJoin !== 'off') {
+      const { joined } = await suggestFor($, e.text)
+      if (joined) pendingNote = (await read($, meAtom)).pendingNote
+    }
+    if (pendingNote) context.push(pendingNote)
+    await update($, meAtom, m => ({ ...m, prompts: m.prompts + 1, pendingNote: null }))
+    return next(context.length ? { ...e, context } : e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId === undefined && !e.isAborted && e.reason === 'answer') {
+      const settings = await read($, settingsAtom)
+      if (settings.handoffNotes === 'auto') scheduleNote($)
+      else if (settings.handoffNotes === 'ask') await update($, meAtom, m => ({ ...m, askNote: true }))
+      scheduleRescan($)
+    }
+    return next(e)
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const n = await read($, revision)
-    return (
-      <Box flexDirection="column" padding={1}>
-        <Text weight="semibold">Constellation</Text>
-        <Text dimColor>Scaffold build (revision {n}). The topic map lands in Phase 1; see PLAN.md.</Text>
-      </Box>
-    )
+    const view = await viewOf($, e.surface)
+    return drawPane(tableOf($, e), view, actionsFor($))
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+    const view = await viewOf($, e.surface)
+    const tree = drawBand(tableOf($, e), view, actionsFor($))
+    return tree ?? next(e)
+  })
+
+  on('ui.focus', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const key = e.element ?? ''
+    const m = /^(?:t|j|a|rel):(.+)$/.exec(key)
+    const hover = m?.[1] ?? null
+    await update($, uiAtom, u => (u.hover === hover ? u : { ...u, hover }))
+    return next(e)
+  })
+
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    if (e.origin.kind !== 'person') return next(e)
+    const ui = await read($, uiAtom)
+    const backed = backedOut(ui)
+    if (!backed) return next(e)
+    await update($, uiAtom, () => backed)
+    return { value: undefined }
   })
 }
