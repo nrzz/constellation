@@ -36,7 +36,12 @@ export type StoreData = {
   notes: Record<string, NoteRecord>
   archived: Record<string, true>
   pins: Record<string, true>
+  /** Names the model wrote for auto topics, by topic id. */
   titles: Record<string, string>
+  /** A topic's standing objective, by topic id; travels with every handoff. */
+  goals: Record<string, string>
+  /** When the map was last opened per slug, for the "since your last look" digest. */
+  seen: Record<string, number>
 }
 
 export type MapSettings = {
@@ -66,6 +71,12 @@ export type UiState = {
   showSettings: boolean
   moveMode: boolean
   messageMode: boolean
+  /** Which inline field the topic card shows. */
+  editing: 'rename' | 'goal' | null
+  /** The topic being merged into another, while picking the target. */
+  mergeFrom: string | null
+  /** The "since your last look" line, until dismissed. */
+  digest: string | null
   toast: ToastState | null
 }
 
@@ -88,6 +99,9 @@ export type ScanState = { isScanning: boolean; at: number; root: string; error: 
 /** The store before the last reversible change, with the toast's label. */
 export type UndoState = { label: string; store: StoreData }
 
+/** What the mod has spent on the model this session. */
+export type UsageState = { calls: number; inputTokens: number; outputTokens: number }
+
 declare module 'claude-code' {
   interface PluginState {
     constellation: {
@@ -98,6 +112,7 @@ declare module 'claude-code' {
       me: Shaped<MeState>
       scan: Shaped<ScanState>
       undo: Shaped<UndoState | null>
+      usage: Shaped<UsageState>
     }
   }
 }

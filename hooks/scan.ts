@@ -8,6 +8,8 @@
 // keeps its cached summary flagged `large`, or becomes a stub.
 import type { EngineInterface, FsEntry } from 'claude-code'
 
+import type { SessionSummary } from '../types'
+
 /** `$.fs.read` rejects a file over this many bytes. */
 export const LARGE_BYTES = 4 * 1024 * 1024
 const TITLE_CHARS = 60
@@ -16,34 +18,7 @@ const ANSWER_CHARS = 300
 const FILES_MAX = 40
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
-/** What the map keeps of one session: small, since the store holds 4 MiB in all. */
-export type SessionSummary = {
-  id: string
-  /** The folder the session ran in, as the transcript spells it. */
-  cwd: string
-  /** The folder's slug: `cwd` with every non-alphanumeric character as `-`. */
-  slug: string
-  /** The git branch of the last row that named one ('' when none, 'HEAD' when detached). */
-  branch: string
-  /** The first typed prompt (meta rows and slash commands skipped), cut to 200 chars. */
-  firstPrompt: string
-  /** The transcript's `summary` line, else the first prompt cut to 60 chars. */
-  title: string
-  /** Milliseconds since the epoch of the first and last conversation row. */
-  startedAt: number
-  lastAt: number
-  /** Typed prompts. */
-  turns: number
-  /** `file_path` of Edit/Write/MultiEdit tool uses, cwd-relative, deduped, at most 40. */
-  filesTouched: string[]
-  /** The last assistant text, cut to 300 chars. */
-  lastAssistantText: string
-  /** The file's size and mtime when it was read: the cache key. */
-  size: number
-  mtimeMs: number
-  /** True when the transcript is over 4 MiB and the summary is cached or a stub. */
-  large?: true
-}
+export type { SessionSummary }
 
 /** A transcript read and found to hold no conversation row yet: cached so it is not re-read. */
 export type EmptyMarker = { id: string; size: number; mtimeMs: number; isEmpty: true }

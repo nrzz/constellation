@@ -8,11 +8,12 @@
 // touches `$`.
 import type { Elements, RenderElement } from 'claude-code'
 
-import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, UNSORTED_ID, ageOf, latestOf, orderChain } from './cluster'
+import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, latestOf, orderChain } from './cluster'
 import type { Link, Model, SessionView, Topic } from './cluster'
 import { ANCHOR_Y, FIELD_H, FIELD_W, FOCUS_PILL, anchorPositions, chainPositions, satellitePosition, starPath } from './layout'
 import type { PlacedTopic, Point } from './layout'
-import type { MeState, MapSettings, UiState } from '../types'
+import { durationOf } from './state'
+import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
 
 export const BG = '#0B0E13'
 export const PANEL = '#10141A'
@@ -32,8 +33,11 @@ export type View = {
   ui: UiState
   me: MeState
   settings: MapSettings
+  usage: UsageState
   now: number
   surface: string
+  /** This session's own handoff note, when one is parked. */
+  myNote?: NoteRecord
 }
 
 export function esc(text: string): string {
@@ -48,7 +52,7 @@ export function rgba(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
 }
 
-function clip(text: string, max: number): string {
+export function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
 }
 
@@ -72,13 +76,13 @@ function wrap2(text: string, width: number): string[] {
 export function matches(query: string, s: SessionView): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return `${s.title} ${s.firstPrompt} ${s.note?.text ?? ''} ${s.filesTouched.join(' ')}`.toLowerCase().includes(q)
+  return `${s.title} ${s.firstPrompt} ${s.note?.text ?? ''} ${s.lastAssistantText} ${s.filesTouched.join(' ')} ${s.branch}`.toLowerCase().includes(q)
 }
 
 export function topicMatches(query: string, t: Topic): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return t.name.toLowerCase().includes(q) || t.sessions.some(s => matches(query, s))
+  return t.name.toLowerCase().includes(q) || (t.goal ?? '').toLowerCase().includes(q) || t.sessions.some(s => matches(query, s))
 }
 
 export function relatedOf(links: readonly Link[], topicId: string): { id: string; via: string }[] {
@@ -121,19 +125,18 @@ export function stepNumber(view: View, topic: Topic, sessionId: string): number 
   return chainOf(view, topic).findIndex(s => s.id === sessionId) + 1
 }
 
-/** The step this session will be when it joins `topic`. */
-export function joinStep(view: View, topic: Topic): number {
-  return view.settings.numbering === 'newestFirst' ? 1 : topic.sessions.filter(s => s.isInRange).length + 1
-}
-
 export function hintOf(view: View): string {
   const { ui, model } = view
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
   if (focus) {
-    if (ui.selected) return 'Pick up here takes its note · 1–9 select a step · Esc back'
+    if (ui.selected) return 'u picks up its note · 1–9 select a step · Esc back'
     const n = chainOf(view, focus).length
     if (view.me.topicId === focus.id) return `${focus.name} · you are step ${stepNumber(view, focus, 'you')} · pick an earlier step for its note`
     return `${focus.name} · ${n} session${n === 1 ? '' : 's'} in order · pick one for its note`
+  }
+  if (ui.mergeFrom) {
+    const t = model.topicById[ui.mergeFrom]
+    return `Merging ${clip(t?.name ?? '', 30)}: pick the topic to merge it into`
   }
   if (ui.moveMode && ui.selected) {
     const s = model.byId[ui.selected]
@@ -167,7 +170,6 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     `.t:hover .ln{opacity:.75}`,
     `svg:has(.t:hover) .t:not(:hover){opacity:.3}`,
     `svg:has(.t:hover) .x{opacity:.35}`,
-    `.n:hover .tip{opacity:1}`,
     `text{font-family:${SANS}}`,
     `.mono{font-family:${MONO}}`,
   ]
@@ -192,7 +194,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   if (!focus) {
     const traced = ui.hover && model.topicById[ui.hover] ? ui.hover : null
     const related = new Set<string>(traced ? relatedOf(model.links, traced).map(r => r.id) : [])
-    const dropTarget = ui.moveMode && ui.selected ? model.byId[ui.selected]?.topicId : undefined
+    const dropSource = ui.mergeFrom ?? (ui.moveMode && ui.selected ? model.byId[ui.selected]?.topicId : undefined)
     for (const l of model.links) {
       const a = placed[l.a]
       const b = placed[l.b]
@@ -215,7 +217,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       if (traced) opacity = isTraced ? 1 : isRelated ? 0.8 : 0.3
       if (!topicMatches(query, t)) opacity = Math.min(opacity, 0.25)
       if (t.sessions.length > 0 && !t.sessions.some(s => s.isInRange)) opacity = Math.min(opacity, 0.4)
-      const isDrop = dropTarget !== undefined && dropTarget !== t.id
+      const isDrop = dropSource !== undefined && dropSource !== t.id
       const countLabel = query ? `${t.sessions.filter(s => matches(query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
       css.push(`.t-${i}:hover .ln{stroke:${t.color}}`, `.t-${i}:hover .sat{r:10px}`)
       for (const r of relatedOf(model.links, t.id)) {
@@ -224,14 +226,15 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       }
       const g: string[] = [`<g class="t t-${i}" opacity="${opacity.toFixed(2)}">`]
       const sessions = t.sessions.slice(0, maxSessions)
+      const half = t.isMajor ? pillWidth(t.name, countLabel) / 2 : undefined
       sessions.forEach((s, k) => {
-        const sp = satellitePosition(p, t.id, k, t.isMajor)
+        const sp = satellitePosition(p, t.id, k, t.isMajor, half)
         if (s.isInRange) {
           g.push(`<line class="ln" x1="${p.x}" y1="${p.y}" x2="${sp.x.toFixed(1)}" y2="${sp.y.toFixed(1)}" stroke="${isTraced ? t.color : '#2E3644'}" stroke-width="${isTraced ? 1.2 : 1}" opacity="${isTraced ? 0.75 : traced ? 0.35 : 0.8}"/>`)
         }
       })
       sessions.forEach((s, k) => {
-        const sp = satellitePosition(p, t.id, k, t.isMajor)
+        const sp = satellitePosition(p, t.id, k, t.isMajor, half)
         const isSel = ui.selected === s.id
         const isMatch = matches(query, s)
         let r = isTraced ? 5 : t.isMajor ? 3.5 : 2.5
@@ -305,9 +308,16 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const ring = isYou ? ACCENT : status === 'archived' ? DIM : color
       const dash = isYou || status === 'archived' ? ' stroke-dasharray="4 3"' : ''
       const op = isYou || (s && matches(query, s)) ? 1 : 0.25
+      const isTight = steps.length >= 5
       const title = isYou ? 'This session · you' : (s?.title ?? '')
-      const meta = isYou ? 'now · you' : s ? sessionMeta(s, now, isLatest ? 'latest' : '') : ''
-      const lines = wrap2(title, 22)
+      const meta = isYou
+        ? 'now · you'
+        : s
+          ? isTight
+            ? [`${ageOf(s.lastAt, now)} ago`, `${s.turns} turns`, ...(isLatest ? ['latest'] : [])].join(' · ')
+            : sessionMeta(s, now, isLatest ? 'latest' : '')
+          : ''
+      const lines = wrap2(title, isTight ? 17 : 22)
       const tip = withTooltips && s && !isYou ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
       const g: string[] = [`<g class="n hit" opacity="${op.toFixed(2)}">${tip}`]
       if (isLatest) g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="21" fill="${rgba(color, 0.22)}"/>`)
@@ -317,7 +327,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const ty = pt.y + 32
       const labelColor = isYou ? ACCENT : isSel ? TEXT : status === 'archived' ? MUTED : LABEL
       g.push(`<text x="${pt.x.toFixed(1)}" y="${ty}" font-size="11.5" fill="${labelColor}" text-anchor="middle">${lines.map((l, k) => `<tspan x="${pt.x.toFixed(1)}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)
-      g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${ty + lines.length * 14}" font-size="10.5" fill="${isLatest ? color : MUTED}" text-anchor="middle">${esc(clip(meta, 34))}</text>`)
+      g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${ty + lines.length * 14}" font-size="10.5" fill="${isLatest ? color : MUTED}" text-anchor="middle">${esc(clip(meta, isTight ? 27 : 34))}</text>`)
       g.push('</g>')
       parts.push(g.join(''))
     })
@@ -332,6 +342,9 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       `<text x="${(x + 28).toFixed(1)}" y="${FOCUS_PILL.y + 4.5}" font-size="13" font-weight="600" fill="${TEXT}">${esc(clip(focus.name, 28))}</text>`,
       `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${FOCUS_PILL.y + 4}" font-size="11" font-weight="500" fill="${color}" text-anchor="end">${esc(countLabel)}</text>`,
     )
+    if (focus.goal) {
+      parts.push(`<text x="${FOCUS_PILL.x}" y="408" font-size="11.5" fill="${LABEL}" text-anchor="middle"><tspan class="mono" fill="${MUTED}">GOAL</tspan>  ${esc(clip(focus.goal, 96))}</text>`)
+    }
     if (steps.length === 0) {
       parts.push(`<text x="430" y="262" font-size="12.5" fill="${MUTED}" text-anchor="middle">No sessions in the time range. Widen the range, or pin one.</text>`)
     }
@@ -421,6 +434,7 @@ export type Actions = {
   dismissBand: () => void
   pickUp: (sessionId: string) => void
   pickUpLatest: (topicId: string) => void
+  draft: (sessionId: string | null) => void
   parkPrompt: () => void
   park: (text: string) => void
   skipNote: () => void
@@ -432,8 +446,15 @@ export type Actions = {
   tidy: (topicId: string) => void
   moveMode: (on: boolean) => void
   moveTo: (topicId: string) => void
+  edit: (kind: UiState['editing']) => void
+  rename: (topicId: string, name: string) => void
+  setGoal: (topicId: string, goal: string) => void
+  setColor: (topicId: string, color: string) => void
+  mergeMode: (topicId: string | null) => void
+  mergeInto: (targetId: string) => void
   undo: () => void
   dismissToast: () => void
+  dismissDigest: () => void
   back: () => void
 }
 
@@ -443,6 +464,8 @@ const RANGE_OPTIONS = [
   { value: '30', label: 'Last 30d' },
   { value: String(ALL_TIME_DAYS), label: 'All time' },
 ]
+
+const COLOR_OPTIONS = PALETTE.map((hex, i) => ({ value: hex, label: ['Amber', 'Violet', 'Mint', 'Sky', 'Rose'][i] ?? hex }))
 
 function crumbOf(view: View): string {
   const { model, ui, me } = view
@@ -465,20 +488,30 @@ export function drawHeader(T: Table, view: View, act: Actions): RenderElement {
   const { Box, Text, Button, Input, Select } = T
   const { ui } = view
   return (
-    <Box flexDirection="row" alignItems="center" gap="sm" flexWrap="wrap">
-      <Box flexDirection="column">
-        <Text weight="semibold" mono>
-          CONSTELLATION
-        </Text>
-        <Text dimColor size="footnote" wrap="truncate">
-          {crumbOf(view)}
-        </Text>
+    <Box flexDirection="column" gap="xs">
+      <Box flexDirection="row" alignItems="center" gap="sm" flexWrap="wrap">
+        <Box flexDirection="column">
+          <Text weight="semibold" mono>
+            CONSTELLATION
+          </Text>
+          <Text dimColor size="footnote" wrap="truncate">
+            {crumbOf(view)}
+          </Text>
+        </Box>
+        {Input ? <Input key="q" placeholder="Search sessions, notes, files" value={ui.query} submitLabel="search" onInput={v => act.setQuery(v)} onSubmit={v => act.setQuery(v)} /> : null}
+        {Select ? <Select key="range" options={RANGE_OPTIONS} value={String(view.settings.rangeDays)} onSelect={v => act.setRange(Number(v))} /> : null}
+        <Button key="view:map" label="Map" hotkey="m" variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
+        <Button key="view:list" label="List" hotkey="l" variant={ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />
+        <Button key="settings" label={ui.showSettings ? 'Done' : 'Settings'} hotkey="s" onPress={() => act.toggleSettings()} />
       </Box>
-      {Input ? <Input key="q" placeholder="Search sessions and notes" value={ui.query} submitLabel="search" onInput={v => act.setQuery(v)} onSubmit={v => act.setQuery(v)} /> : null}
-      {Select ? <Select key="range" options={RANGE_OPTIONS} value={String(view.settings.rangeDays)} onSelect={v => act.setRange(Number(v))} /> : null}
-      <Button key="view:map" label="Map" variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
-      <Button key="view:list" label="List" variant={ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />
-      <Button key="settings" label={ui.showSettings ? 'Done' : 'Settings'} onPress={() => act.toggleSettings()} />
+      {ui.digest ? (
+        <Box flexDirection="row" gap="sm" alignItems="center">
+          <Text dimColor size="footnote">
+            {ui.digest}
+          </Text>
+          <Button key="digest:ok" label="OK" plain dimColor onPress={() => act.dismissDigest()} />
+        </Box>
+      ) : null}
     </Box>
   )
 }
@@ -489,13 +522,20 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
   const { model, ui } = view
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
   if (!focus) {
+    const isPicking = ui.mergeFrom !== null || ui.moveMode
     return (
       <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
         {model.topics.map(t => (
-          <Button key={`t:${t.id}`} plain={ui.moveMode ? undefined : true} dimColor={!t.isMajor} onPress={() => (ui.moveMode ? act.moveTo(t.id) : act.focusTopic(t.id))}>
+          <Button
+            key={`t:${t.id}`}
+            plain={isPicking ? undefined : true}
+            dimColor={!t.isMajor}
+            onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(t.id))}
+          >
             <Text color={t.color}>●</Text> {clip(t.name, 28)} <Text dimColor mono>{String(t.sessions.length)}</Text>
           </Button>
         ))}
+        {ui.mergeFrom !== null ? <Button key="merge:cancel" label="Cancel merge" onPress={() => act.mergeMode(null)} /> : null}
         {ui.moveMode ? <Button key="move:cancel" label="Cancel move" onPress={() => act.moveMode(false)} /> : null}
       </Box>
     )
@@ -505,7 +545,7 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
   return (
     <Box flexDirection="column" gap="xs">
       <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-        <Button key="back" label="‹ All topics" onPress={() => act.back()} />
+        <Button key="back" label="‹ All topics" hotkey="b" onPress={() => act.back()} />
         {steps.map((s, i) => (
           <Button
             key={`s:${s.id}`}
@@ -556,12 +596,17 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
         const steps = isOpen ? chainOf(view, t).filter(s => s.isYou || (s.session && matches(query, s.session))) : []
         return (
           <Box key={`row:${t.id}`} flexDirection="column" borderStyle="round" borderColor={isOpen ? t.color : CARD_BORDER} paddingX={1}>
-            <Button key={`t:${t.id}`} plain onPress={() => act.focusTopic(isOpen ? null : t.id)}>
+            <Button key={`t:${t.id}`} plain onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(isOpen ? null : t.id))}>
               <Text color={t.color}>●</Text> <Text weight="medium">{clip(t.name, 40)}</Text>{' '}
               <Text dimColor mono>
                 {`${t.id === UNSORTED_ID ? 'unsorted' : t.isMajor ? 'major' : 'minor'} · ${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.sessions.length ? ` · ${ageOf(t.lastAt, now)} ago` : ''}${view.me.topicId === t.id ? ' · you' : ''} ${isOpen ? '▾' : '▸'}`}
               </Text>
             </Button>
+            {isOpen && t.goal ? (
+              <Text dimColor size="footnote">
+                {`Goal: ${clip(t.goal, 120)}`}
+              </Text>
+            ) : null}
             {steps.map((s, i) => (
               <Button
                 key={`s:${s.id}`}
@@ -583,6 +628,8 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
           </Box>
         )
       })}
+      {ui.mergeFrom !== null ? <Button key="merge:cancel" label="Cancel merge" onPress={() => act.mergeMode(null)} /> : null}
+      {ui.moveMode ? <Button key="move:cancel" label="Cancel move" onPress={() => act.moveMode(false)} /> : null}
     </Box>
   )
 }
@@ -600,6 +647,15 @@ const SETTING_ROWS: { key: keyof MapSettings; label: string; help: string; optio
   { key: 'useModelForTitles', label: 'Topic names', help: 'name auto topics with haiku', options: [{ value: false, label: 'Frequent words' }, { value: true, label: 'Model' }] },
   { key: 'openOnStart', label: 'On session start', help: 'what shows when a session begins', options: [{ value: 'band', label: 'Band' }, { value: 'pane', label: 'Pane' }, { value: 'none', label: 'Nothing' }] },
 ]
+
+function tokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+
+export function usageLine(usage: UsageState, settings: MapSettings): string {
+  const path = settings.handoffNotes !== 'auto' && !settings.useModelForTitles ? 'zero-token settings' : settings.handoffNotes === 'auto' ? 'one haiku call per turn for notes' : 'haiku only for topic names'
+  return `Model use this session: ${usage.calls} haiku call${usage.calls === 1 ? '' : 's'} · ${tokens(usage.inputTokens)} in · ${tokens(usage.outputTokens)} out · ${path}`
+}
 
 export function drawSettings(T: Table, view: View, act: Actions): RenderElement {
   const { Box, Text, Button } = T
@@ -625,6 +681,9 @@ export function drawSettings(T: Table, view: View, act: Actions): RenderElement 
           })}
         </Box>
       ))}
+      <Text dimColor size="footnote">
+        {usageLine(view.usage, view.settings)}
+      </Text>
     </Box>
   )
 }
@@ -657,7 +716,7 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
   if (where === 'pane') {
     rows.push(
       <Text dimColor size="footnote">
-        This folder holds every topic below. The suggestion comes from matching your first prompt against each topic's titles, notes and files. Confirm it or pick another.
+        This folder holds every topic below. The suggestion comes from matching your first prompt against each topic's titles, goal, notes and files. Confirm it or pick another.
       </Text>,
     )
   }
@@ -673,40 +732,41 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
           </Button>
         )
       })}
-      <Button key="j:new" label="+ New topic" onPress={() => act.newTopic()} />
+      <Button key="j:new" label="+ New topic" hotkey="n" onPress={() => act.newTopic()} />
       {where === 'band' ? <Button key="j:dismiss" label="Dismiss" role="dismiss" onPress={() => act.dismissBand()} /> : null}
     </Box>,
   )
   rows.push(
     <Text dimColor size="footnote">
       {where === 'pane'
-        ? "Choosing a topic makes this session its next numbered step and adds that topic's latest handoff note to your context. Nothing is chosen for you unless auto-join is on."
-        : 'Joining adds the topic’s latest handoff note to your next prompt · /map opens the map'}
+        ? "Choosing a topic makes this session its next numbered step and adds that topic's goal and latest handoff note to your next prompt. Nothing is chosen for you unless auto-join is on."
+        : 'Joining adds the topic’s goal and latest handoff note to your next prompt · /map opens the map'}
     </Text>,
   )
   return card(T, rows, rgba(ACCENT, 0.45))
 }
 
 export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElement {
-  const { Box, Text, Button } = T
+  const { Box, Text, Button, Input } = T
   const { model, me } = view
   const topic = me.topicId ? model.topicById[me.topicId] : undefined
   const latest = topic ? latestOf(topic.sessions) : undefined
   const step = topic ? stepNumber(view, topic, 'you') : 1
-  const title = topic ? `This session is step ${step} of ${topic.name}` : 'This session starts a new topic'
+  const title = topic ? `This session is step ${step} of ${topic.name}` : me.isNewTopic ? 'This session starts a new topic' : 'This session has no topic'
   const summary = latest
     ? `Handoff note from “${clip(latest.title, 48)}” (${ageOf(latest.lastAt, view.now)} ago)${me.pendingNote ? ' goes into your next prompt' : ' is in your context'}: ${clip(noteText(latest) || '(no note yet)', 220)}`
     : topic
       ? 'No earlier session here yet. Your handoff note will be the first.'
       : 'Name it below or with /topic <name>. It appears on the map with its first handoff note.'
-  const { Input } = T
   const naming = !topic && me.isNewTopic
   return card(T, [
     <Box flexDirection="row" gap="sm" alignItems="center">
       <Text color={ACCENT} mono weight="semibold">{`[${step}]`}</Text>
       <Text weight="medium">{title}</Text>
     </Box>,
+    topic?.goal ? <Text dimColor>{`Goal: ${clip(topic.goal, 200)}`}</Text> : null,
     <Text dimColor>{summary}</Text>,
+    view.myNote ? <Text dimColor>{`Your handoff note (${view.myNote.source === 'auto' ? 'written after your last turn' : 'parked'}): ${clip(view.myNote.text, 220)}`}</Text> : null,
     naming && Input ? (
       <Box flexDirection="row" gap="xs" alignItems="center">
         <Input key="topicname" placeholder="Name this topic" submitLabel="create" onSubmit={name => act.createTopic(name)} autoFocus />
@@ -720,9 +780,10 @@ export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElemen
       </Box>
     ) : null,
     <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      {topic ? <Button key="c:focus" label="Focus my topic" variant="primary" onPress={() => act.focusTopic(topic.id)} /> : null}
-      <Button key="c:change" label="Change topic" onPress={() => act.changeTopic()} />
-      {!me.askNote ? <Button key="c:park" label="Park a note" onPress={() => act.parkPrompt()} /> : null}
+      {topic ? <Button key="c:focus" label="Focus my topic" hotkey="f" variant="primary" onPress={() => act.focusTopic(topic.id)} /> : null}
+      {latest ? <Button key="c:draft" label="Draft next prompt" hotkey="d" onPress={() => act.draft(null)} /> : null}
+      <Button key="c:change" label="Change topic" hotkey="c" onPress={() => act.changeTopic()} />
+      {!me.askNote ? <Button key="c:park" label="Park a note" hotkey="p" onPress={() => act.parkPrompt()} /> : null}
     </Box>,
     <Text dimColor size="footnote">
       Hover or Tab onto a topic to trace it, Enter or click to focus. Select a session, then Move to topic, to move it.
@@ -731,9 +792,10 @@ export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElemen
 }
 
 export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic): RenderElement {
-  const { Box, Text, Button } = T
+  const { Box, Text, Button, Input, Select } = T
   const { model, ui, now } = view
   const isFocused = ui.focusTopic === topic.id
+  const isUnsorted = topic.id === UNSORTED_ID
   const idle = topic.sessions.filter(s => s.status === 'idle')
   const shipped = topic.sessions.filter(s => s.status === 'archived').length
   const latest = latestOf(topic.sessions)
@@ -744,11 +806,24 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
       <Text color={topic.color}>●</Text>
       <Text weight="medium">{topic.name}</Text>
       <Text dimColor mono size="footnote">
-        {topic.id === UNSORTED_ID ? 'UNSORTED' : topic.isMajor ? 'MAJOR' : 'MINOR'}
+        {isUnsorted ? 'UNSORTED' : topic.isMajor ? 'MAJOR' : 'MINOR'}
       </Text>
       <Text dimColor mono size="footnote">{`${topic.sessions.length} sessions · ${idle.length} idle · ${shipped} shipped`}</Text>
     </Box>,
-    <Text>{latest ? `Latest: ${clip(latest.title, 60)} (${ageOf(latest.lastAt, now)} ago). ${clip(noteText(latest), 220)}` : 'No sessions yet.'}</Text>,
+    !isUnsorted ? <Text dimColor>{topic.goal ? `Goal: ${clip(topic.goal, 200)}` : 'No goal yet. A goal travels with every handoff on this topic.'}</Text> : null,
+    <Text>{latest ? `Latest: ${clip(latest.title, 60)} (${ageOf(latest.lastAt, now)} ago). ${clip(noteText(latest), 220)}` : isUnsorted ? 'Sessions nothing else claimed. Select one and Move to topic to file it.' : 'No sessions yet.'}</Text>,
+    ui.editing === 'rename' && Input && !isUnsorted ? (
+      <Box flexDirection="row" gap="xs" alignItems="center">
+        <Input key="rename" value={topic.name} placeholder="Topic name" submitLabel="rename" onSubmit={name => act.rename(topic.id, name)} autoFocus />
+        <Button key="rename:cancel" label="Cancel" onPress={() => act.edit(null)} />
+      </Box>
+    ) : null,
+    ui.editing === 'goal' && Input && !isUnsorted ? (
+      <Box flexDirection="row" gap="xs" alignItems="center">
+        <Input key="goal" value={topic.goal ?? ''} placeholder="What this topic is for, in a sentence" submitLabel="save" onSubmit={goal => act.setGoal(topic.id, goal)} autoFocus />
+        <Button key="goal:cancel" label="Cancel" onPress={() => act.edit(null)} />
+      </Box>
+    ) : null,
     <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
       <Text dimColor mono size="footnote">
         RELATED
@@ -763,12 +838,20 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
         ) : null
       })}
     </Box>,
-    <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} variant="primary" onPress={() => (isFocused ? act.back() : act.focusTopic(topic.id))} />
-      {latest ? <Button key="tc:pickup" label="Pick up latest" onPress={() => act.pickUpLatest(topic.id)} /> : null}
+    <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
+      <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} hotkey="f" variant="primary" onPress={() => (isFocused ? act.back() : act.focusTopic(topic.id))} />
+      {latest ? <Button key="tc:pickup" label="Pick up latest" hotkey="u" onPress={() => act.pickUpLatest(topic.id)} /> : null}
+      {view.me.topicId !== topic.id && !isUnsorted ? <Button key="tc:join" label="Join this topic" hotkey="j" onPress={() => act.join(topic.id)} /> : null}
       <Button key="tc:tidy" label={tidyTargets.length ? `Archive ${tidyTargets.length} idle` : 'Nothing to tidy'} dimColor={tidyTargets.length === 0} onPress={() => act.tidy(topic.id)} />
-      {view.me.topicId !== topic.id && topic.id !== UNSORTED_ID ? <Button key="tc:join" label="Join this topic" onPress={() => act.join(topic.id)} /> : null}
     </Box>,
+    !isUnsorted ? (
+      <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
+        {Input ? <Button key="tc:rename" label="Rename" hotkey="r" onPress={() => act.edit(ui.editing === 'rename' ? null : 'rename')} /> : null}
+        {Input ? <Button key="tc:goal" label={topic.goal ? 'Edit goal' : 'Set goal'} hotkey="g" onPress={() => act.edit(ui.editing === 'goal' ? null : 'goal')} /> : null}
+        <Button key="tc:merge" label="Merge into…" hotkey="e" onPress={() => act.mergeMode(topic.id)} />
+        {Select ? <Select key={`color:${topic.id}`} label="Colour" options={COLOR_OPTIONS} value={PALETTE.includes(topic.color as (typeof PALETTE)[number]) ? topic.color : undefined} onSelect={hex => act.setColor(topic.id, hex)} /> : null}
+      </Box>
+    ) : null,
     <Text dimColor size="footnote">
       {isFocused ? 'Numbers follow time order. The glowing number is the latest session.' : 'Focus the topic to see its sessions in order.'}
     </Text>,
@@ -788,9 +871,14 @@ export function drawSessionCard(T: Table, view: View, act: Actions, s: SessionVi
       <Text color={s.status === 'active' ? color : MUTED} mono size="footnote">
         {s.status.toUpperCase()}
       </Text>
+      {s.large ? (
+        <Text dimColor mono size="footnote">
+          LARGE TRANSCRIPT
+        </Text>
+      ) : null}
     </Box>,
     <Text dimColor mono size="footnote">
-      {sessionMeta(s, now, topic ? `in ${topic.name}` : '')}
+      {sessionMeta(s, now, `ran ${durationOf(s.lastAt - s.startedAt)}${topic ? ` · in ${topic.name}` : ''}`)}
     </Text>,
     <Text dimColor mono size="footnote">
       HANDOFF NOTE
@@ -815,12 +903,13 @@ export function drawSessionCard(T: Table, view: View, act: Actions, s: SessionVi
   }
   rows.push(
     <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      <Button key="sc:pickup" label="Pick up here" variant="primary" onPress={() => act.pickUp(s.id)} />
-      {Input ? <Button key="sc:message" label="Message" onPress={() => act.messageMode(!ui.messageMode)} /> : null}
-      <Button key="sc:new" label="New session from here" onPress={() => act.newSession(s.id)} />
-      <Button key="sc:pin" label={s.isPinned ? 'Unpin' : 'Pin'} onPress={() => act.pin(s.id)} />
-      <Button key="sc:move" label={ui.moveMode ? 'Cancel move' : 'Move to topic'} onPress={() => act.moveMode(!ui.moveMode)} />
-      <Button key="sc:archive" label={s.status === 'archived' ? 'Unarchive' : 'Archive'} onPress={() => act.archive(s.id)} />
+      <Button key="sc:pickup" label="Pick up here" hotkey="u" variant="primary" onPress={() => act.pickUp(s.id)} />
+      <Button key="sc:draft" label="Draft prompt" hotkey="d" onPress={() => act.draft(s.id)} />
+      {Input ? <Button key="sc:message" label="Message" hotkey="t" onPress={() => act.messageMode(!ui.messageMode)} /> : null}
+      <Button key="sc:new" label="New session from here" hotkey="n" onPress={() => act.newSession(s.id)} />
+      <Button key="sc:pin" label={s.isPinned ? 'Unpin' : 'Pin'} hotkey="p" onPress={() => act.pin(s.id)} />
+      <Button key="sc:move" label={ui.moveMode ? 'Cancel move' : 'Move to topic'} hotkey="v" onPress={() => act.moveMode(!ui.moveMode)} />
+      <Button key="sc:archive" label={s.status === 'archived' ? 'Unarchive' : 'Archive'} hotkey="x" onPress={() => act.archive(s.id)} />
     </Box>,
   )
   return card(T, rows, ui.selected === s.id ? rgba(color, 0.45) : CARD_BORDER)
@@ -834,7 +923,7 @@ export function drawToast(T: Table, view: View, act: Actions): RenderElement | n
     <Box flexDirection="row" gap="sm" alignItems="center" borderStyle="round" borderColor="#5FD3A6" paddingX={1}>
       <Text color="#5FD3A6">✓</Text>
       <Text>{toast.text}</Text>
-      {toast.hasUndo ? <Button key="toast:undo" label="Undo" onPress={() => act.undo()} /> : null}
+      {toast.hasUndo ? <Button key="toast:undo" label="Undo" hotkey="z" onPress={() => act.undo()} /> : null}
       <Button key="toast:dismiss" label="Dismiss" plain onPress={() => act.dismissToast()} />
     </Box>
   )
@@ -853,17 +942,19 @@ export function drawCard(T: Table, view: View, act: Actions): RenderElement {
 }
 
 /** The pane: header, the field (Svg where the surface has it, else the outline), its controls, the card and the toast. */
-export function drawPane(T: Table, view: View, act: Actions): RenderElement {
+export function drawPane(T: Table, view: View, act: Actions, field?: RenderElement): RenderElement {
   const { Box, Text, Svg } = T
   const { ui } = view
-  const isMap = ui.view === 'map' && Svg !== undefined
+  const isSvgMap = ui.view === 'map' && Svg !== undefined
+  const isClientMap = ui.view === 'map' && Svg === undefined && field !== undefined
   const toast = drawToast(T, view, act)
   return (
     <Box flexDirection="column" gap="xs">
       {drawHeader(T, view, act)}
-      {isMap && Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null}
-      {isMap ? drawControls(T, view, act) : drawList(T, view, act)}
-      {!Svg && ui.view === 'map' ? (
+      {isSvgMap && Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null}
+      {isClientMap ? field : null}
+      {isSvgMap || isClientMap ? drawControls(T, view, act) : drawList(T, view, act)}
+      {!Svg && ui.view === 'map' && !field ? (
         <Text dimColor size="footnote">
           This surface draws no vector field: the outline above is the map. Hotkeys 1–9 select a step.
         </Text>

@@ -12,7 +12,8 @@ export const ANCHOR_Y = 470
 export const ANCHOR_GAP = 230
 
 export type Point = { x: number; y: number }
-export type PlacedTopic = Point & { id: string; w: number; h: number }
+/** A topic's place: its anchor (pill centre or dot), its box, and the box's horizontal offset from the anchor (a minor label hangs to one side). */
+export type PlacedTopic = Point & { id: string; w: number; h: number; ox: number }
 
 /** FNV-1a over UTF-16 code units, 32-bit unsigned. */
 export function hashOf(text: string): number {
@@ -35,20 +36,34 @@ export function topicBox(name: string, isMajor: boolean): { w: number; h: number
   return isMajor ? { w: 64 + chars * 7.4, h: 40 } : { w: 40 + chars * 6.6, h: 30 }
 }
 
-const PAD_X = 90
-const PAD_Y = 70
+const PAD_X = 100
+const TOP_Y = 96
+const BOTTOM_Y = 452
 
 /**
- * Places topics: a seeded position per id inside the padded field, then up to
- * 80 rounds of pairwise separation on the axis of least overlap. Deterministic.
+ * Places topics: each takes a cell of a grid that covers the field evenly
+ * (cells dealt in hash order, so the picture is stable for one set of
+ * topics), jittered by its hash, then up to 80 rounds of pairwise
+ * separation on the axis of least overlap. Deterministic.
  */
 export function placeTopics(topics: ReadonlyArray<{ id: string; name: string; isMajor: boolean }>): PlacedTopic[] {
-  const placed: PlacedTopic[] = topics.map(t => {
+  const n = topics.length
+  const cols = Math.max(1, Math.min(5, Math.ceil(Math.sqrt((n * (FIELD_W - 2 * PAD_X)) / (BOTTOM_Y - TOP_Y)))))
+  const rows = Math.max(1, Math.ceil(n / cols))
+  const cellW = (FIELD_W - 2 * PAD_X) / cols
+  const cellH = (BOTTOM_Y - TOP_Y) / rows
+  const dealt = [...topics].sort((a, b) => hashOf(a.id) - hashOf(b.id) || a.id.localeCompare(b.id))
+  const placed: PlacedTopic[] = dealt.map((t, k) => {
     const h = hashOf(t.id)
     const box = topicBox(t.name, t.isMajor)
-    const x = PAD_X + ((h & 0xffff) / 0xffff) * (FIELD_W - 2 * PAD_X)
-    const y = PAD_Y + (((h >>> 16) & 0xffff) / 0xffff) * (FIELD_H - 2 * PAD_Y)
-    return { id: t.id, x, y, w: box.w, h: box.h }
+    const col = k % cols
+    const row = Math.floor(k / cols)
+    const jx = ((h & 0xffff) / 0xffff - 0.5) * cellW * 0.6
+    const jy = (((h >>> 16) & 0xffff) / 0xffff - 0.5) * cellH * 0.6
+    const x = PAD_X + cellW * (col + 0.5) + jx
+    // A minor topic's label hangs right of its dot (left of it past x 700), so its box does too.
+    const ox = t.isMajor ? 0 : x > 700 ? -(box.w / 2 - 14) : box.w / 2 - 14
+    return { id: t.id, x, y: TOP_Y + cellH * (row + 0.5) + jy, w: box.w, h: box.h, ox }
   })
   const gapX = 36
   const gapY = 44
@@ -61,7 +76,7 @@ export function placeTopics(topics: ReadonlyArray<{ id: string; name: string; is
         if (!a || !b) continue
         const needX = (a.w + b.w) / 2 + gapX
         const needY = (a.h + b.h) / 2 + gapY
-        let dx = b.x - a.x
+        let dx = b.x + b.ox - (a.x + a.ox)
         let dy = b.y - a.y
         const overX = needX - Math.abs(dx)
         const overY = needY - Math.abs(dy)
@@ -83,21 +98,31 @@ export function placeTopics(topics: ReadonlyArray<{ id: string; name: string; is
       }
     }
     for (const p of placed) {
-      p.x = Math.min(FIELD_W - p.w / 2 - 10, Math.max(p.w / 2 + 10, p.x))
-      p.y = Math.min(FIELD_H - 40, Math.max(44, p.y))
+      p.x = Math.min(FIELD_W - p.w / 2 - 10 - p.ox, Math.max(p.w / 2 + 10 - p.ox, p.x))
+      p.y = Math.min(BOTTOM_Y, Math.max(TOP_Y, p.y))
     }
     if (!moved) break
   }
-  return placed.map(p => ({ ...p, x: Math.round(p.x), y: Math.round(p.y) }))
+  const byId = new Map(placed.map(p => [p.id, p]))
+  return topics.map(t => {
+    const p = byId.get(t.id)
+    return p ? { ...p, x: Math.round(p.x), y: Math.round(p.y) } : { id: t.id, x: FIELD_W / 2, y: FIELD_H / 2, w: 40, h: 30, ox: 0 }
+  })
 }
 
-/** The i-th satellite of a topic: radius 58 (major) or 40 (minor) plus a 0/14/28 step, angle seed + i·2.399. */
-export function satellitePosition(center: Point, topicId: string, i: number, isMajor: boolean): Point {
+/**
+ * The i-th satellite of a topic: radius 58 (major) or 40 (minor) plus a
+ * 0/14/28 step, angle seed + i·2.399. Given the pill's half width, a major
+ * topic's satellites orbit on an ellipse that clears the pill.
+ */
+export function satellitePosition(center: Point, topicId: string, i: number, isMajor: boolean, halfWidth?: number): Point {
   const a = seedAngle(topicId) + i * 2.399
-  const r = (isMajor ? 58 : 40) + ((i * 37) % 3) * 14
+  const step = ((i * 37) % 3) * 14
+  const rx = isMajor && halfWidth !== undefined ? halfWidth + 26 + step : (isMajor ? 58 : 40) + step
+  const ry = isMajor && halfWidth !== undefined ? 36 + step : rx
   return {
-    x: Math.min(FIELD_W - 24, Math.max(24, center.x + r * Math.cos(a))),
-    y: Math.min(FIELD_H - 24, Math.max(24, center.y + r * Math.sin(a))),
+    x: Math.min(FIELD_W - 24, Math.max(24, center.x + rx * Math.cos(a))),
+    y: Math.min(FIELD_H - 24, Math.max(24, center.y + ry * Math.sin(a))),
   }
 }
 

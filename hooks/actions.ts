@@ -5,28 +5,29 @@
 // the store through `saveStore` (which writes `$.store` and the mirror atom),
 // and leaves a toast. `actionsFor($)` binds them for the drawing.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, PluginOptions, Timer } from 'claude-code'
+import type { EngineInterface, ModelUsage, PluginOptions, Timer } from 'claude-code'
 
 import { UNSORTED_ID, ageOf, buildModel, cleanName, latestOf, orderChain, scoreJoin, topicIdFor } from './cluster'
 import type { Model, SessionView, Topic } from './cluster'
-import { noteText } from './draw'
+import { clip, noteText } from './draw'
 import type { Actions, View } from './draw'
 import { placeTopics } from './layout'
 import type { PlacedTopic } from './layout'
-import { basenameOf, scanProject } from './scan'
-import { DEFAULT_SETTINGS, EMPTY_STORE, INITIAL_ME, INITIAL_SCAN, INITIAL_UI, PANE, resolveSettings, settingValue } from './state'
-import type { MeState, NoteRecord, SessionSummary, MapSettings, StoreData, UiState, UndoState } from '../types'
+import { basenameOf, scanProject, slugOf } from './scan'
+import { DEFAULT_SETTINGS, EMPTY_STORE, INITIAL_ME, INITIAL_SCAN, INITIAL_UI, INITIAL_USAGE, PANE, resolveSettings, settingValue } from './state'
+import type { MapSettings, MeState, NoteRecord, SessionSummary, StoreData, UiState, UndoState, UsageState } from '../types'
 
 // The atoms are declared where they are read, as `claude plugin validate` asks.
 const sessionsAtom = atom({ plugin: 'constellation', key: 'sessions' } as const, [] as SessionSummary[], { shape: 'sessions-1' })
-const storeAtom = atom({ plugin: 'constellation', key: 'store' } as const, EMPTY_STORE, { shape: 'store-1' })
+const storeAtom = atom({ plugin: 'constellation', key: 'store' } as const, EMPTY_STORE, { shape: 'store-2' })
 const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-1' })
-const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-1' })
+const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-2' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
 const scanAtom = atom({ plugin: 'constellation', key: 'scan' } as const, INITIAL_SCAN, { shape: 'scan-1' })
-const undoAtom = atom({ plugin: 'constellation', key: 'undo' } as const, null as UndoState | null, { shape: 'undo-1' })
+const undoAtom = atom({ plugin: 'constellation', key: 'undo' } as const, null as UndoState | null, { shape: 'undo-2' })
+const usageAtom = atom({ plugin: 'constellation', key: 'usage' } as const, INITIAL_USAGE, { shape: 'usage-1' })
 
-const STORE_KEYS = ['topics', 'assign', 'notes', 'archived', 'pins', 'titles'] as const
+const STORE_KEYS = ['topics', 'assign', 'notes', 'archived', 'pins', 'titles', 'goals', 'seen'] as const
 const NOTE_WORDS = 60
 const NOTE_SYSTEM =
   'You write the handoff note a developer leaves for the next Claude Code session on the same topic. ' +
@@ -36,13 +37,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function clip(text: string, max: number): string {
-  const line = text.replace(/\s+/g, ' ').trim()
-  return line.length <= max ? line : `${line.slice(0, max - 1).trimEnd()}…`
-}
-
 export function cloneStore(s: StoreData): StoreData {
-  return { topics: { ...s.topics }, assign: { ...s.assign }, notes: { ...s.notes }, archived: { ...s.archived }, pins: { ...s.pins }, titles: { ...s.titles } }
+  return {
+    topics: { ...s.topics },
+    assign: { ...s.assign },
+    notes: { ...s.notes },
+    archived: { ...s.archived },
+    pins: { ...s.pins },
+    titles: { ...s.titles },
+    goals: { ...s.goals },
+    seen: { ...s.seen },
+  }
 }
 
 /** One store key's value from `$.store`, kept only where it has the shape the key wants. */
@@ -52,8 +57,9 @@ function sanitise(key: (typeof STORE_KEYS)[number], value: unknown): Record<stri
   for (const [id, v] of Object.entries(value)) {
     if (key === 'topics' && isRecord(v) && typeof v.name === 'string') out[id] = { name: v.name, createdAt: typeof v.createdAt === 'number' ? v.createdAt : 0, ...(typeof v.color === 'string' ? { color: v.color } : {}) }
     else if (key === 'notes' && isRecord(v) && typeof v.text === 'string') out[id] = { text: v.text, at: typeof v.at === 'number' ? v.at : 0, source: v.source === 'auto' ? 'auto' : 'manual' }
-    else if ((key === 'assign' || key === 'titles') && typeof v === 'string') out[id] = v
+    else if ((key === 'assign' || key === 'titles' || key === 'goals') && typeof v === 'string') out[id] = v
     else if ((key === 'archived' || key === 'pins') && v === true) out[id] = true
+    else if (key === 'seen' && typeof v === 'number') out[id] = v
   }
   return out
 }
@@ -130,24 +136,36 @@ export function placementOf(model: Model): Record<string, PlacedTopic> {
   return out
 }
 
-export type Snapshot = { sessions: SessionSummary[]; store: StoreData; settings: MapSettings; ui: UiState; me: MeState; now: number; model: Model }
+export type Snapshot = { sessions: SessionSummary[]; store: StoreData; settings: MapSettings; ui: UiState; me: MeState; usage: UsageState; now: number; model: Model }
 
 export async function snapshot($: EngineInterface): Promise<Snapshot> {
-  const [sessions, store, settings, ui, me, now] = await Promise.all([
+  const [sessions, store, settings, ui, me, usage, now] = await Promise.all([
     read($, sessionsAtom),
     read($, storeAtom),
     read($, settingsAtom),
     read($, uiAtom),
     read($, meAtom),
+    read($, usageAtom),
     $.clock.now(),
   ])
-  return { sessions, store, settings, ui, me, now, model: modelOf(sessions, store, settings, now, me) }
+  return { sessions, store, settings, ui, me, usage, now, model: modelOf(sessions, store, settings, now, me) }
 }
 
 /** What a render hook draws from; the reads subscribe the drawing. */
 export async function viewOf($: EngineInterface, surface: string): Promise<View> {
   const snap = await snapshot($)
-  return { model: snap.model, placed: placementOf(snap.model), ui: snap.ui, me: snap.me, settings: snap.settings, now: snap.now, surface }
+  const myNote = snap.store.notes[snap.me.sessionId]
+  return {
+    model: snap.model,
+    placed: placementOf(snap.model),
+    ui: snap.ui,
+    me: snap.me,
+    settings: snap.settings,
+    usage: snap.usage,
+    now: snap.now,
+    surface,
+    ...(myNote ? { myNote } : {}),
+  }
 }
 
 export async function toast($: EngineInterface, text: string, options: { undo?: boolean; quiet?: boolean } = {}): Promise<void> {
@@ -161,6 +179,27 @@ async function patchUi($: EngineInterface, patch: Partial<UiState>): Promise<voi
 
 async function patchMe($: EngineInterface, patch: Partial<MeState>): Promise<void> {
   await update($, meAtom, m => ({ ...m, ...patch }))
+}
+
+async function recordUsage($: EngineInterface, usage: ModelUsage): Promise<void> {
+  await update($, usageAtom, u => ({
+    calls: u.calls + 1,
+    inputTokens: u.inputTokens + usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
+    outputTokens: u.outputTokens + usage.output_tokens,
+  }))
+}
+
+/** The status line: this session's topic and step, while it has one. */
+export async function refreshStatus($: EngineInterface): Promise<void> {
+  const snap = await snapshot($)
+  const topic = snap.me.topicId ? snap.model.topicById[snap.me.topicId] : undefined
+  if (!topic) {
+    $.ui.status(undefined)
+    return
+  }
+  const chain = orderChain(topic.sessions.filter(s => s.isInRange), snap.settings.numbering)
+  const step = snap.settings.numbering === 'newestFirst' ? 1 : chain.length + 1
+  $.ui.status(`◆ ${clip(topic.name, 24)} · step ${step}${snap.store.notes[snap.me.sessionId] ? ' · note ✓' : ''}`)
 }
 
 let scanTimer: Timer | undefined
@@ -213,7 +252,9 @@ export async function bootstrap($: EngineInterface, options: PluginOptions, cwd:
   await update($, meAtom, () => ({ ...INITIAL_ME, sessionId, cwd, folder: basenameOf(cwd.replace(/[\\/]+$/, '')) || cwd, topicId, isBandHidden: topicId !== null }))
   await update($, uiAtom, () => INITIAL_UI)
   await update($, undoAtom, () => null)
+  await update($, usageAtom, () => INITIAL_USAGE)
   await rescan($)
+  await refreshStatus($)
 }
 
 /** The text a join or a pick-up puts beside the next prompt: only Claude reads it. */
@@ -223,6 +264,7 @@ export function handoffText(s: SessionView, topic: Topic | undefined, step: numb
     `[Constellation] Handoff note from the earlier session “${s.title}” (${where}${ageOf(s.lastAt, now)} ago${s.branch ? `, branch ${s.branch}` : ''}):`,
     noteText(s) || '(that session left no note)',
   ]
+  if (topic?.goal) lines.push(`Topic goal: ${topic.goal}`)
   if (s.filesTouched.length) lines.push(`Files it touched: ${s.filesTouched.slice(0, 12).join(', ')}${s.filesTouched.length > 12 ? ', …' : ''}`)
   lines.push('This is background from a previous session on the same topic; the prompt above is what to do now.')
   return lines.join('\n')
@@ -240,8 +282,8 @@ function materialise(store: StoreData, topic: Topic, now: number): void {
   for (const s of topic.sessions) if (!store.assign[s.id]) store.assign[s.id] = topic.id
 }
 
-/** This session joins a topic: next numbered step, the topic's latest note queued for the next prompt. */
-export async function joinTopic($: EngineInterface, topicId: string, options: { quiet?: boolean } = {}): Promise<void> {
+/** This session joins a topic: next numbered step, the topic's goal and latest note queued for the next prompt. */
+export async function joinTopic($: EngineInterface, topicId: string, options: { quiet?: boolean; keepView?: boolean } = {}): Promise<void> {
   const snap = await snapshot($)
   const topic = snap.model.topicById[topicId]
   if (!topic || topicId === UNSORTED_ID) {
@@ -254,14 +296,15 @@ export async function joinTopic($: EngineInterface, topicId: string, options: { 
   await saveStore($, next)
   const latest = latestOf(topic.sessions)
   const step = snap.settings.numbering === 'newestFirst' ? 1 : topic.sessions.filter(s => s.isInRange).length + 1
-  const note = latest ? handoffText(latest, topic, stepOf(snap, topic, latest.id), snap.now) : null
+  const note = latest ? handoffText(latest, topic, stepOf(snap, topic, latest.id), snap.now) : topic.goal ? `[Constellation] Topic goal for ${topic.name}: ${topic.goal}` : null
   await patchMe($, { topicId, suggested: null, isNewTopic: false, isBandHidden: true, pendingNote: note })
-  await patchUi($, { focusTopic: topicId, selected: null, hover: null, moveMode: false })
+  if (!options.keepView) await patchUi($, { focusTopic: topicId, selected: null, hover: null, moveMode: false, mergeFrom: null })
   await toast(
     $,
     `Joined ${topic.name} as step ${step}.${latest ? ` Handoff note from “${clip(latest.title, 40)}” goes into your next prompt.` : ' No earlier note to pick up.'}`,
     { quiet: options.quiet },
   )
+  await refreshStatus($)
 }
 
 /** `/topic <name>` and the chooser's new topic: joins the topic of that name, creating it when new. */
@@ -289,6 +332,7 @@ export async function createTopic($: EngineInterface, rawName: string): Promise<
   await patchMe($, { topicId: id, suggested: null, isNewTopic: false, isBandHidden: true, pendingNote: null })
   await patchUi($, { focusTopic: null, selected: null, hover: null })
   await toast($, `Started the topic ${name}. This session is its first step; later sessions can join it.`)
+  await refreshStatus($)
 }
 
 export async function startNewTopic($: EngineInterface): Promise<void> {
@@ -306,6 +350,7 @@ export async function changeTopic($: EngineInterface): Promise<void> {
   await saveStore($, next)
   await patchMe($, { topicId: null, isNewTopic: false, isBandHidden: false, pendingNote: null })
   await patchUi($, { focusTopic: null, selected: null })
+  await refreshStatus($)
 }
 
 export async function dismissBand($: EngineInterface): Promise<void> {
@@ -324,6 +369,7 @@ export async function parkNote($: EngineInterface, text: string, source: NoteRec
   await saveStore($, next)
   await patchMe($, { askNote: false })
   if (source === 'manual') await toast($, `Parked: “${clip(clean, 80)}”. Saved as this session’s handoff note for the next step.`, { quiet: options.quiet })
+  await refreshStatus($)
 }
 
 export async function askForNote($: EngineInterface): Promise<void> {
@@ -344,7 +390,7 @@ export async function pickUp($: EngineInterface, sessionId: string): Promise<voi
   }
   const topic = snap.model.topicById[s.topicId]
   if (snap.me.topicId === null && topic && topic.id !== UNSORTED_ID) {
-    await joinTopic($, topic.id, { quiet: true })
+    await joinTopic($, topic.id, { quiet: true, keepView: true })
   }
   const note = handoffText(s, topic && topic.id !== UNSORTED_ID ? topic : undefined, topic ? stepOf(snap, topic, s.id) : undefined, snap.now)
   await patchMe($, { pendingNote: note })
@@ -373,6 +419,25 @@ export async function pickUpStep($: EngineInterface, arg: string): Promise<strin
   if (!target) return `${topic.name} has ${chain.length} step${chain.length === 1 ? '' : 's'} in range; nothing at ${arg.trim()}.`
   await pickUp($, target.id)
   return `Handoff note from “${target.title}” (${arg.trim() === '' ? 'latest' : `step ${n}`} of ${topic.name}) goes into your next prompt.`
+}
+
+/** Fills the composer with a prompt drafted from a note; the person edits and sends it. */
+export async function draftPrompt($: EngineInterface, sessionId: string | null): Promise<void> {
+  const snap = await snapshot($)
+  const topic = sessionId ? snap.model.topicById[snap.model.byId[sessionId]?.topicId ?? ''] : snap.me.topicId ? snap.model.topicById[snap.me.topicId] : undefined
+  const s = sessionId ? snap.model.byId[sessionId] : topic ? latestOf(topic.sessions) : undefined
+  if (!s) {
+    await toast($, 'Nothing to draft from yet.')
+    return
+  }
+  const name = topic && topic.id !== UNSORTED_ID ? topic.name : 'this work'
+  const text = `Continue ${name} from “${s.title}”${topic?.goal ? ` (goal: ${clip(topic.goal, 120)})` : ''}. Last state: ${clip(noteText(s) || 'no note', 300)} Next step: `
+  try {
+    await $.prompt.fill({ text, mode: 'replace' })
+    await toast($, 'Drafted the next prompt in the composer; edit it and send.', { quiet: true })
+  } catch (error) {
+    await toast($, `Could not fill the prompt: ${String(error)}`)
+  }
 }
 
 export async function messageSession($: EngineInterface, sessionId: string, text: string): Promise<void> {
@@ -504,7 +569,7 @@ export async function setMoveMode($: EngineInterface, on: boolean): Promise<void
     await patchUi($, { moveMode: false })
     return
   }
-  await patchUi($, { moveMode: true, focusTopic: null, hover: null, showSettings: false })
+  await patchUi($, { moveMode: true, mergeFrom: null, focusTopic: null, hover: null, showSettings: false })
   await toast($, `Pick a topic on the map to move “${clip(s.title, 40)}”.`, { quiet: true })
 }
 
@@ -525,13 +590,97 @@ export async function moveSelected($: EngineInterface, topicId: string): Promise
   const from = snap.model.topicById[s.topicId]
   if (from) materialise(next, from, snap.now)
   materialise(next, target, snap.now)
-  if (topicId === UNSORTED_ID) delete next.assign[s.id]
-  else next.assign[s.id] = topicId
-  if (topicId === UNSORTED_ID) next.assign[s.id] = UNSORTED_ID
+  next.assign[s.id] = topicId
   await rememberUndo($, 'Undo move', snap.store)
   await saveStore($, next)
   await patchUi($, { moveMode: false, selected: null })
   await toast($, `Moved “${clip(s.title, 40)}” to ${target.name}.`, { undo: true })
+}
+
+export async function setEditing($: EngineInterface, kind: UiState['editing']): Promise<void> {
+  await patchUi($, { editing: kind })
+}
+
+/** Renames a topic (an auto topic becomes explicit first). */
+export async function renameTopic($: EngineInterface, topicId: string, rawName: string): Promise<void> {
+  const name = cleanName(rawName)
+  const snap = await snapshot($)
+  const topic = snap.model.topicById[topicId]
+  await patchUi($, { editing: null })
+  if (!topic || topicId === UNSORTED_ID || !name) return
+  const next = cloneStore(snap.store)
+  materialise(next, topic, snap.now)
+  const record = next.topics[topicId]
+  if (!record) return
+  next.topics[topicId] = { ...record, name }
+  await rememberUndo($, 'Undo rename', snap.store)
+  await saveStore($, next)
+  await toast($, `Renamed ${topic.name} to ${name}.`, { undo: true })
+  await refreshStatus($)
+}
+
+/** Sets or clears a topic's goal; it travels with every handoff on the topic. */
+export async function setGoal($: EngineInterface, topicId: string, rawGoal: string): Promise<void> {
+  const goal = rawGoal.replace(/\s+/g, ' ').trim()
+  const snap = await snapshot($)
+  const topic = snap.model.topicById[topicId]
+  await patchUi($, { editing: null })
+  if (!topic || topicId === UNSORTED_ID) return
+  const next = cloneStore(snap.store)
+  materialise(next, topic, snap.now)
+  if (goal) next.goals[topicId] = clip(goal, 300)
+  else delete next.goals[topicId]
+  await saveStore($, next)
+  await toast($, goal ? `Goal set for ${topic.name}. It goes with every handoff on this topic.` : `Goal cleared for ${topic.name}.`)
+}
+
+export async function setTopicColor($: EngineInterface, topicId: string, color: string): Promise<void> {
+  const snap = await snapshot($)
+  const topic = snap.model.topicById[topicId]
+  if (!topic || topicId === UNSORTED_ID || !/^#[0-9a-f]{6}$/i.test(color)) return
+  const next = cloneStore(snap.store)
+  materialise(next, topic, snap.now)
+  const record = next.topics[topicId]
+  if (!record) return
+  next.topics[topicId] = { ...record, color }
+  await saveStore($, next)
+}
+
+export async function setMergeMode($: EngineInterface, topicId: string | null): Promise<void> {
+  const snap = await snapshot($)
+  const topic = topicId ? snap.model.topicById[topicId] : undefined
+  if (!topic || topicId === UNSORTED_ID) {
+    await patchUi($, { mergeFrom: null })
+    return
+  }
+  await patchUi($, { mergeFrom: topicId, moveMode: false, focusTopic: null, selected: null, hover: null, editing: null, showSettings: false })
+  await toast($, `Pick the topic to merge ${topic.name} into.`, { quiet: true })
+}
+
+/** Moves every session of the merging topic into the target and drops the merged topic's record. */
+export async function mergeInto($: EngineInterface, targetId: string): Promise<void> {
+  const snap = await snapshot($)
+  const from = snap.ui.mergeFrom ? snap.model.topicById[snap.ui.mergeFrom] : undefined
+  const target = snap.model.topicById[targetId]
+  await patchUi($, { mergeFrom: null })
+  if (!from || !target) return
+  if (from.id === target.id) {
+    await toast($, `${from.name} cannot merge into itself.`)
+    return
+  }
+  const next = cloneStore(snap.store)
+  materialise(next, target, snap.now)
+  for (const s of from.sessions) next.assign[s.id] = targetId === UNSORTED_ID ? UNSORTED_ID : targetId
+  if (snap.me.topicId === from.id) next.assign[snap.me.sessionId] = targetId
+  if (targetId !== UNSORTED_ID && !next.goals[targetId] && next.goals[from.id]) next.goals[targetId] = next.goals[from.id] ?? ''
+  delete next.topics[from.id]
+  delete next.goals[from.id]
+  delete next.titles[from.id]
+  await rememberUndo($, 'Undo merge', snap.store)
+  await saveStore($, next)
+  if (snap.me.topicId === from.id) await patchMe($, { topicId: targetId === UNSORTED_ID ? null : targetId })
+  await toast($, `Merged ${from.name} into ${target.name}: ${from.sessions.length} session${from.sessions.length === 1 ? '' : 's'} moved.`, { undo: true })
+  await refreshStatus($)
 }
 
 export async function undoLast($: EngineInterface): Promise<void> {
@@ -539,21 +688,31 @@ export async function undoLast($: EngineInterface): Promise<void> {
   if (!undo) return
   await saveStore($, undo.store)
   await update($, undoAtom, () => null)
+  const me = await read($, meAtom)
+  const assigned = undo.store.assign[me.sessionId] ?? null
+  if (assigned !== me.topicId) await patchMe($, { topicId: assigned === UNSORTED_ID ? null : assigned })
   await toast($, 'Undone.')
+  await refreshStatus($)
 }
 
 export async function focusTopic($: EngineInterface, id: string | null): Promise<void> {
   const snap = await snapshot($)
+  if (snap.ui.mergeFrom !== null && id) {
+    await mergeInto($, id)
+    return
+  }
   if (snap.ui.moveMode && id && snap.ui.selected) {
     await moveSelected($, id)
     return
   }
-  await patchUi($, { focusTopic: id, selected: null, hover: null, showSettings: false, messageMode: false })
+  await patchUi($, { focusTopic: id, selected: null, hover: null, showSettings: false, messageMode: false, editing: null })
 }
 
 /** Esc, the back button, the close mark: one level out, or nothing left to back out of. */
 export function backedOut(ui: UiState): UiState | null {
+  if (ui.editing) return { ...ui, editing: null }
   if (ui.messageMode) return { ...ui, messageMode: false }
+  if (ui.mergeFrom !== null) return { ...ui, mergeFrom: null }
   if (ui.moveMode) return { ...ui, moveMode: false }
   if (ui.selected) return { ...ui, selected: null }
   if (ui.focusTopic) return { ...ui, focusTopic: null, hover: null }
@@ -582,6 +741,28 @@ export async function suggestFor($: EngineInterface, prompt: string): Promise<{ 
   return { joined: false }
 }
 
+/** The "since your last look" line for the pane, and the slug's seen time moved to now. */
+export async function openDigest($: EngineInterface): Promise<void> {
+  const snap = await snapshot($)
+  const slug = slugOf(snap.me.cwd)
+  const seen = snap.store.seen[slug]
+  const fresh = snap.model.sessions.filter(s => seen === undefined || s.lastAt > seen)
+  let digest: string
+  if (seen === undefined) {
+    digest = `First look at ${snap.me.folder}: ${snap.model.sessions.length} session${snap.model.sessions.length === 1 ? '' : 's'} across ${snap.model.topics.filter(t => t.id !== UNSORTED_ID).length} topic${snap.model.topics.filter(t => t.id !== UNSORTED_ID).length === 1 ? '' : 's'}.`
+  } else if (fresh.length === 0) {
+    digest = `Nothing new since your last look (${ageOf(seen, snap.now)} ago).`
+  } else {
+    const newest = fresh[0]
+    const topic = newest ? snap.model.topicById[newest.topicId] : undefined
+    digest = `Since your last look (${ageOf(seen, snap.now)} ago): ${fresh.length} session${fresh.length === 1 ? '' : 's'} new or updated · newest: ${clip(newest?.title ?? '', 40)}${topic && topic.id !== UNSORTED_ID ? ` (${topic.name})` : ''}${newest && noteText(newest) ? ` · ${clip(noteText(newest), 90)}` : ''}`
+  }
+  await patchUi($, { digest })
+  const next = cloneStore(snap.store)
+  next.seen[slug] = snap.now
+  await saveStore($, next)
+}
+
 let noteTimer: Timer | undefined
 
 export function scheduleNote($: EngineInterface, ms = 2000): void {
@@ -606,6 +787,7 @@ export async function generateNote($: EngineInterface): Promise<void> {
       .join('\n')
     if (transcript.length > 8000) transcript = transcript.slice(-8000)
     const r = await $.model.complete({ model: 'haiku', system: NOTE_SYSTEM, prompt: `${transcript}\n\nWrite the handoff note now.`, maxTokens: 120, timeoutMs: 20000, effort: 'low' })
+    await recordUsage($, r.usage)
     if (!r.isAnswered) {
       $.ui.log(`constellation: note not written: ${r.reason}`, { to: 'debug' })
       return
@@ -631,6 +813,7 @@ export async function nameAutoTopics($: EngineInterface): Promise<void> {
         timeoutMs: 15000,
         effort: 'low',
       })
+      await recordUsage($, r.usage)
       if (!r.isAnswered) continue
       const name = cleanName(r.text.replace(/["'.\n]/g, ' ')).slice(0, 40)
       if (!name) continue
@@ -654,15 +837,41 @@ export async function describeTopics($: EngineInterface): Promise<string> {
   return lines.join(' ')
 }
 
+/** `/map export [path]`: the folder's topics, goals and notes as Markdown, for a handover to a person. */
+export async function exportMarkdown($: EngineInterface, rawPath: string): Promise<string> {
+  const snap = await snapshot($)
+  const path = rawPath.trim() || 'constellation-map.md'
+  const day = (at: number) => new Date(at).toISOString().slice(0, 10)
+  const lines = [`# Constellation map of ${snap.me.folder}`, '', `Generated ${day(snap.now)} · ${snap.model.sessions.length} sessions · ${snap.model.topics.filter(t => t.id !== UNSORTED_ID).length} topics`, '']
+  for (const t of snap.model.topics) {
+    lines.push(`## ${t.name} (${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.isMajor ? '' : ', minor'})`, '')
+    if (t.goal) lines.push(`Goal: ${t.goal}`, '')
+    const chain = orderChain(t.sessions, snap.settings.numbering)
+    chain.forEach((s, i) => {
+      lines.push(`${i + 1}. ${day(s.lastAt)} · ${s.title}${s.status === 'archived' ? ' (archived)' : ''}${s.branch ? ` · ${s.branch}` : ''}`)
+      const note = noteText(s)
+      if (note) lines.push(`   ${note}`)
+      if (s.filesTouched.length) lines.push(`   Files: ${s.filesTouched.slice(0, 10).join(', ')}`)
+    })
+    lines.push('')
+  }
+  try {
+    await $.fs.write(path, `${lines.join('\n')}\n`)
+    return `Wrote ${path} (${snap.model.topics.length} topics).`
+  } catch (error) {
+    return `Could not write ${path}: ${String(error)}`
+  }
+}
+
 /** The drawing's presses, bound to `$`. */
 export function actionsFor($: EngineInterface): Actions {
   return {
     setView: view => void patchUi($, { view }),
     focusTopic: id => void focusTopic($, id),
-    selectSession: id => void patchUi($, { selected: id, messageMode: false, showSettings: false, moveMode: id === null ? false : undefined }),
+    selectSession: id => void patchUi($, { selected: id, messageMode: false, showSettings: false, editing: null, moveMode: id === null ? false : undefined }),
     setQuery: q => void patchUi($, { query: q }),
     setRange: days => void setSetting($, 'rangeDays', days),
-    toggleSettings: () => void update($, uiAtom, u => ({ ...u, showSettings: !u.showSettings, selected: null })),
+    toggleSettings: () => void update($, uiAtom, u => ({ ...u, showSettings: !u.showSettings, selected: null, editing: null })),
     setSetting: (key, value) => void setSetting($, key, value),
     join: topicId => void joinTopic($, topicId),
     newTopic: () => void startNewTopic($),
@@ -672,6 +881,7 @@ export function actionsFor($: EngineInterface): Actions {
     dismissBand: () => void dismissBand($),
     pickUp: sessionId => void pickUp($, sessionId),
     pickUpLatest: topicId => void pickUpLatest($, topicId),
+    draft: sessionId => void draftPrompt($, sessionId),
     parkPrompt: () => void askForNote($),
     park: text => void parkNote($, text, 'manual'),
     skipNote: () => void skipNote($),
@@ -683,8 +893,15 @@ export function actionsFor($: EngineInterface): Actions {
     tidy: topicId => void tidyTopic($, topicId),
     moveMode: on => void setMoveMode($, on),
     moveTo: topicId => void moveSelected($, topicId),
+    edit: kind => void setEditing($, kind),
+    rename: (topicId, name) => void renameTopic($, topicId, name),
+    setGoal: (topicId, goal) => void setGoal($, topicId, goal),
+    setColor: (topicId, color) => void setTopicColor($, topicId, color),
+    mergeMode: topicId => void setMergeMode($, topicId),
+    mergeInto: targetId => void mergeInto($, targetId),
     undo: () => void undoLast($),
     dismissToast: () => void patchUi($, { toast: null }),
+    dismissDigest: () => void patchUi($, { digest: null }),
     back: () => void back($),
   }
 }

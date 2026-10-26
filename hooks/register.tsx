@@ -14,6 +14,8 @@ import {
   bootstrap,
   createTopic,
   describeTopics,
+  exportMarkdown,
+  openDigest,
   parkNote,
   periodicRescan,
   pickUpStep,
@@ -29,11 +31,11 @@ import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
 // The atoms are declared where they are read, as `claude plugin validate` asks.
 const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-1' })
-const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-1' })
+const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-2' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
 
 const COMMANDS = [
-  { name: 'map', description: 'Open or close the Constellation topic map', argumentHint: '[settings|close]' },
+  { name: 'map', description: 'Open or close the Constellation topic map', argumentHint: '[settings|close|export [path]]' },
   { name: 'topic', description: 'Join or create a Constellation topic for this session', argumentHint: '[name]' },
   { name: 'park', description: 'Save a handoff note for this session on the Constellation map', argumentHint: '<note>' },
   { name: 'pickup', description: 'Add the handoff note of a step of your Constellation topic to the next prompt', argumentHint: '[n]' },
@@ -49,21 +51,24 @@ async function registerCommands($: EngineInterface): Promise<void> {
   }
 }
 
-/** The surface's constructors as the drawing takes them: the optional ones where the table has them. */
+/** The surface's constructors as the drawing takes them: by surface, since the tables differ (no Svg on the terminal, no fields on mobile). */
 function tableOf<E extends ResolveInput>($: EngineInterface, e: E): Table {
-  const T = $.ui.resolve(e)
-  return {
-    Box: T.Box,
-    Text: T.Text,
-    Button: T.Button,
-    Input: 'Input' in T ? T.Input : undefined,
-    Select: 'Select' in T ? T.Select : undefined,
-    Svg: 'Svg' in T ? T.Svg : undefined,
+  if (e.surface === 'terminal') {
+    const T = $.ui.resolve({ ...e, surface: 'terminal' as const })
+    return { Box: T.Box, Text: T.Text, Button: T.Button, Input: T.Input, Select: T.Select }
   }
+  if (e.surface === 'mobile') {
+    const T = $.ui.resolve({ ...e, surface: 'mobile' as const })
+    return { Box: T.Box, Text: T.Text, Button: T.Button, Svg: T.Svg }
+  }
+  const T = $.ui.resolve({ ...e, surface: 'desktop' as const })
+  return { Box: T.Box, Text: T.Text, Button: T.Button, Input: T.Input, Select: T.Select, Svg: T.Svg }
 }
 
-async function openPane($: EngineInterface): Promise<void> {
-  await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
+async function openPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: string }> {
+  const placed = await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
+  void rescan($).then(() => openDigest($))
+  return placed
 }
 
 async function start($: EngineInterface, options: PluginOptions, cwd: string, isInteractive: boolean): Promise<void> {
@@ -98,7 +103,10 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'map' }, async ($, e) => {
-    const arg = e.args.trim().toLowerCase()
+    const args = e.args.trim()
+    const [word = '', ...rest] = args.split(/\s+/)
+    const arg = word.toLowerCase()
+    if (arg === 'export') return { text: await exportMarkdown($, rest.join(' ')) }
     const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
     if (arg === 'close') {
       if (isOpen) await $.ui.close({ id: PANE })
@@ -110,9 +118,8 @@ export const register: Register = (on, options) => {
       await $.ui.close({ id: PANE })
       return { text: 'Constellation closed.' }
     }
-    const placed = await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
-    void rescan($)
-    return { text: placed.isPlaced ? 'Constellation opened.' : `Constellation is open but not drawn: ${placed.reason}` }
+    const placed = await openPane($)
+    return { text: placed.isPlaced ? 'Constellation opened.' : `Constellation is open but not drawn: ${placed.reason ?? 'no surface'}` }
   })
 
   on('command.run', { command: 'topic' }, async ($, e) => {
@@ -169,8 +176,9 @@ export const register: Register = (on, options) => {
     return tree ?? next(e)
   })
 
-  on('ui.focus', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    const key = e.element ?? ''
+  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
+    // The person's ring move names the element; a plugin's `$.ui.focus` (and the test kit) names a key.
+    const key = e.element ?? (e as { key?: string }).key ?? ''
     const m = /^(?:t|j|a|rel):(.+)$/.exec(key)
     const hover = m?.[1] ?? null
     await update($, uiAtom, u => (u.hover === hover ? u : { ...u, hover }))

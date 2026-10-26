@@ -17,7 +17,8 @@ import {
   tokensOf,
   topicIdFor,
 } from '../hooks/cluster'
-import type { ClusterSettings, StoreData } from '../hooks/cluster'
+import type { ClusterSettings } from '../hooks/cluster'
+import type { StoreData } from '../types'
 import type { SessionSummary } from '../hooks/scan'
 
 const NOW = Date.parse('2026-10-26T12:00:00.000Z')

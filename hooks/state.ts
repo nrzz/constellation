@@ -3,7 +3,7 @@
 // them off the file that calls `read` and `update`.)
 import type { PluginOptions } from 'claude-code'
 
-import type { MeState, ScanState, MapSettings, StoreData, UiState } from '../types'
+import type { MapSettings, MeState, ScanState, StoreData, UiState, UsageState } from '../types'
 
 export const PANE = 'constellation'
 export const PLUGIN = 'constellation'
@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   openOnStart: 'band',
 }
 
-export const EMPTY_STORE: StoreData = { topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {} }
+export const EMPTY_STORE: StoreData = { topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {}, goals: {}, seen: {} }
 
 export const INITIAL_UI: UiState = {
   view: 'map',
@@ -34,6 +34,9 @@ export const INITIAL_UI: UiState = {
   showSettings: false,
   moveMode: false,
   messageMode: false,
+  editing: null,
+  mergeFrom: null,
+  digest: null,
   toast: null,
 }
 
@@ -51,6 +54,7 @@ export const INITIAL_ME: MeState = {
 }
 
 export const INITIAL_SCAN: ScanState = { isScanning: false, at: 0, root: '', error: null }
+export const INITIAL_USAGE: UsageState = { calls: 0, inputTokens: 0, outputTokens: 0 }
 
 const CHOICES: { [K in keyof MapSettings]: readonly MapSettings[K][] | 'number' | 'boolean' } = {
   scope: ['folder', 'all'],
@@ -102,4 +106,14 @@ export function resolveSettings(options: PluginOptions, saved: unknown): MapSett
     }
   }
   return out
+}
+
+/** `2h 10m`, `45m`, `3d 2h`: how long a session ran. */
+export function durationOf(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60000))
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ${minutes % 60}m`
+  const days = Math.floor(hours / 24)
+  return `${days}d ${hours % 24}h`
 }

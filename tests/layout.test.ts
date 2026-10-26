@@ -27,15 +27,15 @@ describe('layout', () => {
     for (const p of placed) {
       expect(p.x - p.w / 2).toBeGreaterThanOrEqual(0)
       expect(p.x + p.w / 2).toBeLessThanOrEqual(FIELD_W)
-      expect(p.y).toBeGreaterThanOrEqual(40)
-      expect(p.y).toBeLessThanOrEqual(FIELD_H - 40)
+      expect(p.y).toBeGreaterThanOrEqual(90)
+      expect(p.y).toBeLessThanOrEqual(FIELD_H - 60)
     }
     for (let i = 0; i < placed.length; i += 1) {
       for (let j = i + 1; j < placed.length; j += 1) {
         const a = placed[i]
         const b = placed[j]
         if (!a || !b) continue
-        const apartX = Math.abs(a.x - b.x) >= (a.w + b.w) / 2
+        const apartX = Math.abs(a.x + a.ox - (b.x + b.ox)) >= (a.w + b.w) / 2
         const apartY = Math.abs(a.y - b.y) >= (a.h + b.h) / 2
         expect(apartX || apartY).toBe(true)
       }
@@ -54,6 +54,10 @@ describe('layout', () => {
     expect(Math.round(Math.hypot(p1.x - c.x, p1.y - c.y))).toBe(72)
     const minor = satellitePosition(c, 't', 0, false)
     expect(Math.round(Math.hypot(minor.x - c.x, minor.y - c.y))).toBe(40)
+    const orbit = satellitePosition(c, 't', 0, true, 80)
+    expect(Math.abs(orbit.x - c.x)).toBeLessThanOrEqual(106)
+    expect(Math.abs(orbit.y - c.y)).toBeLessThanOrEqual(36)
+    expect(Math.abs(orbit.x - c.x) > 80 || Math.abs(orbit.y - c.y) > 20).toBe(true)
     const edge = satellitePosition({ x: 10, y: 10 }, 't', 2, true)
     expect(edge.x).toBeGreaterThanOrEqual(24)
     expect(edge.y).toBeGreaterThanOrEqual(24)

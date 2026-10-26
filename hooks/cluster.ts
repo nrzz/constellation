@@ -8,6 +8,7 @@
 // Everything here is pure: the store's data and the clock come in as values.
 import { basenameOf } from './scan'
 import type { SessionSummary } from './scan'
+import type { NoteRecord, StoreData } from '../types'
 
 export const PALETTE = ['#F2A33A', '#9B8CFF', '#5FD3A6', '#7FB8FF', '#ED93B1'] as const
 export const MINOR_COLOR = '#B4B2A9'
@@ -32,21 +33,7 @@ export type ClusterSettings = {
   rangeDays: number
 }
 
-export type TopicRecord = { name: string; color?: string; createdAt: number }
-export type NoteRecord = { text: string; at: number; source: 'manual' | 'auto' }
-
-/** What the mod keeps in `$.store` beside the scan caches and the settings. */
-export type StoreData = {
-  topics: Record<string, TopicRecord>
-  assign: Record<string, string>
-  notes: Record<string, NoteRecord>
-  archived: Record<string, true>
-  pins: Record<string, true>
-  /** Names the model wrote for auto topics, by topic id. */
-  titles: Record<string, string>
-}
-
-export const EMPTY_STORE: StoreData = { topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {} }
+export const EMPTY_STORE: StoreData = { topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {}, goals: {}, seen: {} }
 
 export type SessionStatus = 'active' | 'idle' | 'archived'
 
@@ -63,6 +50,8 @@ export type Topic = {
   id: string
   name: string
   color: string
+  /** The topic's standing objective, when one is set. */
+  goal?: string
   /** Recorded in the store (joined, moved, renamed or created), as against auto-clustered. */
   isExplicit: boolean
   isMajor: boolean
@@ -370,10 +359,12 @@ export function buildModel(
     const name =
       id === UNSORTED_ID ? UNSORTED_NAME : (record?.name ?? store.titles[id] ?? autoName(autoMembers[id] ?? list))
     const firstAt = list.reduce((m, s) => Math.min(m, s.startedAt), record?.createdAt ?? Number.POSITIVE_INFINITY)
+    const goal = store.goals[id]
     topics.push({
       id,
       name,
       color: MINOR_COLOR,
+      ...(goal ? { goal } : {}),
       isExplicit,
       isMajor: id !== UNSORTED_ID && isMajorTopic(list, settings, now),
       sessions: list,
@@ -419,7 +410,7 @@ export function scoreJoin(prompt: string, topics: readonly Topic[]): JoinSuggest
   for (const t of topics) {
     if (t.id === UNSORTED_ID) continue
     const titles = new Set<string>(tokensOf(t.name))
-    const notes = new Set<string>()
+    const notes = new Set<string>(t.goal ? tokensOf(t.goal) : [])
     const files = new Set<string>()
     for (const s of t.sessions) {
       for (const w of tokensOf(s.title)) titles.add(w)
