@@ -209,7 +209,39 @@ notes, titles and join suggestions when those settings are on. README:
 install, commands (/map, /map settings, /topic, /park, /pickup), settings
 table, Desktop vs terminal behaviour, known limits.
 
-## Environment facts (verified 2026-10-27)
+## Continuing in a cloud session (read this first there)
+
+The next session runs in Claude Code on the web, from this repository's `main`.
+Nothing local is available there: no Desktop app, no pane to look at, none of
+the user's transcripts, none of the local paths listed under "Environment
+facts". Work like this:
+
+1. `claude --version` must be 2.1.287 or later (the API was checked against
+   2.1.308; if the cloud build is older or newer, re-check the types).
+2. Run the `plugin-authoring` skill (`/plugin-authoring`) at the start: it
+   writes that build's `claude-code.d.ts` into its own skill folder and prints
+   the path. Copy it to `.claude-plugin/types/claude-code/index.d.ts`
+   (gitignored) so `tsconfig.json` in this repo type-checks the mod with
+   `npx -y typescript@5.9.3 tsc -p .`. Grep the types for a name; do not read
+   the whole 22k-line file.
+3. `claude plugin validate --strict .` and `claude plugin test .` work in the
+   cloud; they need no session. Tests are the gate for every phase there.
+4. The scanner is developed against `tests/fixtures/*.jsonl` (synthetic
+   transcripts in the real line shapes; see the Data section). Add fixtures
+   rather than relying on real transcripts.
+5. The "show me the pane after Phase 1" step cannot happen in the cloud. Do
+   this instead: a test writes the generated map and focus-mode Svg for the
+   fixture data to `tests/out/*.svg` (gitignored), and the session publishes a
+   small HTML preview page as an Artifact so the user can compare it with
+   `design/TopicMap.dc.html` by eye. The real pane check happens in the next
+   local Desktop session: clone/pull, then `claude --plugin-dir <repo>` in a
+   terminal, or copy the repo into `~/.claude/dev-mods/<session-id>/constellation`.
+6. Conventional commits, one per phase, pushed to `main` (solo repo). If the
+   cloud environment forces a branch, open a PR per phase.
+7. The mod itself must never use the network or Node globals; only the dev
+   tooling (npx typescript) may.
+
+## Environment facts (local Desktop session, verified 2026-10-27)
 
 - Claude Code CLI for validate/test (not on PATH):
   `C:\Users\nares\AppData\Roaming\Claude\claude-code\2.1.308\c17a819afb40\claude.exe`
