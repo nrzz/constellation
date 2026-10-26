@@ -137,7 +137,7 @@ function stubEngine(on: On, options: { store?: Record<string, unknown>; now?: nu
   return stubs
 }
 
-test('session start scans the folder; the pane shows its topics on desktop (with the Svg) and terminal (as the outline)', async ($, on) => {
+test('session start scans the folder; the pane shows its topics on desktop (with the Svg) and terminal (with the text-mode map)', async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   for (const surface of ['desktop', 'terminal'] as const) {
@@ -156,7 +156,7 @@ test('session start scans the folder; the pane shows its topics on desktop (with
       expect(source.length).toBeLessThan(131072)
     } else {
       expect(svg).toBeUndefined()
-      expect(texts).toContain('outline above is the map')
+      expect(await ui.find({ type: 'Client', key: 'map' })).toBeDefined()
     }
     await ui.unmount()
   }

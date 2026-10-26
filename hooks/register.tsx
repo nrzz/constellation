@@ -15,6 +15,7 @@ import {
   createTopic,
   describeTopics,
   exportMarkdown,
+  onClientMessage,
   openDigest,
   parkNote,
   periodicRescan,
@@ -25,7 +26,7 @@ import {
   suggestFor,
   viewOf,
 } from './actions'
-import { drawBand, drawPane } from './draw'
+import { drawBand, drawPane, fieldOf } from './draw'
 import type { Table } from './draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
@@ -166,7 +167,19 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const view = await viewOf($, e.surface)
+    if (e.surface === 'terminal') {
+      // No Svg here: the text-mode map Client stands in for the field, with pointer and arrow keys.
+      const { Client } = $.ui.resolve({ ...e, surface: 'terminal' as const })
+      const rows = Math.max(14, Math.min(26, Math.floor((e.props.scroll.bodyRows || 40) * 0.55)))
+      const field = <Client key="map" module="../client/map.js" props={fieldOf(view)} height={rows} />
+      return drawPane(tableOf($, e), view, actionsFor($), field)
+    }
     return drawPane(tableOf($, e), view, actionsFor($))
+  })
+
+  on('ui.message', { element: 'map' }, async ($, e, next) => {
+    await onClientMessage($, e.data)
+    return next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

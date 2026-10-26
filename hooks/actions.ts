@@ -574,8 +574,18 @@ export async function setMoveMode($: EngineInterface, on: boolean): Promise<void
 }
 
 export async function moveSelected($: EngineInterface, topicId: string): Promise<void> {
+  const ui = await read($, uiAtom)
+  if (!ui.selected) {
+    await patchUi($, { moveMode: false })
+    return
+  }
+  await moveSession($, ui.selected, topicId)
+}
+
+/** Files a session under another topic (both topics made explicit first), with Undo. */
+export async function moveSession($: EngineInterface, sessionId: string, topicId: string): Promise<void> {
   const snap = await snapshot($)
-  const s = snap.ui.selected ? snap.model.byId[snap.ui.selected] : undefined
+  const s = snap.model.byId[sessionId]
   const target = snap.model.topicById[topicId]
   if (!s || !target) {
     await patchUi($, { moveMode: false })
@@ -861,6 +871,45 @@ export async function exportMarkdown($: EngineInterface, rawPath: string): Promi
   } catch (error) {
     return `Could not write ${path}: ${String(error)}`
   }
+}
+
+/** What the terminal's text-mode map posts (client/map.js): hover, cursor, pick, drop, back. */
+export async function onClientMessage($: EngineInterface, data: unknown): Promise<void> {
+  if (!isRecord(data) || typeof data.type !== 'string') return
+  const id = typeof data.id === 'string' ? data.id : null
+  const kind = typeof data.kind === 'string' ? data.kind : ''
+  const snap = await snapshot($)
+  if (data.type === 'hover') {
+    await patchUi($, { hover: id && snap.model.topicById[id] ? id : null })
+    return
+  }
+  if (data.type === 'cursor') {
+    if (snap.ui.focusTopic) await patchUi($, { selected: id && snap.model.byId[id] ? id : null })
+    else await patchUi($, { hover: id && snap.model.topicById[id] ? id : null })
+    return
+  }
+  if (data.type === 'pick') {
+    if (!id) return
+    if (kind === 'topic') {
+      await focusTopic($, snap.ui.focusTopic === id ? null : id)
+      return
+    }
+    if (kind === 'you') {
+      await patchUi($, { selected: null })
+      return
+    }
+    const s = snap.model.byId[id]
+    if (!s) return
+    if (snap.ui.mergeFrom !== null || snap.ui.moveMode) return
+    await patchUi($, { focusTopic: s.topicId, selected: snap.ui.selected === id ? null : id, hover: null, showSettings: false, editing: null })
+    return
+  }
+  if (data.type === 'drop') {
+    const targetId = typeof data.targetId === 'string' ? data.targetId : null
+    if (id && targetId) await moveSession($, id, targetId)
+    return
+  }
+  if (data.type === 'back') await back($)
 }
 
 /** The drawing's presses, bound to `$`. */

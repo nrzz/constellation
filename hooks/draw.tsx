@@ -991,4 +991,101 @@ export function drawBand(T: Table, view: View, act: Actions): RenderElement | nu
   return drawChooser(T, view, act, 'band')
 }
 
+/** One mark on the terminal's text-mode map (client/map.js). */
+export type FieldNode = {
+  id: string
+  kind: 'topic' | 'session' | 'step' | 'you'
+  x: number
+  y: number
+  label: string
+  label2?: string
+  title?: string
+  count?: number
+  color: string
+  isMajor?: boolean
+  isDim?: boolean
+  isSelected?: boolean
+  isArchived?: boolean
+  isActive?: boolean
+  topicId?: string
+}
+
+export type FieldProps = {
+  mode: 'map' | 'focus'
+  hint: string
+  nodes: FieldNode[]
+  links: { x1: number; y1: number; x2: number; y2: number }[]
+  legend: string
+}
+
+/** A node with its undefined keys dropped: a Client's props hold no undefined. */
+function node(n: FieldNode): FieldNode {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(n)) if (v !== undefined) out[k] = v
+  return out as FieldNode
+}
+
+/** The field as plain data for the Client module: the same positions the Svg uses. */
+export function fieldOf(view: View): FieldProps {
+  const { model, ui, placed } = view
+  const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
+  const nodes: FieldNode[] = []
+  const links: FieldProps['links'] = []
+  const legend = '● active  ○ idle  ◌ shipped  ◆ you'
+  if (!focus) {
+    const traced = ui.hover
+    for (const t of model.topics) {
+      const p = placed[t.id]
+      if (!p) continue
+      const isDim = (traced !== null && traced !== t.id) || !topicMatches(ui.query, t)
+      const countLabel = ui.query.trim() ? `${t.sessions.filter(s => matches(ui.query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
+      nodes.push(node({ id: t.id, kind: 'topic', x: p.x, y: p.y, label: `${clip(t.name, 24)} ${countLabel}`, color: t.color, isMajor: t.isMajor, isDim, isSelected: false, title: t.name }))
+      const half = t.isMajor ? pillWidth(t.name, countLabel) / 2 : undefined
+      t.sessions.slice(0, 40).forEach((s, k) => {
+        const sp = satellitePosition(p, t.id, k, t.isMajor, half)
+        nodes.push(node({ id: s.id, kind: 'session', x: sp.x, y: sp.y, label: '', title: s.title, color: t.color, isDim: isDim || !s.isInRange || !matches(ui.query, s), isSelected: ui.selected === s.id, isArchived: s.status === 'archived', isActive: s.status === 'active', topicId: t.id }))
+      })
+    }
+    for (const l of model.links) {
+      const a = placed[l.a]
+      const b = placed[l.b]
+      if (a && b) links.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y })
+    }
+  } else {
+    const steps = chainOf(view, focus)
+    const positions = chainPositions(steps.length)
+    nodes.push(node({ id: focus.id, kind: 'topic', x: FOCUS_PILL.x, y: FOCUS_PILL.y, label: `${clip(focus.name, 24)} ${steps.filter(s => !s.isYou).length} of ${focus.sessions.length}`, color: focus.color, isMajor: true, title: focus.name }))
+    steps.forEach((step, i) => {
+      const pt = positions[i]
+      if (!pt) return
+      const s = step.session
+      nodes.push(node({
+        id: step.isYou ? 'you' : step.id,
+        kind: step.isYou ? 'you' : 'step',
+        x: pt.x,
+        y: pt.y,
+        label: String(i + 1),
+        label2: step.isYou ? 'This session · you' : clip(s?.title ?? '', 18),
+        title: step.isYou ? 'This session' : s?.title,
+        color: step.isYou ? ACCENT : focus.color,
+        isSelected: s !== undefined && ui.selected === s.id,
+        isArchived: s?.status === 'archived',
+        isActive: s?.status === 'active',
+        isDim: s !== undefined && !matches(ui.query, s),
+        topicId: focus.id,
+      }))
+    })
+    if (view.settings.showRelated) {
+      const rel = relatedOf(model.links, focus.id)
+      const apos = anchorPositions(rel.length)
+      rel.forEach((r, i) => {
+        const rt = model.topicById[r.id]
+        const ap = apos[i]
+        if (rt && ap) nodes.push(node({ id: rt.id, kind: 'topic', x: ap.x, y: ap.y, label: `${clip(rt.name, 18)} ${r.via}`, color: rt.color, isMajor: false, isDim: true, title: rt.name }))
+      })
+    }
+  }
+  return { mode: focus ? 'focus' : 'map', hint: hintOf(view), nodes, links, legend }
+}
+
 export type { Point }
