@@ -16,6 +16,16 @@ content). Each line is one JSON object. Shapes a scanner must handle:
 - A `summary` row (`summary`, `leafUuid`) that names the session; it may sit
   at the end or the start of the file, or be absent.
 
+The fixtures: `checkout-tests.jsonl` and `checkout-rounding.jsonl` (two
+sessions that cluster into one auto topic through shared words and a shared
+file), `orders-pagination.jsonl` (a loner that lands in Unsorted; a summary at
+the top, a bad line, MultiEdit, a local-command row, a detached HEAD at the
+end), `empty-queue.jsonl` (queue rows only: no session yet).
+
+A plugin test has no file system, so `transcripts.ts` mirrors every `.jsonl`
+here as strings for the tests' `fs.*` stubs. Regenerate it after editing a
+fixture: `node tests/fixtures/sync.mjs`.
+
 `checkout-tests.jsonl` expects: title "Fix flaky cart wait" (from the summary),
 firstPrompt "fix the flaky cart wait in the checkout tests", 2 turns, branch
 main, filesTouched `src/Cart.test.tsx` and `src/test-utils.ts` (relative to

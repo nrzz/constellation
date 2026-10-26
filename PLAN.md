@@ -5,8 +5,19 @@ sessions of one project folder as a constellation of topics. One folder holds
 many topics; each topic is an ordered chain of sessions; a new session joins a
 chain and picks up that chain's latest handoff note.
 
-Status at this commit: research done, design approved, repo scaffolded.
-No feature code written yet. Continue from "Next steps" below.
+Status at this commit: Phase 1 and Phase 2 are built (cloud session,
+Claude Code 2.1.310): scanner, clustering, layout, the Svg field, the pane,
+the band, the commands, handoff injection, auto notes, the terminal's
+text-mode map Client, and the features added beyond the brief (topic goals,
+rename, recolour, merge, a "since your last look" digest, a status line,
+Draft next prompt, `/map export`, a model-spend counter, letter hotkeys).
+`claude plugin validate --strict`, `claude plugin test` (52 tests) and `tsc`
+pass. The generated field was compared with the prototype by eye through
+the preview page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
+
+What is left needs a local Desktop session (see "Next steps" at the end):
+load the mod, open `/map`, compare the live pane with the prototype, check
+whether a Client over the Svg can take clicks on the Desktop, and release.
 
 ## Design reference (the visual and interaction spec)
 
@@ -390,25 +401,53 @@ facts". Work like this:
   `ui.input({key, text})`, `ui.select({key, value})`, `ui.unmount()`.
   Register every stub before the first call on `$`.
 
-## Next steps (in order)
+## Done in the cloud session (2026-10-26)
 
-1. `hooks/scan.ts` + `tests/scan.test.ts` with fixture lines (user string
-   prompt, isMeta row, command row, assistant with Edit tool_use, summary line,
-   queue-operation line, a >4 MiB stat → large stub).
-2. `hooks/cluster.ts` + tests: several topics in one folder, explicit assign
-   wins, non-main branch hint, Unsorted, major rule (either/count/recent), join
-   scoring with a clear winner and a tie, focus ordering both ways.
-3. `hooks/layout.ts` (seeded + repulsion, focus chain positions).
-4. `hooks/draw.tsx`: `svgOf(model, ui)` string builder; header, buttons row,
-   cards, settings, list, band, toast trees; terminal list.
-5. `hooks/register.tsx`: state atoms, store load/save, scan on start and on
-   `/map`, commands, band, pane, prompt.submit injection, turn.complete notes,
-   ui.focus tracing, ui.close back-out, actions.
-6. `types/index.d.ts` contract for every atom; `claude plugin validate
-   --strict`; `claude plugin test`; `tsc -p`.
-7. Load in the Desktop session (copy to dev-mods), open `/map`, screenshot,
-   compare with `design/TopicMap.dc.html`, fix; commit `feat: phase 1 …`.
-8. Phase 2 spike (Client over Svg); `client/map.js`; commit `feat: phase 2 …`.
-9. README (install via marketplace, commands, settings table, Desktop vs
-   terminal, known limits incl. "a node never switches to an existing Desktop
-   session", Phase 2 limits); final `claude plugin validate --strict`.
+1. `hooks/scan.ts` + `tests/scan.test.ts`: fixtures for a typed prompt, an
+   isMeta command row, a local-command row, Edit/Write/MultiEdit tool uses, a
+   summary at the end and at the start, a bad line, a detached HEAD, a
+   queue-only transcript (cached as an empty marker), a >4 MiB stub.
+2. `hooks/cluster.ts` + tests: union-find auto topics with light stemming,
+   explicit assignments (and their transitive pull, by the spec), Unsorted,
+   links, the major rule, palette colours, status, range, join scoring (clear,
+   tie, none, notes and files), chain order, ages. Topic goals live in the
+   store and count in the join score.
+3. `hooks/layout.ts`: grid-dealt seeded positions with repulsion, elliptical
+   satellite orbits that clear the pill, offset boxes for minor labels, chain
+   and anchor positions.
+4. `hooks/draw.tsx`: `svgOf` with CSS hover tracing inside the picture,
+   header, controls, outline, settings, chooser, joined/topic/session cards,
+   toast, band, and `fieldOf` (the Client's props).
+5. `hooks/actions.ts` + `hooks/register.tsx`: everything in the spec plus the
+   features above. Atoms are declared in each file that reads them (the
+   validator reads them off the file). The settings type is `MapSettings`
+   because the engine's module already exports a `Settings`.
+6. `client/map.js` (Phase 2): the terminal's text-mode map. Pointer hover
+   traces, a click picks, a drag moves a session onto a topic, arrows walk
+   topics or steps, Enter picks, Backspace backs out; posts answered by a
+   `ui.message` hook. The Desktop keeps the Svg plus buttons: whether an
+   absolutely placed Client can sit over the Svg there could not be tried in
+   the cloud.
+7. Tests: 52 across scan, cluster, layout, the mod through the engine on
+   desktop and terminal, and the Client. `tests/preview/*.mjs` render the
+   field for demo data to SVG and PNG and build the comparison page.
+
+Lessons for the next build: a test's `$` has only the event nouns (no
+`$.fs`), so fixtures reach the scanner through `fs.*` stubs and the
+`transcripts.ts` mirror; the kit's `ui.focus` hands the hook `{ requestId,
+key }`; the terminal's resolve table carries an `Svg` entry, so pick elements
+by `e.surface`; a Client's props must hold no `undefined`.
+
+## Next steps (local Desktop session)
+
+1. Pull `main`, then `claude --plugin-dir D:\Projects\constellation` or copy
+   the repo into `~/.claude/dev-mods/<session-id>/constellation`. Open `/map`
+   on the Desktop and in a terminal; compare with `design/TopicMap.dc.html`
+   and the preview page; fix what differs; commit `fix: …`.
+2. Spike the Desktop hit layer: a `Client` in a `Box position="absolute"`
+   over the `Svg`. If it sits over the picture and takes clicks, wire it to
+   the same `ui.message` handler and drop the topic button row on the
+   Desktop; if not, keep the buttons and say so in the README.
+3. Watch the first real folder: large transcripts, the auto topic names, the
+   join suggestions; tune the stopword list and the scoring if needed.
+4. Release: tag v0.1.0, confirm the marketplace install on a clean machine.
