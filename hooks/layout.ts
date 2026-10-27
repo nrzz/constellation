@@ -18,8 +18,13 @@ export type Point = { x: number; y: number }
 export type FieldSize = { w: number; h: number }
 /** The base field: focus mode, and a map that needs no more room. */
 export const BASE: FieldSize = { w: FIELD_W, h: FIELD_H }
-/** A topic's place: its anchor (pill centre or dot), its box, and the box's horizontal offset from the anchor (a minor label hangs right of its dot). */
-export type PlacedTopic = Point & { id: string; w: number; h: number; ox: number }
+/**
+ * A topic's place: its anchor (the pill's centre, or a minor topic's dot), its
+ * box (the drawn unit and the halo its satellites orbit in), the box's
+ * horizontal offset from the anchor (a minor label hangs right of its dot, so
+ * its unit and box centre lie right of the dot), and the drawn unit's width.
+ */
+export type PlacedTopic = Point & { id: string; w: number; h: number; ox: number; uw: number; isMajor: boolean }
 /** What the placement needs of a topic: the count label is part of the drawn pill, so it is part of the box. */
 export type TopicSpec = { id: string; name: string; isMajor: boolean; count?: string }
 export type Placement = { placed: PlacedTopic[]; size: FieldSize }
@@ -44,21 +49,42 @@ export function pillWidth(name: string, count: string): number {
   return 50 + Math.min(name.length, 28) * 7.9 + count.length * 6.8
 }
 
-/** A topic's box on the map, its satellites' orbit aside: the pill with its glow, or a dot with its label and count. */
-export function topicBox(name: string, isMajor: boolean, count = ''): { w: number; h: number } {
-  if (isMajor) return { w: pillWidth(name, count) + 12, h: 48 }
-  return { w: 40 + Math.min(name.length, 24) * 6.9 + (count ? count.length * 6.9 + 6 : 0), h: 30 }
+/** A minor topic's dot and glow reach this far left of its centre; its label starts this far right. */
+const DOT_LEFT = 11
+const LABEL_AT = 16
+/** A minor label's monospace advance at 11.5px. */
+const MONO_ADVANCE = 6.9
+
+/** The drawn unit's width: the pill, or a minor topic's dot, label and count. */
+export function unitWidth(name: string, isMajor: boolean, count = ''): number {
+  if (isMajor) return pillWidth(name, count)
+  return DOT_LEFT + LABEL_AT + (Math.min(name.length, 24) + (count ? count.length + 1 : 0)) * MONO_ADVANCE
 }
 
-const PAD_X = 40
-/** Under the hint pill at the top. */
-const TOP_Y = 70
+/**
+ * The halo around a unit that its satellites orbit in: as far beyond the unit
+ * as the outermost satellite band reaches, its dot and halo included. The
+ * layout keeps halos apart, so no satellite lands on another topic or on the
+ * hint at the top.
+ */
+const HALO = { major: { x: 36, y: 54 }, minor: { x: 40, y: 44 } }
+
+/** A topic's box on the map: its drawn unit (the pill, or a dot with its label and count) and the halo its satellites orbit in. */
+export function topicBox(name: string, isMajor: boolean, count = ''): { w: number; h: number } {
+  const halo = isMajor ? HALO.major : HALO.minor
+  return { w: unitWidth(name, isMajor, count) + 2 * halo.x, h: 2 * halo.y }
+}
+
+const PAD_X = 20
+/** Under the hint pill at the top (which ends at 44). */
+const TOP_Y = 52
 /** The legend row at the bottom. */
-const BOTTOM_PAD = 56
-/** Room between boxes for the satellites that orbit each pill. */
-export const GAP_X = 56
-export const GAP_Y = 52
-const MAX_H = 1600
+const BOTTOM_PAD = 44
+/** Room between halos: the halos themselves keep the pills apart. */
+export const GAP_X = 10
+export const GAP_Y = 10
+/** The engine draws an Svg up to 4096 px; past this, rows close up rather than run off the picture. */
+const MAX_H = 4000
 
 /**
  * Places topics: boxes packed into rows in hash order, the field grown as
@@ -94,10 +120,12 @@ export function placeTopics(topics: ReadonlyArray<TopicSpec>): Placement {
   const h = Math.max(FIELD_H, Math.min(MAX_H, Math.ceil((TOP_Y + contentH + BOTTOM_PAD) / 20) * 20))
   const spareY = Math.max(0, h - TOP_Y - BOTTOM_PAD - contentH)
   const rowGap = rows.length ? spareY / (rows.length + 1) : 0
+  // More rows than the tallest picture holds: they close up (halos overlap) rather than run off it.
+  const squeeze = Math.min(1, (h - TOP_Y - BOTTOM_PAD) / Math.max(1, contentH))
   const byId = new Map<string, PlacedTopic>()
   let y = TOP_Y + rowGap
   rows.forEach((r, ri) => {
-    const rowTall = tallest[ri] ?? 0
+    const rowTall = (tallest[ri] ?? 0) * squeeze
     const used = r.reduce((a, it) => a + it.w, 0) + (r.length - 1) * GAP_X
     const share = Math.max(0, usableW - used) / (r.length + 1)
     let x = PAD_X + share
@@ -105,44 +133,101 @@ export function placeTopics(topics: ReadonlyArray<TopicSpec>): Placement {
       const hsh = hashOf(it.t.id)
       // Jitter stays inside the gaps on either side, so boxes keep their clearance.
       const jx = ((hsh & 0xffff) / 0xffff - 0.5) * Math.min(share, 80) * 0.8
-      const jy = (((hsh >>> 16) & 0xffff) / 0xffff - 0.5) * (GAP_Y / 2 - 4)
+      // Vertical jitter only inside the row's spare room, so halos of neighbouring rows never meet.
+      const jy = (((hsh >>> 16) & 0xffff) / 0xffff - 0.5) * Math.max(0, Math.min(rowGap, 40) - 4)
       const cx = x + it.w / 2 + jx
       const cy = y + rowTall / 2 + jy
-      const ox = it.t.isMajor ? 0 : it.w / 2 - 14
-      byId.set(it.t.id, { id: it.t.id, x: Math.round(cx - ox), y: Math.round(cy), w: it.w, h: it.h, ox: Math.round(ox) })
+      const uw = Math.min(unitWidth(it.t.name, it.t.isMajor, it.t.count ?? ''), usableW)
+      // A minor topic's unit (and its box) is centred right of its dot, by half the unit less the dot's reach.
+      const ox = it.t.isMajor ? 0 : uw / 2 - DOT_LEFT
+      byId.set(it.t.id, { id: it.t.id, x: Math.round(cx - ox), y: Math.round(cy), w: it.w, h: it.h, ox: Math.round(ox), uw: Math.round(uw), isMajor: it.t.isMajor })
       x += it.w + GAP_X + share
     }
-    y += rowTall + GAP_Y + rowGap
+    y += rowTall + GAP_Y * squeeze + rowGap
   })
-  const placed = topics.map(t => byId.get(t.id) ?? { id: t.id, x: FIELD_W / 2, y: FIELD_H / 2, w: 40, h: 30, ox: 0 })
+  const placed = topics.map(t => byId.get(t.id) ?? { id: t.id, x: FIELD_W / 2, y: FIELD_H / 2, w: 40, h: 30, ox: 0, uw: 40, isMajor: t.isMajor })
   return { placed, size: { w: FIELD_W, h } }
 }
 
+/** The centre of a topic's drawn unit (the pill's centre; for a minor topic, the middle of its dot and label). */
+export function unitCentre(p: PlacedTopic): Point {
+  return { x: p.x + p.ox, y: p.y }
+}
+
+/** A unit's half height: the pill with its stroke, or the minor dot's glow. */
+const unitHalfHeight = (p: PlacedTopic): number => (p.isMajor ? 21 : 11)
+
 /**
- * The i-th satellite of a topic: radius 58 (major) or 40 (minor) plus a
- * 0/14/28 step, angle seed + i·2.399. Given the pill's half width, a major
- * topic's satellites orbit on an ellipse that clears the pill. Kept inside
- * the field.
+ * Where a line from the unit's centre towards `to` leaves the unit (a little
+ * outside its edge), so a spoke never crosses the topic's own label.
  */
-export function satellitePosition(center: Point, topicId: string, i: number, isMajor: boolean, halfWidth?: number, size: FieldSize = BASE): Point {
-  const a = seedAngle(topicId) + i * 2.399
-  const step = ((i * 37) % 3) * 14
-  const rx = isMajor && halfWidth !== undefined ? halfWidth + 26 + step : (isMajor ? 58 : 40) + step
-  const ry = isMajor && halfWidth !== undefined ? 36 + step : rx
+export function unitEdge(p: PlacedTopic, to: Point): Point {
+  const c = unitCentre(p)
+  const dx = to.x - c.x
+  const dy = to.y - c.y
+  const hw = p.uw / 2 + 3
+  const hh = unitHalfHeight(p) + 3
+  const t = Math.min(dx === 0 ? Number.POSITIVE_INFINITY : hw / Math.abs(dx), dy === 0 ? Number.POSITIVE_INFINITY : hh / Math.abs(dy))
+  if (!Number.isFinite(t) || t >= 1) return to
+  return { x: c.x + dx * t, y: c.y + dy * t }
+}
+
+/**
+ * The i-th satellite of a topic: on an ellipse around the whole drawn unit (so
+ * a minor topic's satellites clear its label too), in one of three bands
+ * picked by i, at the seed angle plus i golden-angle turns. The bands stay
+ * inside the topic's halo, which the layout keeps clear. Kept on the field,
+ * under the hint at the top.
+ */
+export function satellitePosition(p: PlacedTopic, i: number, size: FieldSize = BASE): Point {
+  const c = unitCentre(p)
+  const a = seedAngle(p.id) + i * 2.399
+  const band = (i * 37) % 3
+  const rx = p.uw / 2 + (p.isMajor ? 10 + band * 7 : 12 + band * 8)
+  const ry = p.isMajor ? 28 + band * 7 : 20 + band * 6
+  let dx = rx * Math.cos(a)
+  let dy = ry * Math.sin(a)
+  // An ellipse cuts a rectangle's corners: a point that falls within 8 of the unit is pushed out along its own direction.
+  const mx = p.uw / 2 + (p.isMajor ? 8 : 12)
+  const my = unitHalfHeight(p) + 8
+  if (Math.abs(dx) < mx && Math.abs(dy) < my) {
+    const t = Math.min(dx === 0 ? Number.POSITIVE_INFINITY : mx / Math.abs(dx), dy === 0 ? Number.POSITIVE_INFINITY : my / Math.abs(dy))
+    dx *= t
+    dy *= t
+  }
   return {
-    x: Math.min(size.w - 24, Math.max(24, center.x + rx * Math.cos(a))),
-    y: Math.min(size.h - 24, Math.max(24, center.y + ry * Math.sin(a))),
+    x: Math.min(size.w - 16, Math.max(16, c.x + dx)),
+    y: Math.min(size.h - 16, Math.max(52, c.y + dy)),
   }
 }
 
-/** The numbered steps of a focused chain: spread across the field, zigzag ±26 around the middle. */
+/** The two rows of a focused chain, as far apart as its labels need: the upper row's labels sit above it, the lower row's below. */
+export function chainRows(size: FieldSize = BASE): { upper: number; lower: number } {
+  const mid = Math.round(size.h * 0.57)
+  return { upper: mid - 46, lower: mid + 46 }
+}
+
+/** The numbered steps of a focused chain: spread across the field, alternating between the two rows. */
 export function chainPositions(n: number, size: FieldSize = BASE): Point[] {
+  const { upper, lower } = chainRows(size)
   const out: Point[] = []
-  const mid = size.h / 2 + 2
   for (let i = 0; i < n; i += 1) {
-    out.push({ x: n === 1 ? size.w / 2 : 120 + (i * (size.w - 240)) / (n - 1), y: mid + (i % 2 === 0 ? -26 : 26) })
+    out.push({ x: n === 1 ? size.w / 2 : 90 + (i * (size.w - 180)) / (n - 1), y: i % 2 === 0 ? upper : lower })
   }
   return out
+}
+
+/**
+ * How many characters a chain step's label line may hold before it reaches
+ * its neighbour on the same row; 0 when there is too little room to label
+ * every step (the picture then labels the latest, the selected and this
+ * session, and the tooltips carry the rest).
+ */
+export function chainLabelChars(n: number, size: FieldSize = BASE): number {
+  if (n <= 2) return 26
+  const sameRow = (2 * (size.w - 180)) / (n - 1)
+  const chars = Math.floor((sameRow - 12) / 6.4)
+  return chars < 8 ? 0 : Math.min(24, chars)
 }
 
 /** The related-topic anchors along the bottom of a focused chain. */

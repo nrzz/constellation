@@ -300,6 +300,7 @@ export function largeStub(seed: Seed): SessionSummary {
     size: seed.size,
     mtimeMs: seed.mtimeMs,
     large: true,
+    stub: true,
   }
 }
 

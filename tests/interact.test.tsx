@@ -60,9 +60,9 @@ test('Jump back in: the three most recent sessions, newest first; a chip focuses
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
   expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('‹ All topics')
   expect(await ui.find({ type: 'Button', key: `r:${IDS.tests}` })).toBeUndefined()
+  // ‹ All topics goes straight back, card and all; the recent row returns.
   await ui.press({ key: 'back' })
-  expect(await ui.find({ type: 'Button', key: `r:${IDS.tests}` })).toBeUndefined()
-  await ui.press({ key: 'back' })
+  expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: `r:${IDS.tests}` })).toBeDefined()
   await ui.input({ key: 'q', text: 'cart', kind: 'change' })
   expect(await ui.find({ type: 'Button', key: `r:${IDS.tests}` })).toBeUndefined()
@@ -207,7 +207,6 @@ test('a session card: Message is dim unless the session is active, the resume co
   expect(await ui.find({ type: 'Text', text: new RegExp(`claude --resume ${IDS.tests}`) })).toBeDefined()
   for (const key of ['sc:pickup', 'sc:draft', 'sc:new', 'sc:pin', 'sc:move', 'sc:archive']) expect(await ui.find({ type: 'Button', key })).toBeDefined()
   await ui.press({ key: 'back' })
-  await ui.press({ key: 'back' })
   await ui.press({ key: 't:topic:docs' })
   expect(await ui.find({ type: 'Button', key: 'tc:focus' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'tc:tidy' })).toBeUndefined()
@@ -276,6 +275,11 @@ test('the resting hint on each surface says how picking works there, in the pict
   expect(pointerHint({ surface: 'desktop', placement: 'dock', settings: { ...settings, pictureClicks: 'off' } })).toBe('Tab onto a topic to trace it · Enter or its button under the map focuses')
   expect(pointerHint({ surface: 'vscode', placement: 'dock', settings })).toBe('Tab onto a topic to trace it · Enter or its button under the map focuses')
   expect(pointerHint({ surface: 'mobile', placement: 'dock', settings })).toBe('Tap a topic under the map to focus it')
+  // The fullscreen renderer reports the mouse even where it seats the pane inline (under 110 columns); the classic one never.
+  expect(pointerHint({ surface: 'terminal', placement: 'inline', isFullscreen: true, settings })).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  expect(pointerHint({ surface: 'terminal', placement: 'inline', isFullscreen: false, settings })).toBe('Tab to a topic · Enter focuses · the mouse works in /tui fullscreen')
+  // A /map here snapshot in the transcript is a picture, with nothing live under it.
+  expect(pointerHint({ surface: 'desktop', placement: 'dock', isRow: true, settings })).toBe('A snapshot · /map opens the live map')
 })
 
 test('help lies over an open card: closing it, by h or Esc, gives the card back', async ($, on) => {

@@ -88,8 +88,11 @@ const THEMES = [
   { name: 'analytics', branch: 'feat/funnel', files: ['src/analytics/events.ts', 'src/analytics/funnel.ts'], asks: ['track checkout funnel events in analytics', 'analytics events fire twice on route change', 'funnel report for the signup flow', 'drop analytics events from bots', 'analytics consent banner gating events', 'funnel dashboard numbers do not match events'] },
   { name: 'profile', branch: 'feat/profile', files: ['src/profile/Profile.tsx', 'src/profile/avatar.ts', 'src/profile/settings.ts'], asks: ['profile avatar upload crops badly', 'profile settings page for notifications', 'profile page loads the avatar twice', 'delete account from profile settings', 'profile form validation for phone numbers', 'avatar upload should resize on the server'] },
   { name: 'perf', branch: 'perf/cache', files: ['src/perf/cache.ts', 'webpack.config.js', 'src/perf/lazy.tsx'], asks: ['cache the product api responses', 'webpack bundle is 4mb, split it', 'lazy load the product images', 'cache invalidation when prices change', 'webpack build is slow in dev', 'measure the largest contentful paint'] },
+  { name: 'deploy', branch: 'infra/docker', files: ['Dockerfile', 'deploy/k8s.yaml', 'deploy/healthcheck.ts'], asks: ['shrink the docker image for deploy', 'k8s deploy needs a readiness probe', 'deploy healthcheck times out on cold start', 'blue green deploy for the api', 'docker build cache misses in deploy', 'roll back a bad deploy quickly', 'deploy secrets through k8s', 'docker compose for local deploy testing'] },
+  { name: 'admin', branch: 'feat/admin', files: ['src/admin/Dashboard.tsx', 'src/admin/users.ts', 'src/admin/audit.ts'], asks: ['admin dashboard for refunds', 'admin users table needs paging', 'audit log for admin actions', 'admin dashboard charts are blank', 'ban a user from the admin users page', 'admin audit export to csv', 'admin role checks on every route', 'admin dashboard loads slowly'] },
+  { name: 'reviews', branch: 'feat/reviews', files: ['src/reviews/ReviewForm.tsx', 'src/reviews/moderation.ts', 'src/reviews/stars.ts'], asks: ['product reviews with star ratings', 'review moderation queue', 'review form loses text on error', 'average stars per product in reviews', 'flag abusive reviews for moderation', 'review photos upload', 'sort reviews by helpfulness', 'reviews widget on the product page'] },
 ]
-const ONE_OFFS = ['bump the eslint config', 'fix a typo in the footer', 'rename the env example file', 'what does this regex do', 'update the license year', 'explain the docker compose file', 'try out the new date picker', 'clean up console logs', 'look into the 404 page styling', 'add a favicon']
+const ONE_OFFS = ['bump the eslint config', 'fix a typo in the footer', 'rename the env example file', 'what does this regex do', 'update the license year', 'explain the docker compose file', 'try out the new date picker', 'clean up console logs', 'look into the 404 page styling', 'add a favicon', 'how do i squash my last three commits', 'set up prettier on save', 'why is node using so much memory', 'convert this json to yaml', 'summarise the meeting notes file', 'lint warnings in the old scripts folder', 'what is the difference between these two branches', 'make a gitignore for python', 'check the robots txt', 'rename a variable everywhere']
 
 function uuidOf(theme, n) {
   const hex = (theme * 1000 + n).toString(16).padStart(12, '0')
@@ -112,7 +115,7 @@ function transcript({ id, cwd, branch, ask, files, title, start, done, pad = 0 }
 
 const titleOf = ask => ask.replace(/^(fix|add|make|the|a)\s+/i, '').replace(/^\w/, c => c.toUpperCase()).slice(0, 48)
 
-/** About 140 sessions over 45 days: twelve themes of six to eleven, ten one-offs, and one transcript over 4 MiB. */
+/** About 140 sessions over 45 days: fifteen themes of six to eleven, twenty one-offs, and one transcript over 4 MiB. */
 function bigFolder(cwd, now) {
   const out = []
   const themeOf = {}
@@ -166,7 +169,8 @@ function install(cfg) {
 class Engine {
   constructor({ cfg, cwd }) {
     if (process.env.E2E_INSTALL) install(cfg)
-    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json']
+    // --verbose: the engine asks for it with stream-json output under --print.
+    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
     if (!process.env.E2E_INSTALL) args.push('--plugin-dir', IS_WIN ? `"${REPO}"` : REPO)
     this.child = spawn(CLAUDE, args, { cwd, env: engineEnv(cfg), stdio: ['pipe', 'pipe', 'pipe'], shell: IS_WIN })
     this.pending = new Map()
@@ -197,7 +201,14 @@ class Engine {
       }
     })
     this.child.stderr.on('data', d => (this.stderr += d))
-    this.exited = new Promise(r => this.child.on('exit', r))
+    this.exited = new Promise(r =>
+      this.child.on('exit', code => {
+        // An engine that quits answers nothing more: fail what waits on it now, with its last words.
+        for (const [, cb] of this.pending) cb({ subtype: 'error', error: `the engine exited (${code})${this.stderr ? `: ${this.stderr.slice(-400)}` : ''}` })
+        this.pending.clear()
+        r(code)
+      }),
+    )
   }
   /** One control request; resolves to its answer, or throws with the engine's error. */
   request(req, timeoutMs = 60_000) {
@@ -264,6 +275,38 @@ const textOf = tree => {
 const buttonOf = (tree, key) => find(tree, n => n.type === 'Button' && n.props?.key === key)
 const clientOf = tree => find(tree, n => n.type === 'Client' && n.props?.key === 'map')
 
+/**
+ * The frame: the served runtime, installed once (a real Desktop frame is a realm of its own, and the runtime
+ * claims a global there), and the map module. Each window's instance has its own id; the host routes by it.
+ */
+const frame = { driver: undefined, entry: undefined, component: undefined, windows: new Map(), seq: 0 }
+async function installFrame(m) {
+  if (frame.driver) return
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cst-frame-'))
+  temps.push(dir)
+  const fileOf = key => `${key.replace(/[^a-zA-Z0-9.]/g, '_')}.mjs`
+  for (const f of m.files) {
+    let src = f.source
+    // The frame's import map, as plain relative files.
+    for (const g of m.files) src = src.split(`"${g.key}"`).join(`"./${fileOf(g.key)}"`).split(`'${g.key}'`).join(`'./${fileOf(g.key)}'`)
+    fs.writeFileSync(path.join(dir, fileOf(f.key)), src)
+  }
+  const rt = await import(pathToFileURL(path.join(dir, fileOf(m.runtime))).href)
+  globalThis.h = rt.h
+  globalThis.Fragment = rt.Fragment
+  const host = {
+    schedule: id => void (frame.windows.get(id) && frame.windows.get(id).redraws++),
+    startTimer: () => ({}),
+    stopTimer: () => undefined,
+    post: (id, text) => void frame.windows.get(id)?.posts.push(JSON.parse(text)),
+    fault: (id, reason) => void frame.windows.get(id)?.faults.push(String(reason)),
+  }
+  frame.driver = rt.install(host, m.limits)
+  const entry = m.modules.find(x => x.module === 'client/map.js')
+  frame.entry = await import(pathToFileURL(path.join(dir, fileOf(entry.entry))).href)
+  frame.component = entry.component
+}
+
 /** What Claude Desktop is to the engine: an attached surface that asks for drawings and runs their Client modules. */
 class Desktop {
   constructor(engine, surface = 'desktop') {
@@ -272,6 +315,11 @@ class Desktop {
     this.posts = []
     this.faults = []
     this.redraws = 0
+    this.id = `map-${++frame.seq}`
+    frame.windows.set(this.id, this)
+  }
+  get driver() {
+    return frame.driver
   }
   attach() {
     return this.engine.request({ subtype: 'ui_attach', surface: this.surface, client_id: 'harness', viewport: VIEWPORT })
@@ -289,50 +337,40 @@ class Desktop {
   async press(key, tree = this.tree) {
     const b = buttonOf(tree, key)
     if (!b) throw new Error(`no Button ${key}`)
-    return this.engine.request({ subtype: 'ui_press', plugin: b.press.plugin, handle: b.press.handle, key, surface: this.surface })
+    const from = this.engine.events.length
+    const r = await this.engine.request({ subtype: 'ui_press', plugin: b.press.plugin, handle: b.press.handle, key, surface: this.surface })
+    this.pressedFrom = from
+    return r
+  }
+  /** Presses, then draws the pane again once the engine says it changed. */
+  async pressAndDraw(key, tree) {
+    await this.press(key, tree)
+    await this.redrawAfter(this.pressedFrom)
+    if (this.mounted && clientOf(this.tree)) {
+      this.driver.setProps(this.id, this.props())
+      this.draw()
+    }
   }
   /** Loads the Client module as the Desktop frame does: the served runtime installed with a host, then the entry imported. */
   async loadModule() {
     const m = await this.engine.request({ subtype: 'ui_client_module', plugin: PLUGIN })
     this.module = m
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cst-frame-'))
-    temps.push(dir)
-    const fileOf = key => `${key.replace(/[^a-zA-Z0-9.]/g, '_')}.mjs`
-    for (const f of m.files) {
-      let src = f.source
-      // The frame's import map, as plain relative files.
-      for (const g of m.files) src = src.split(`"${g.key}"`).join(`"./${fileOf(g.key)}"`).split(`'${g.key}'`).join(`'./${fileOf(g.key)}'`)
-      fs.writeFileSync(path.join(dir, fileOf(f.key)), src)
-    }
-    const rt = await import(pathToFileURL(path.join(dir, fileOf(m.runtime))).href)
-    globalThis.h = rt.h
-    globalThis.Fragment = rt.Fragment
-    const host = {
-      schedule: () => void this.redraws++,
-      startTimer: () => ({}),
-      stopTimer: () => undefined,
-      post: (_id, text) => void this.posts.push(JSON.parse(text)),
-      fault: (_id, reason) => void this.faults.push(String(reason)),
-    }
-    this.driver = rt.install(host, m.limits)
-    const entry = m.modules.find(x => x.module === 'client/map.js')
-    this.entry = await import(pathToFileURL(path.join(dir, fileOf(entry.entry))).href)
-    this.component = entry.component
+    await installFrame(m)
     return m
   }
   /** Mounts the map Client of the last drawing in a region of `columns` × `rows` cells. */
   mount(columns, rows) {
-    if (this.mounted) this.driver.unmount('map')
+    if (this.mounted) this.driver.unmount(this.id)
     const props = clientOf(this.tree).props.props
-    this.driver.mount('map', this.entry[this.component], props)
-    this.driver.resize('map', columns, rows)
+    this.driver.mount(this.id, frame.entry[frame.component], props)
+    this.driver.resize(this.id, columns, rows)
     this.mounted = true
     this.columns = columns
     this.rows = rows
     return this.draw()
   }
   draw() {
-    this.driver.stage('map', 'render')
+    this.driver.stage(this.id, 'render')
     const text = globalThis.__surface__.run()
     return typeof text === 'string' ? JSON.parse(text) : text
   }
@@ -347,19 +385,28 @@ class Desktop {
     return fine ? { x: Math.floor(fx), y: Math.floor(fy), fine: { x: fx, y: fy } } : { x: Math.floor(fx), y: Math.floor(fy) }
   }
   pointer(ev) {
-    this.driver.stage('map', 'pointer', ev)
+    this.driver.stage(this.id, 'pointer', ev)
     globalThis.__surface__.run()
   }
   /** Sends the module's posts as the Desktop does, then draws the pane again and hands the Client its next props. */
+  /** As the Desktop does: after a press or a post, draw again once the engine says the drawing changed (`ui_invalidate`). */
+  async redrawAfter(from) {
+    await this.engine.waitFor(e => e.type === 'system' && e.subtype === 'ui_invalidate' && (e.instances ?? []).some(i => i.instance_id === PANE || i.instance_id === 'band'), 3000, from)
+    return this.pane()
+  }
   async flush() {
     const sent = this.posts.splice(0)
+    const from = this.engine.events.length
     for (const data of sent) {
       const r = await this.engine.request({ subtype: 'ui_message', plugin: PLUGIN, component: 'Pane', instance_id: PANE, client: 'map', module: 'client/map.js', data })
+      if (process.env.E2E_DEBUG) console.log(`     post ${JSON.stringify(data)} -> ${JSON.stringify(r)}`)
       if (!r.handled) throw new Error(`ui_message not handled: ${JSON.stringify(data)}`)
     }
-    await this.pane()
+    if (sent.length) await this.redrawAfter(from)
+    else await this.pane()
+    if (process.env.E2E_DEBUG) console.log(`     then mode ${this.props()?.mode}, hint ${this.props()?.hint}`)
     if (this.mounted && clientOf(this.tree)) {
-      this.driver.setProps('map', this.props())
+      this.driver.setProps(this.id, this.props())
       this.draw()
     }
     return sent
@@ -425,7 +472,7 @@ async function fixtureFolderChecks() {
     const client = clientOf(r.tree)
     check(client?.props.module === 'client/map.js' && client.props.width === '100%' && client.props.height === '100%', 'the layer holds the map Client at the box’s full size', client?.props && { module: client.props.module, width: client.props.width, height: client.props.height })
     check(client?.props.props.hits === true && client.props.props.outline === false, '…in picture mode, drawing nothing', client?.props.props && { hits: client.props.props.hits, outline: client.props.props.outline })
-    const checkout = client?.props.props.nodes.find(n => n.kind === 'topic' && n.label === 'Checkout Cart')
+    const checkout = client?.props.props.nodes.find(n => n.kind === 'topic' && /^Checkout Cart\b/.test(n.label))
     check(Boolean(checkout) && Boolean(buttonOf(r.tree, `t:${checkout.id}`)), 'the buttons under the picture hold the same topics')
 
     // The module, as the Desktop loads it.
@@ -437,8 +484,8 @@ async function fixtureFolderChecks() {
     const rows = rowsFor(cols, p)
     const drawn = desk.mount(cols, rows)
     check(drawn?.type === 'Box' && !(drawn.children ?? []).length, `the layer draws nothing over the picture (${cols}×${rows} cells)`, drawn)
-    check(desk.driver.hasListener('map', 'pointer') === true, 'the layer listens to the pointer')
-    check(desk.driver.hasListener('map', 'key') === false, '…and not to the keys, so a click never holds the keyboard')
+    check(desk.driver.hasListener(desk.id, 'pointer') === true, 'the layer listens to the pointer')
+    check(desk.driver.hasListener(desk.id, 'key') === false, '…and not to the keys, so a click never holds the keyboard')
 
     // Hover traces, leaving clears.
     const before = svgOfTree(desk.tree).props.source
@@ -479,14 +526,7 @@ async function fixtureFolderChecks() {
     sent = await desk.click(dot.x, dot.y)
     check(sent.some(d => d.type === 'pick' && d.id === dot.id && d.kind === 'session'), 'a click on a session’s dot picks it', sent)
     check(desk.props().mode === 'focus' && Boolean(buttonOf(desk.tree, 'sc:pickup')), '…opening its card in the chain')
-    await desk.press('back')
-    await desk.pane()
-    if (desk.props().mode === 'focus') {
-      await desk.press('back')
-      await desk.pane()
-    }
-    desk.driver.setProps('map', desk.props())
-    desk.draw()
+    await desk.pressAndDraw('back')
     check(desk.props().mode === 'map', 'the Back button (an engine button, pressed over the wire) backs out', desk.props().mode)
 
     // A drop on empty space moves nothing; a drag onto Unsorted moves, stays, and Undo puts it back.
@@ -497,14 +537,12 @@ async function fixtureFolderChecks() {
     sent = await desk.drag(desk.props().nodes.find(n => n.id === sat.id), pointOn(unsorted))
     check(sent.some(d => d.type === 'drop' && d.id === sat.id && d.targetId === 'unsorted'), 'dragging a satellite onto Unsorted posts the move', sent)
     check(desk.props().nodes.find(n => n.id === sat.id)?.topicId === 'unsorted', '…and the session is in Unsorted')
-    await desk.press('refresh')
-    await desk.pane()
+    await desk.pressAndDraw('refresh')
     check(desk.props().nodes.find(n => n.id === sat.id)?.topicId === 'unsorted', '…still, after a rescan')
     check(Boolean(buttonOf(desk.tree, 'toast:undo')), '…with Undo offered')
-    await desk.press('toast:undo')
-    await desk.pane()
+    await desk.pressAndDraw('toast:undo')
     check(desk.props().nodes.find(n => n.id === sat.id)?.topicId === checkout.id, 'Undo puts it back in its topic')
-    desk.driver.setProps('map', desk.props())
+    desk.driver.setProps(desk.id, desk.props())
     desk.draw()
 
     // Any layer size: the same point picks the same topic.
@@ -520,12 +558,9 @@ async function fixtureFolderChecks() {
     desk.mount(cols, rows)
 
     // The settings, pressed as buttons: outline, off, and back on.
-    await desk.press('settings')
-    await desk.pane()
-    await desk.press('set:advanced')
-    await desk.pane()
-    await desk.press('set:pictureClicks:outline')
-    await desk.pane()
+    await desk.pressAndDraw('settings')
+    await desk.pressAndDraw('set:advanced')
+    await desk.pressAndDraw('set:pictureClicks:outline')
     check(desk.props()?.outline === true, 'Clicks on the picture: Outline reaches the layer')
     desk.mount(cols, rows)
     let t = desk.draw()
@@ -533,20 +568,17 @@ async function fixtureFolderChecks() {
     desk.pointer({ type: 'move', x: 7, y: 3 })
     t = desk.draw()
     check(/move at 7,3/.test(JSON.stringify(t)), '…and the last pointer event')
-    await desk.press('set:pictureClicks:off')
-    await desk.pane()
+    await desk.pressAndDraw('set:pictureClicks:off')
     check(!clientOf(desk.tree) && Boolean(svgOfTree(desk.tree)), 'Off: the picture alone, no layer')
     check(Boolean(buttonOf(desk.tree, `t:${checkout.id}`)), '…the topic buttons under it still pick')
     check(/Tab onto a topic to trace it · Enter or its button under the map focuses/.test(svgOfTree(desk.tree).props.source), '…and the picture’s hint says so')
-    await desk.press('set:pictureClicks:on')
-    await desk.pane()
+    await desk.pressAndDraw('set:pictureClicks:on')
     check(clientOf(desk.tree)?.props.props.hits === true, 'On again: the layer is back')
-    await desk.press(`t:${checkout.id}`)
-    await desk.pane()
+    await desk.pressAndDraw(`t:${checkout.id}`)
     check(desk.props().mode === 'focus', 'a topic button under the picture focuses the topic too')
 
     // A pane the Desktop seats inline keeps the pointer hint.
-    await desk.press('back')
+    await desk.pressAndDraw('back')
     const inline = await desk.pane('inline')
     check(clientOf(inline.tree)?.props.props.hint === 'Hover or focus a topic to trace it · Enter or click to focus', 'a Desktop pane seated inline keeps the pointer hint', clientOf(inline.tree)?.props.props.hint)
 
@@ -558,23 +590,12 @@ async function fixtureFolderChecks() {
     const status = await engine.waitFor(e => e.type === 'system' && e.subtype === 'ui_status' && /Checkout Cart · step 3/.test(e.text ?? ''), 10_000, from)
     check(Boolean(status), 'joining from the band on the Desktop sets the status line to the next step', status?.text)
 
-    // Set "On session start" to Pane for check 4.
-    await desk.pane()
-    if (!buttonOf(desk.tree, 'set:openOnStart:pane')) {
-      await desk.press('settings')
-      await desk.pane()
-    }
-    await desk.press('set:openOnStart:pane')
-    await desk.pane()
-    check(buttonOf(desk.tree, 'set:openOnStart:pane')?.props.variant === 'primary', 'On session start: Pane is saved')
-
     check(desk.faults.length === 0, 'the module never faulted in the frame', desk.faults)
   } catch (error) {
     check(false, 'the fixture folder run', String(error?.stack ?? error))
   } finally {
     await engine.close()
   }
-  return { cfg, cwd }
 }
 
 // ---------------------------------------------------------------- 2. a big folder
@@ -594,15 +615,24 @@ async function bigFolderChecks() {
   try {
     await engine.request({ subtype: 'initialize' }, 90_000)
     await desk.attach()
+    // The scan reads a big folder in passes of 40 files; the picture fills in as they land. Wait for all of them.
     const t0 = Date.now()
-    const r = await desk.pane()
-    const ms = Date.now() - t0
-    // The pane's first drawing waits for the first scan; a later one is the cached model.
+    let r = await desk.pane()
+    const firstMs = Date.now() - t0
+    const counted = tree => [...(svgOfTree(tree)?.props.alt ?? '').matchAll(/\((\d+)\)/g)].reduce((a, m) => a + Number(m[1]), 0)
+    while (counted(r.tree) < sessions.length && Date.now() - t0 < 60_000) {
+      await sleep(250)
+      r = await desk.pane()
+    }
+    const fullMs = Date.now() - t0
     const t1 = Date.now()
     await desk.pane()
     const ms2 = Date.now() - t1
-    console.log(`     first drawing ${ms} ms (with the scan), then ${ms2} ms`)
-    check(ms2 < 3000, 'a drawing of the big folder, after the first scan, comes back in under 3 s', `${ms2} ms`)
+    console.log(`     ${sessions.length} sessions: first drawing ${firstMs} ms, every session on the map after ${fullMs} ms, a later drawing ${ms2} ms`)
+    check(counted(r.tree) === sessions.length, `the scan reads all ${sessions.length} sessions, in passes`, `${counted(r.tree)} counted`)
+    check(fullMs < 20_000, 'the whole folder is on the map within 20 s of the first drawing', `${fullMs} ms`)
+    check(firstMs < 5000, 'the first drawing does not wait for the whole scan', `${firstMs} ms`)
+    check(ms2 < 3000, 'a later drawing of the big folder comes back in under 3 s', `${ms2} ms`)
     const svg = svgOfTree(r.tree)
     const bytes = Buffer.byteLength(svg?.props.source ?? '')
     const w = Number(/width="(\d+(?:\.\d+)?)"/.exec(svg?.props.source ?? '')?.[1])
@@ -631,12 +661,29 @@ async function bigFolderChecks() {
     const themed = dots.filter(d => !String(themeOf[d.id]).startsWith('one-off'))
     const placed = themed.filter(d => d.topicId !== 'unsorted').length / Math.max(1, themed.length)
     check(placed >= 0.7, 'most themed sessions find a topic', `${Math.round(placed * 100)}%`)
-    const big = props.nodes.find(n => n.id === bigId)
-    check(Boolean(big), 'the transcript over 4 MiB is on the map (read in slices through the shell)')
-    check(/Stripe webhook retry storm/.test(`${big?.title ?? ''} ${big?.label ?? ''}`), '…under the title the engine gave it', big && { title: big.title, label: big.label })
+    // The transcript over 4 MiB: in the list, under the title the engine gave it, its card flagged large.
+    await desk.pressAndDraw('view:list')
+    // Open each topic of the list in turn until the session shows.
+    let bigRow
+    for (const key of findAll(desk.tree, n => n.type === 'Button' && /^t:/.test(n.props?.key ?? '')).map(b => b.props.key)) {
+      await desk.pressAndDraw(key)
+      bigRow = buttonOf(desk.tree, `s:${bigId}`)
+      if (bigRow) break
+      if (buttonOf(desk.tree, key)) await desk.pressAndDraw(key)
+    }
+    check(Boolean(bigRow), 'the transcript over 4 MiB is in the list (read in slices through the shell)')
+    check(/Stripe webhook retry storm/.test(textOf(bigRow ?? {})), '…under the title the engine gave it', textOf(bigRow ?? {}).slice(0, 120))
+    check(/storefront › (?!Unsorted)/.test(textOf(desk.tree)) || themeOf[bigId] !== 'payments', '…in a topic of its own theme, not Unsorted: it clusters on what its slices held', textOf(desk.tree).slice(0, 160))
+    if (bigRow) {
+      await desk.pressAndDraw(`s:${bigId}`)
+      check(/\d+\+ turns/.test(textOf(desk.tree)), '…and its card says its turns are a lower bound (N+ turns)', textOf(desk.tree).match(/\d+\+? turns?/)?.[0])
+    }
+    await desk.pressAndDraw('view:map')
+    if (buttonOf(desk.tree, 'back')) await desk.pressAndDraw('back')
     await desk.loadModule()
-    desk.mount(140, rowsFor(140, props))
-    const topic = topics[0]
+    if (process.env.E2E_DEBUG) console.log('     state before the big click:', desk.props() && { mode: desk.props().mode, kinds: desk.props().nodes.map(n => n.kind).join(',') }, textOf(desk.tree).slice(0, 300))
+    desk.mount(140, rowsFor(140, desk.props()))
+    const topic = desk.props().nodes.find(n => n.kind === 'topic' && n.id !== 'unsorted')
     const sent = await desk.click(pointOn(topic).x, pointOn(topic).y)
     check(sent.some(d => d.type === 'pick' && d.id === topic.id), 'a click on a topic in the big map picks it', sent)
     check(desk.props().mode === 'focus', '…and focuses it')
@@ -675,8 +722,31 @@ async function emptyFolderChecks() {
 
 // ---------------------------------------------------------------- 4. opening at start
 
-async function openOnStartChecks(prev) {
+async function openOnStartChecks() {
   console.log('== 4: On session start: Pane, in a new Desktop session')
+  const prev = seed(fixtureFolder())
+  // By default a new session shows the band, not the pane.
+  {
+    const engine = new Engine(prev)
+    const desk = new Desktop(engine)
+    try {
+      await engine.request({ subtype: 'initialize' }, 90_000)
+      const from = engine.events.length
+      await desk.attach()
+      await sleep(2500)
+      const panes = engine.events.slice(from).filter(e => e.type === 'system' && e.subtype === 'ui_panes')
+      check(!panes.some(e => (e.panes ?? []).some(p => p.id === PANE || p === PANE)), 'by default a new Desktop session opens no pane (the band asks instead)', panes.map(e => e.panes))
+      // The setting, set as a person would: the gear, then On session start: Pane.
+      await desk.pane()
+      await desk.pressAndDraw('settings')
+      await desk.pressAndDraw('set:openOnStart:pane')
+      check(buttonOf(desk.tree, 'set:openOnStart:pane')?.props.variant === 'primary', 'On session start: Pane is saved from the settings card')
+    } catch (error) {
+      check(false, 'the setting run', String(error?.stack ?? error))
+    } finally {
+      await engine.close()
+    }
+  }
   for (const surface of ['desktop', 'vscode']) {
     const engine = new Engine(prev)
     const desk = new Desktop(engine, surface)
@@ -715,10 +785,18 @@ async function openOnStartChecks(prev) {
 
 // ----------------------------------------------------------------
 
-const prev = await fixtureFolderChecks()
-await bigFolderChecks()
-await emptyFolderChecks()
-await openOnStartChecks(prev)
-console.log(`== ${passed} passed, ${failed} failed`)
-if (!failed && !process.env.E2E_KEEP) for (const t of temps) fs.rmSync(t, { recursive: true, force: true })
-process.exit(failed ? 1 : 0)
+// The pieces tests/e2e/shots.mjs reuses to draw the README's pictures.
+export { seed, fixtureFolder, bigFolder, Engine, Desktop, svgOfTree, clientOf, buttonOf, find, findAll, textOf, pointOn, rowsFor, temps, sleep }
+
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+  // E2E_ONLY=1,3 runs those scenarios alone.
+  const only = (process.env.E2E_ONLY ?? '').split(',').filter(Boolean)
+  const wanted = n => only.length === 0 || only.includes(String(n))
+  if (wanted(1)) await fixtureFolderChecks()
+  if (wanted(2)) await bigFolderChecks()
+  if (wanted(3)) await emptyFolderChecks()
+  if (wanted(4)) await openOnStartChecks()
+  console.log(`== ${passed} passed, ${failed} failed`)
+  if (!failed && !process.env.E2E_KEEP) for (const t of temps) fs.rmSync(t, { recursive: true, force: true })
+  process.exit(failed ? 1 : 0)
+}

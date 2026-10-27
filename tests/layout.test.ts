@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { BASE, FIELD_H, FIELD_W, GAP_X, anchorPositions, chainPositions, hashOf, placeTopics, satellitePosition, seedAngle, topicBox } from '../hooks/layout'
+import { BASE, FIELD_H, FIELD_W, GAP_X, anchorPositions, chainLabelChars, chainPositions, hashOf, placeTopics, satellitePosition, seedAngle, topicBox, unitCentre, unitEdge, unitWidth } from '../hooks/layout'
 import type { PlacedTopic, TopicSpec } from '../hooks/layout'
 
 /** Two boxes overlap when they are apart on neither axis. */
@@ -113,36 +113,89 @@ describe('layout', () => {
     expect(placeTopics([])).toEqual({ placed: [], size: BASE })
   })
 
-  test('satellites orbit at the planned radii and stay on the field, a tall one too', async () => {
-    const c = { x: 430, y: 260 }
-    const p0 = satellitePosition(c, 't', 0, true)
-    expect(Math.round(Math.hypot(p0.x - c.x, p0.y - c.y))).toBe(58)
-    const p1 = satellitePosition(c, 't', 1, true)
-    expect(Math.round(Math.hypot(p1.x - c.x, p1.y - c.y))).toBe(72)
-    const minor = satellitePosition(c, 't', 0, false)
-    expect(Math.round(Math.hypot(minor.x - c.x, minor.y - c.y))).toBe(40)
-    const orbit = satellitePosition(c, 't', 0, true, 80)
-    expect(Math.abs(orbit.x - c.x)).toBeLessThanOrEqual(106)
-    expect(Math.abs(orbit.y - c.y)).toBeLessThanOrEqual(36)
-    expect(Math.abs(orbit.x - c.x) > 80 || Math.abs(orbit.y - c.y) > 20).toBe(true)
-    const edge = satellitePosition({ x: 10, y: 10 }, 't', 2, true)
-    expect(edge.x).toBeGreaterThanOrEqual(24)
-    expect(edge.y).toBeGreaterThanOrEqual(24)
+  test('satellites orbit the whole unit inside its halo: never on the pill or the label, never past the halo, under the hint and on the field', async () => {
+    const major: PlacedTopic = { id: 't', x: 430, y: 260, ox: 0, uw: 160, isMajor: true, w: 160 + 72, h: 108 }
+    // A minor topic: its dot at x, its label to the right; the unit (dot and label) is centred right of the dot.
+    const minor: PlacedTopic = { id: 'm', x: 300, y: 300, ox: 75 - 11, uw: 150, isMajor: false, w: 150 + 80, h: 88 }
+    for (const p of [major, minor]) {
+      const c = unitCentre(p)
+      const hw = p.uw / 2
+      const hh = p.isMajor ? 21 : 11
+      for (let i = 0; i < 60; i += 1) {
+        const sp = satellitePosition(p, i, { w: 860, h: 1200 })
+        // Off the unit itself.
+        expect(Math.abs(sp.x - c.x) > hw || Math.abs(sp.y - c.y) > hh).toBe(true)
+        // Inside the halo, the satellite's dot and its glow (11) included.
+        expect(Math.abs(sp.x - c.x) + 11).toBeLessThanOrEqual(p.w / 2 + 0.5)
+        expect(Math.abs(sp.y - c.y) + 11).toBeLessThanOrEqual(p.h / 2 + 0.5)
+      }
+    }
+    // A minor topic's satellites clear its label: none lands on the text to the right of the dot.
+    for (let i = 0; i < 60; i += 1) {
+      const sp = satellitePosition(minor, i)
+      // …and keeps 12 clear of its end, so a dot never reads as part of the count.
+      const onLabel = sp.x > minor.x + 10 && sp.x < minor.x - 11 + minor.uw + 12 && Math.abs(sp.y - minor.y) < 10
+      expect(onLabel).toBe(false)
+    }
+    // Clamped on the field, and under the hint pill at the top.
+    const corner: PlacedTopic = { ...major, x: 20, y: 20 }
+    for (let i = 0; i < 12; i += 1) {
+      const sp = satellitePosition(corner, i)
+      expect(sp.x).toBeGreaterThanOrEqual(16)
+      expect(sp.y).toBeGreaterThanOrEqual(52)
+    }
     const tall = { w: 860, h: 760 }
     for (let i = 0; i < 12; i += 1) {
-      const p = satellitePosition({ x: 850, y: 740 }, 't', i, true, 90, tall)
-      expect(p.x).toBeLessThanOrEqual(836)
-      expect(p.y).toBeLessThanOrEqual(736)
-      expect(p.y).toBeGreaterThan(520)
+      const sp = satellitePosition({ ...major, x: 850, y: 740 }, i, tall)
+      expect(sp.x).toBeLessThanOrEqual(844)
+      expect(sp.y).toBeLessThanOrEqual(744)
     }
   })
 
-  test('a chain spreads across the field and zigzags; one step sits in the middle; anchors line the bottom', async () => {
-    expect(chainPositions(1)).toEqual([{ x: 430, y: 236 }])
+  test('during a search a pill grows to say “N match” and still never meets its neighbour’s pill', async () => {
+    const topics: TopicSpec[] = []
+    for (let i = 0; i < 30; i += 1) topics.push({ id: `auto:${i}`, name: i % 3 === 0 ? `Topic ${i} with a long descriptive name` : `Topic ${i}`, isMajor: i % 5 !== 4, count: String(i % 12) })
+    const { placed } = placeTopics(topics)
+    // The drawn unit with the search's label, the longest it gets: "11 match".
+    const drawn = placed.map(p => {
+      const t = topics.find(x => x.id === p.id)
+      const uw = unitWidth(t?.name ?? '', p.isMajor, `${t?.count ?? ''} match`)
+      const cx = p.isMajor ? p.x : p.x - 11 + uw / 2
+      return { id: p.id, left: cx - uw / 2, right: cx + uw / 2, top: p.y - 21, bottom: p.y + 21 }
+    })
+    for (let i = 0; i < drawn.length; i += 1) {
+      for (let j = i + 1; j < drawn.length; j += 1) {
+        const a = drawn[i]
+        const b = drawn[j]
+        if (!a || !b) continue
+        const apart = a.right + 4 <= b.left || b.right + 4 <= a.left || a.bottom + 4 <= b.top || b.bottom + 4 <= a.top
+        expect(`${a.id} vs ${b.id} apart: ${apart}`).toBe(`${a.id} vs ${b.id} apart: true`)
+      }
+    }
+  })
+
+  test('a spoke leaves its unit at the unit’s edge, so it never crosses the topic’s own label', async () => {
+    const major: PlacedTopic = { id: 't', x: 430, y: 260, ox: 0, uw: 160, isMajor: true, w: 252, h: 116 }
+    expect(unitEdge(major, { x: 630, y: 260 })).toEqual({ x: 513, y: 260 })
+    expect(unitEdge(major, { x: 430, y: 330 })).toEqual({ x: 430, y: 284 })
+    const e = unitEdge(major, { x: 560, y: 320 })
+    expect(Math.abs(e.x - 430) <= 83.01 && Math.abs(e.y - 260) <= 24.01).toBe(true)
+    expect(Math.abs(e.x - 430) > 82.9 || Math.abs(e.y - 260) > 23.9).toBe(true)
+    // A target inside the unit gets no spoke to speak of: the line starts where it ends.
+    expect(unitEdge(major, { x: 440, y: 262 })).toEqual({ x: 440, y: 262 })
+  })
+
+  test('a chain alternates between two rows far enough apart for labels above and below; one step sits in the middle; anchors line the bottom', async () => {
+    expect(chainPositions(1)).toEqual([{ x: 430, y: 250 }])
     const five = chainPositions(5)
-    expect(five.map(p => Math.round(p.x))).toEqual([120, 275, 430, 585, 740])
-    expect(five.map(p => p.y)).toEqual([236, 288, 236, 288, 236])
-    expect(chainPositions(3, { w: 860, h: 720 }).map(p => p.y)).toEqual([336, 388, 336])
+    expect(five.map(p => Math.round(p.x))).toEqual([90, 260, 430, 600, 770])
+    expect(five.map(p => p.y)).toEqual([250, 342, 250, 342, 250])
+    expect(chainPositions(3, { w: 860, h: 720 }).map(p => p.y)).toEqual([364, 456, 364])
+    // Labels get the room to their same-row neighbour; past about two dozen steps only the key steps are labelled.
+    expect(chainLabelChars(2)).toBe(26)
+    expect(chainLabelChars(11)).toBe(19)
+    expect(chainLabelChars(20)).toBe(9)
+    expect(chainLabelChars(30)).toBe(0)
     expect(anchorPositions(3).map(p => p.x)).toEqual([200, 430, 660])
     expect(anchorPositions(1)[0]).toEqual({ x: 430, y: 470 })
     expect(anchorPositions(1, { w: 860, h: 720 })[0]).toEqual({ x: 430, y: 670 })

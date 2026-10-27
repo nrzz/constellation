@@ -236,6 +236,14 @@ test('the text map’s text, where it sits, and what a cell hits', async () => {
   expect(nodeAtCell([back, step, topic, dot], s, s.col(topic.x) + 10, s.row(topic.y), 'map')?.id).toBe('t')
   expect(nodeAtCell([back, step, topic, dot], s, s.col(dot.x) + 6, s.row(dot.y), 'map')).toBeNull()
   expect(nodeAtCell([back, step, topic, dot], s, 3, s.row(back.y), 'focus')?.id).toBe('back')
+  // Two steps on one row in a narrow region: the first one's long label runs under the third one's number, which is drawn
+  // over it. A click on that number picks the third, as the eye sees it.
+  const narrow = { columns: 72, rows: 26, col: (x: number) => Math.round((x / 860) * 71), row: (y: number) => Math.round((y / 520) * 23) + 1 }
+  const first = { id: 's1', kind: 'step', x: 90, y: 250, label: 1, label2: 'Checkout total rounding of the cart' }
+  const third = { id: 's3', kind: 'step', x: (23 / 71) * 860, y: 250, label: 3, label2: 'Fix flaky cart wait' }
+  expect(placeText(first, narrow).left + placeText(first, narrow).text.length).toBeGreaterThan(narrow.col(third.x))
+  expect(nodeAtCell([first, third], narrow, narrow.col(third.x), narrow.row(250), 'focus')?.id).toBe('s3')
+  expect(nodeAtCell([first, third], narrow, narrow.col(first.x) + 3, narrow.row(250), 'focus')?.id).toBe('s1')
 })
 
 test('the Desktop pointer layer is on by default: a picture sized from the pane, a Client of the same size over it that draws nothing, traces on hover and picks on a click; a step and the back pill pick too', async ($, on) => {
@@ -276,7 +284,7 @@ test('the Desktop pointer layer is on by default: a picture sized from the pane,
   await ui.pointer({ type: 'down', x: hcol(topic.x), y: hrow(topic.y, fieldH), button: 'left', in: 'map' })
   await ui.pointer({ type: 'up', x: hcol(topic.x), y: hrow(topic.y, fieldH), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
-  // In focus: a click on a step opens its card; a click on the back pill backs out.
+  // In focus: a click on a step opens its card; a click on the back pill goes straight back to every topic.
   await ui.resize({ columns: COLUMNS, rows: ROWS, in: 'map' })
   const focused = await fieldOfMount(ui)
   const step = (focused.nodes ?? []).find(n => n.kind === 'step' && n.id === IDS.tests)
@@ -290,8 +298,6 @@ test('the Desktop pointer layer is on by default: a picture sized from the pane,
   await ui.pointer({ type: 'down', x: hcol(back.x), y: hrow(back.y), button: 'left', in: 'map' })
   await ui.pointer({ type: 'up', x: hcol(back.x), y: hrow(back.y), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeUndefined()
-  await ui.pointer({ type: 'down', x: hcol(back.x), y: hrow(back.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: hcol(back.x), y: hrow(back.y), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeUndefined()
   await ui.unmount()
 })

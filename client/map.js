@@ -90,19 +90,26 @@ export function nodeAtCell(nodes, s, x, y, mode) {
   let best = null
   let bestD = 3
   const anchors = anchorsOf(nodes, mode)
-  for (const n of nodes) {
+  // In drawing order, a later node winning a tie: where labels overlap, the one on top is the one under the pointer.
+  for (const n of inDrawingOrder(nodes)) {
     const anchorIndex = anchors.indexOf(n)
     const { left: c, top: r, text } = placeText(n, s, anchorIndex >= 0 ? anchorIndex % 2 : 0)
     const width = Math.max(1, text.length)
     const dx = x < c ? c - x : x > c + width - 1 ? x - (c + width - 1) : 0
     const dy = Math.abs(y - r)
     const d = dx + dy * 2
-    if (d < bestD) {
+    if (d < 3 && (best === null || d <= bestD)) {
       bestD = d
       best = n
     }
   }
   return best
+}
+
+/** Sessions first, then steps, then topics, then the back pill, so a label is never overwritten by a glyph; the drawing and the hit test share it. */
+const DRAW_ORDER = { session: 0, step: 1, you: 1, topic: 2, back: 3 }
+function inDrawingOrder(nodes) {
+  return [...nodes].sort((a, b) => (DRAW_ORDER[a.kind] ?? 0) - (DRAW_ORDER[b.kind] ?? 0))
 }
 
 /** How far a point is outside a box, 0 inside. */
@@ -235,10 +242,8 @@ export default function Map(props, surface) {
     // One dim dot midway marks a link between topics; the text grid has no lines.
     children.push(Box({ position: 'absolute', top: s.row((l.y1 + l.y2) / 2), left: s.col((l.x1 + l.x2) / 2), children: [Text({ color: DIM, children: '┄' })] }))
   }
-  // Sessions first, then steps, then topics, so a label is never overwritten by a glyph.
-  const order = { session: 0, step: 1, you: 1, topic: 2, back: 3 }
   const anchors = anchorsOf(nodes, props.mode)
-  for (const n of [...nodes].sort((a, b) => (order[a.kind] ?? 0) - (order[b.kind] ?? 0))) {
+  for (const n of inDrawingOrder(nodes)) {
     const anchorIndex = anchors.indexOf(n)
     const rowOffset = anchorIndex >= 0 ? anchorIndex % 2 : 0
     const isHover = state.hover !== null && (n.id === state.hover || n.topicId === state.hover)

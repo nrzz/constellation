@@ -176,16 +176,26 @@ const NO_SIGNALS: Signals = { tokens: new Set(), files: new Set(), branch: '' }
 /**
  * Each session's distinguishing signals: the words of its title and first
  * prompt, its touched files (noise files aside) and its non-main branch, each
- * kept only while fewer than `commonBound` sessions share it. A large stub
- * has none, so its placeholder title clusters nothing.
+ * kept only while fewer than `commonBound` sessions share it. A stub (a
+ * transcript over 4 MiB nothing of which could be read) has none, so its
+ * placeholder title clusters nothing; one read in slices keeps its own.
  */
+/**
+ * Nothing of it was read: a stub, or a stub cached before stubs were marked
+ * (large, the placeholder title, no prompt, no files). A large transcript read
+ * in slices whose prompts were images and that edited nothing keeps its title.
+ */
+export function isStub(s: SessionSummary): boolean {
+  return s.stub === true || (s.large === true && s.title === '(large transcript)' && !s.firstPrompt && s.filesTouched.length === 0)
+}
+
 export function signalsOf(sessions: readonly SessionSummary[]): Map<string, Signals> {
   const bound = commonBound(sessions.length)
   const raw = sessions.map(s => ({
     id: s.id,
-    tokens: s.large ? new Set<string>() : new Set([...tokensOf(s.title), ...tokensOf(s.firstPrompt)]),
-    files: new Set(s.large ? [] : s.filesTouched.filter(f => !isNoiseFile(f))),
-    branch: s.large || isPlainBranch(s.branch) ? '' : s.branch.trim().toLowerCase(),
+    tokens: isStub(s) ? new Set<string>() : new Set([...tokensOf(s.title), ...tokensOf(s.firstPrompt)]),
+    files: new Set(isStub(s) ? [] : s.filesTouched.filter(f => !isNoiseFile(f))),
+    branch: isStub(s) || isPlainBranch(s.branch) ? '' : s.branch.trim().toLowerCase(),
   }))
   const frequency = (pick: (r: (typeof raw)[number]) => Iterable<string>) => {
     const m = new Map<string, number>()
@@ -253,8 +263,9 @@ export function isMajorTopic(sessions: readonly SessionView[], settings: Cluster
  * rest, oldest first: each joins the cluster it relates to best, when it
  * relates to at least a `LINKAGE` share of that cluster's members (so one
  * shared word never chains a folder into a blob), else it starts a cluster.
- * A cluster of one is Unsorted; a large stub is always Unsorted, and so is a
- * session someone moved to Unsorted by hand. Returns the id per session and
+ * A cluster of one is Unsorted; a stub is always Unsorted, and so is a
+ * session someone moved to Unsorted by hand. A transcript over 4 MiB read in
+ * slices clusters like any other, on what the slices held. Returns the id per session and
  * the auto topics' member lists.
  */
 export function assignTopics(
@@ -292,7 +303,7 @@ export function assignTopics(
   }
   for (const s of byStart) {
     if (explicit(s)) continue
-    if (s.large || isPinnedUnsorted(s)) {
+    if (isStub(s) || isPinnedUnsorted(s)) {
       topicOf[s.id] = UNSORTED_ID
       continue
     }

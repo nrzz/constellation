@@ -282,10 +282,9 @@ test('focus mode: steps with hotkeys, a session card, Pick up here joins and que
   expect(stubs.filled[0]).toContain('Continue')
   expect(stubs.filled[0]).toContain('Fix flaky cart wait')
 
+  // ‹ All topics goes straight back to every topic, the card with it; Esc (below) backs out one level at a time.
   await ui.press({ key: 'back' })
   expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeUndefined()
-  expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
-  await ui.press({ key: 'back' })
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: `t:${CHECKOUT}` })).toBeDefined()
   await ui.unmount()

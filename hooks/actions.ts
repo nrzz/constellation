@@ -143,6 +143,8 @@ export async function setSetting($: EngineInterface, key: keyof MapSettings, val
     $.ui.log(`constellation: settings not saved: ${String(error)}`, { to: 'debug' })
   }
   if (key === 'scope') await rescan($)
+  // The layer is what clears a hover; switching it leaves no trace behind.
+  if (key === 'pictureClicks') await patchUi($, { hover: null })
 }
 
 /** The model of everything but this session, which the chain shows as "you". */
@@ -158,11 +160,8 @@ export function modelOf(sessions: readonly SessionSummary[], store: StoreData, s
 
 /** Where every topic sits and how tall the field is. The count label is part of the drawn pill, so the box is sized for the wider of its two forms: the count (with "· you"), or a search's match count. */
 export function placementOf(model: Model, meTopicId: string | null = null): { placed: Record<string, PlacedTopic>; size: FieldSize } {
-  const specs = model.topics.map(t => {
-    const count = `${t.sessions.length}${meTopicId === t.id ? ' · you' : ''}`
-    const match = `${t.sessions.length} match`
-    return { id: t.id, name: t.name, isMajor: t.isMajor, count: count.length >= match.length ? count : match }
-  })
+  // The plain count: a search's longer "N match" grows a pill into its halo, which keeps neighbours clear of it.
+  const specs = model.topics.map(t => ({ id: t.id, name: t.name, isMajor: t.isMajor, count: `${t.sessions.length}${meTopicId === t.id ? ' · you' : ''}` }))
   const { placed, size } = placeTopics(specs)
   const out: Record<string, PlacedTopic> = {}
   for (const p of placed) out[p.id] = p
@@ -918,7 +917,12 @@ export async function refreshMap($: EngineInterface): Promise<void> {
   else await toast($, text, { quiet: true })
 }
 
-/** Esc, the back button, the close mark: one level out, or nothing left to back out of. */
+/** ‹ All topics, b, Back to all topics, the picture's back pill: straight back to every topic, whatever was open. */
+export async function allTopics($: EngineInterface): Promise<void> {
+  await patchUi($, { focusTopic: null, selected: null, hover: null, showHelp: false, editing: null, messageMode: false, moveMode: false, mergeFrom: null })
+}
+
+/** Esc and the close mark: one level out, or nothing left to back out of. */
 export function backedOut(ui: UiState): UiState | null {
   if (ui.showHelp) return { ...ui, showHelp: false }
   if (ui.editing) return { ...ui, editing: null }
@@ -1186,7 +1190,7 @@ export async function onClientMessage($: EngineInterface, data: unknown): Promis
   if (data.type === 'pick') {
     if (!id) return
     if (kind === 'back') {
-      await back($)
+      await allTopics($)
       return
     }
     if (kind === 'topic') {
@@ -1219,13 +1223,17 @@ function showPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: str
  * out of (help, an editor, a card, a focused topic, the settings) it backs out
  * one level and keeps the pane; with nothing left, it lets the pane close.
  *
- * Escape hands the keyboard back to the prompt as it raises the close, so a
- * pane that stays takes it again: otherwise the next hotkey (u, h, j) would
- * type into the composer. The engine grants that only over an empty composer,
- * so nothing typed is ever taken over. Returns whether it backed out.
+ * Escape in the pane hands the keyboard back to the prompt as it raises the
+ * close, so a pane that held the keyboard and stays takes it again: otherwise
+ * the next hotkey (u, h, j) would type into the composer. Escape at an idle,
+ * empty prompt raises the same close; then the pane never had the keyboard
+ * and must not take it, or the person's next words would fire hotkeys. The
+ * engine grants the keyboard only over an empty composer in any case.
+ * Returns whether it backed out.
  */
-export async function escape($: EngineInterface): Promise<boolean> {
+export async function escape($: EngineInterface, hadKeys: boolean): Promise<boolean> {
   if (!(await back($))) return false
+  if (!hadKeys) return true
   try {
     await showPane($)
   } catch (error) {
@@ -1290,6 +1298,7 @@ export function actionsFor($: EngineInterface): Actions {
     dismissToast: () => void patchUi($, { toast: null }),
     dismissDigest: () => void patchUi($, { digest: null }),
     back: () => void back($),
+    allTopics: () => void allTopics($),
     openMap: () => void openMapPane($).catch(error => $.ui.log(`constellation: pane not opened: ${String(error)}`, { to: 'debug' })),
   }
   const guarded = {} as Record<string, (...args: unknown[]) => void>

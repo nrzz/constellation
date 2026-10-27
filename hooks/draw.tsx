@@ -10,7 +10,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
-import { BASE, FOCUS_PILL, anchorPositions, chainPositions, pillWidth, satellitePosition, starPath } from './layout'
+import { BASE, FOCUS_PILL, anchorPositions, chainLabelChars, chainPositions, chainRows, pillWidth, satellitePosition, starPath, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
@@ -48,6 +48,8 @@ export type View = {
    * the prompt (the classic renderer, where it does not).
    */
   placement?: 'dock' | 'inline'
+  /** The terminal's fullscreen renderer is on: the one that reports the mouse. Absent where the engine has not measured. */
+  isFullscreen?: boolean
 }
 
 /** A Button's hotkey where it can fire: in the pane or the band, never in a transcript row. */
@@ -109,11 +111,16 @@ export function relatedOf(links: readonly Link[], topicId: string): { id: string
   return out
 }
 
+/** "1 turn", "3 turns"; a large transcript was read in slices, so its count is a floor: "40+ turns". */
+export function turnsOf(s: Pick<SessionView, 'turns' | 'large'>): string {
+  if (s.large) return `${s.turns}+ turns`
+  return `${s.turns} turn${s.turns === 1 ? '' : 's'}`
+}
+
 export function sessionMeta(s: SessionView, now: number, extra = ''): string {
   const parts = [`${ageOf(s.lastAt, now)} ago`]
   if (s.branch) parts.push(s.branch)
-  // A large transcript was read in slices: its turn count is a floor.
-  parts.push(`${s.turns}${s.large ? '+' : ''} turns`)
+  parts.push(turnsOf(s))
   if (extra) parts.push(extra)
   return parts.join(' · ')
 }
@@ -163,9 +170,13 @@ export function hintOf(view: View): string {
  * no mouse. VS Code, and the Desktop with the layer off, draw a picture that
  * takes no click: the topic buttons under it pick. Mobile has no keyboard.
  */
-export function pointerHint(view: Pick<View, 'surface' | 'placement' | 'settings'>): string {
+export function pointerHint(view: Pick<View, 'surface' | 'placement' | 'settings' | 'isFullscreen' | 'isRow'>): string {
+  // A /map here snapshot in the transcript: a picture, no live map under it.
+  if (view.isRow) return 'A snapshot · /map opens the live map'
   if (view.surface === 'terminal') {
-    return view.placement === 'inline' ? 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen' : 'Hover or focus a topic to trace it · Enter or click to focus'
+    // The fullscreen renderer reports the mouse, docked or (under 110 columns) inline; the classic one never does.
+    const hasMouse = view.isFullscreen ?? view.placement !== 'inline'
+    return hasMouse ? 'Hover or focus a topic to trace it · Enter or click to focus' : 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen'
   }
   if (view.surface === 'mobile') return 'Tap a topic under the map to focus it'
   if (view.surface === 'desktop' && view.settings.pictureClicks !== 'off') return 'Hover or focus a topic to trace it · Enter or click to focus'
@@ -269,15 +280,16 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       }
       const g: string[] = [`<g class="t t-${i}" opacity="${opacity.toFixed(2)}">`]
       const sessions = t.sessions.slice(0, maxSessions)
-      const half = t.isMajor ? pillWidth(t.name, countLabel) / 2 : undefined
       sessions.forEach((s, k) => {
-        const sp = satellitePosition(p, t.id, k, t.isMajor, half, size)
+        const sp = satellitePosition(p, k, size)
         if (s.isInRange) {
-          g.push(`<line class="ln" x1="${p.x}" y1="${p.y}" x2="${sp.x.toFixed(1)}" y2="${sp.y.toFixed(1)}" ${isTraced ? `stroke="${t.color}"` : 'style="stroke:var(--ln)"'} stroke-width="${isTraced ? 1.2 : 1}" opacity="${isTraced ? 0.75 : traced ? 0.35 : 0.8}"/>`)
+          // From the unit's edge, never across its own label.
+          const from = unitEdge(p, sp)
+          g.push(`<line class="ln" x1="${from.x.toFixed(1)}" y1="${from.y.toFixed(1)}" x2="${sp.x.toFixed(1)}" y2="${sp.y.toFixed(1)}" ${isTraced ? `stroke="${t.color}"` : 'style="stroke:var(--ln)"'} stroke-width="${isTraced ? 1.2 : 1}" opacity="${isTraced ? 0.75 : traced ? 0.35 : 0.8}"/>`)
         }
       })
       sessions.forEach((s, k) => {
-        const sp = satellitePosition(p, t.id, k, t.isMajor, half, size)
+        const sp = satellitePosition(p, k, size)
         const isSel = ui.selected === s.id
         const isMatch = matches(query, s)
         let r = isTraced ? 5 : t.isMajor ? 3.5 : 2.5
@@ -327,16 +339,18 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     const positions = chainPositions(steps.length)
     const latest = latestOf(focus.sessions)
     const color = focus.color === MINOR_COLOR ? ACCENT : focus.color
-    const points: string[] = []
-    steps.forEach((step, i) => {
-      const pt = positions[i]
-      if (!pt) return
-      points.push(`${pt.x.toFixed(1)},${pt.y.toFixed(1)}`)
-      parts.push(`<line x1="${FOCUS_PILL.x}" y1="${FOCUS_PILL.y}" x2="${pt.x.toFixed(1)}" y2="${pt.y.toFixed(1)}" style="stroke:var(--ln)" stroke-width="1" opacity="0.8"/>`)
-    })
-    if (points.length > 1) {
-      parts.push(`<polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" marker-mid="url(#arrow)" marker-end="url(#arrow)" opacity="0.9"/>`)
+    // Each step to the next: a segment from circle edge to circle edge, its arrow at the next circle's rim.
+    for (let i = 1; i < positions.length && i < steps.length; i += 1) {
+      const a = positions[i - 1]
+      const b = positions[i]
+      if (!a || !b) continue
+      const d = Math.hypot(b.x - a.x, b.y - a.y) || 1
+      const ux = (b.x - a.x) / d
+      const uy = (b.y - a.y) / d
+      parts.push(`<line x1="${(a.x + ux * 19).toFixed(1)}" y1="${(a.y + uy * 19).toFixed(1)}" x2="${(b.x - ux * 21).toFixed(1)}" y2="${(b.y - uy * 21).toFixed(1)}" stroke="${color}" stroke-width="1.6" marker-end="url(#arrow)" opacity="0.9"/>`)
     }
+    const chars = chainLabelChars(steps.length)
+    const { upper } = chainRows()
     steps.forEach((step, i) => {
       const pt = positions[i]
       if (!pt) return
@@ -352,24 +366,32 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const op = isYou || (s && matches(query, s)) ? 1 : 0.25
       const isTight = steps.length >= 5
       const title = isYou ? 'This session · you' : (s?.title ?? '')
+      // A crowded chain labels only the steps that matter here; the tooltips carry the rest.
+      const isLabelled = chars > 0 || isYou || isSel || isLatest || i === 0
+      const room = chars > 0 ? chars : 14
       const meta = isYou
         ? 'now · you'
         : s
           ? isTight
-            ? [`${ageOf(s.lastAt, now)} ago`, `${s.turns} turns`, ...(isLatest ? ['latest'] : [])].join(' · ')
+            ? [...(isLatest ? ['latest'] : []), `${ageOf(s.lastAt, now)} ago`, turnsOf(s)].join(' · ')
             : sessionMeta(s, now, isLatest ? 'latest' : '')
           : ''
-      const lines = wrap2(title, isTight ? 17 : 22)
+      const lines = isLabelled ? wrap2(title, Math.min(isTight ? room : 22, room)) : []
       const tip = withTooltips && s && !isYou ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
       const g: string[] = [`<g class="n hit" opacity="${op.toFixed(2)}">${tip}`]
       if (isLatest) g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="21" fill="${rgba(color, 0.22)}"/>`)
       g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="16" style="fill:${fill};stroke:${ring}" stroke-width="2"${dash}/>`)
       g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${(pt.y + 4.5).toFixed(1)}" font-size="12.5" font-weight="600" style="fill:${numColor}" text-anchor="middle">${i + 1}</text>`)
       if (s?.isPinned) g.push(`<text x="${(pt.x + 12).toFixed(1)}" y="${(pt.y - 10).toFixed(1)}" font-size="10" fill="${ACCENT}">★</text>`)
-      const ty = pt.y + 32
       const labelColor = isYou ? ACCENT : isSel ? 'var(--tx)' : status === 'archived' ? 'var(--mu)' : 'var(--lb)'
-      g.push(`<text x="${pt.x.toFixed(1)}" y="${ty}" font-size="11.5" style="fill:${labelColor}" text-anchor="middle">${lines.map((l, k) => `<tspan x="${pt.x.toFixed(1)}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)
-      g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${ty + lines.length * 14}" font-size="10.5" style="fill:${isLatest ? color : 'var(--mu)'}" text-anchor="middle">${esc(clip(meta, isTight ? 27 : 34))}</text>`)
+      if (isLabelled) {
+        // The upper row's label stands above its circle, the lower row's hangs below: neither meets the other row.
+        const metaText = clip(meta, Math.max(room + 4, isTight ? 0 : 34))
+        const isAbove = pt.y <= upper
+        const ty = isAbove ? pt.y - 26 - lines.length * 14 : pt.y + 32
+        g.push(`<text x="${pt.x.toFixed(1)}" y="${ty}" font-size="11.5" style="fill:${labelColor}" text-anchor="middle">${lines.map((l, k) => `<tspan x="${pt.x.toFixed(1)}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)
+        g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${ty + lines.length * 14}" font-size="10.5" style="fill:${isLatest ? color : 'var(--mu)'}" text-anchor="middle">${esc(metaText)}</text>`)
+      }
       g.push('</g>')
       parts.push(g.join(''))
     })
@@ -385,7 +407,8 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${FOCUS_PILL.y + 4}" font-size="11" font-weight="500" fill="${color}" text-anchor="end">${esc(countLabel)}</text>`,
     )
     if (focus.goal) {
-      parts.push(`<text x="${FOCUS_PILL.x}" y="408" font-size="11.5" style="fill:var(--lb)" text-anchor="middle"><tspan class="mono" style="fill:var(--mu)">GOAL</tspan>  ${esc(clip(focus.goal, 96))}</text>`)
+      // Under the topic's pill, above the chain's upper labels.
+      parts.push(`<text x="${FOCUS_PILL.x}" y="${FOCUS_PILL.y + 46}" font-size="11.5" style="fill:var(--lb)" text-anchor="middle"><tspan class="mono" style="fill:var(--mu)">GOAL</tspan>  ${esc(clip(focus.goal, 96))}</text>`)
     }
     if (steps.length === 0) {
       parts.push(`<text x="430" y="262" font-size="12.5" style="fill:var(--mu)" text-anchor="middle">No sessions in the time range. Widen the range, or pin one.</text>`)
@@ -505,6 +528,7 @@ export type Actions = {
   dismissToast: () => void
   dismissDigest: () => void
   back: () => void
+  allTopics: () => void
   openMap: () => void
   jumpTo: (sessionId: string) => void
   myTopic: () => void
@@ -612,7 +636,7 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
   return (
     <Box flexDirection="column" gap="xs">
       <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-        <Button key="back" label="‹ All topics" hotkey={hk(view, 'b')} onPress={() => act.back()} />
+        <Button key="back" label="‹ All topics" hotkey={hk(view, 'b')} onPress={() => act.allTopics()} />
         {steps.map((s, i) => (
           <Button
             key={`s:${s.id}`}
@@ -1051,7 +1075,7 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
       })}
     </Box>,
     <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-      <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} hotkey={hk(view, 'f')} variant="primary" onPress={() => (isFocused ? act.back() : act.focusTopic(topic.id))} />
+      <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} hotkey={hk(view, 'f')} variant="primary" onPress={() => (isFocused ? act.allTopics() : act.focusTopic(topic.id))} />
       {latest ? <Button key="tc:pickup" label="Pick up latest" hotkey={hk(view, 'u')} onPress={() => act.pickUpLatest(topic.id)} /> : null}
       {view.me.topicId !== topic.id && !isUnsorted ? <Button key="tc:join" label="Join this topic" hotkey={hk(view, 'j')} onPress={() => act.join(topic.id)} /> : null}
       {tidyTargets.length ? <Button key="tc:tidy" label={`Archive ${tidyTargets.length} idle`} onPress={() => act.tidy(topic.id)} /> : null}
@@ -1297,9 +1321,8 @@ export function fieldOf(view: View): FieldProps {
       const countLabel = ui.query.trim() ? `${t.sessions.filter(s => matches(ui.query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
       const w = t.isMajor ? pillWidth(t.name, countLabel) : 16 + (clip(t.name, 24).length + countLabel.length + 1) * 6.9
       nodes.push(node({ id: t.id, kind: 'topic', x: p.x, y: p.y, w: Math.round(w), label: `${clip(t.name, 24)} ${countLabel}`, color: t.color, isMajor: t.isMajor, isDim, isSelected: false, title: t.name }))
-      const half = t.isMajor ? pillWidth(t.name, countLabel) / 2 : undefined
       t.sessions.slice(0, perTopic).forEach((s, k) => {
-        const sp = satellitePosition(p, t.id, k, t.isMajor, half, size)
+        const sp = satellitePosition(p, k, size)
         nodes.push(node({ id: s.id, kind: 'session', x: Math.round(sp.x), y: Math.round(sp.y), label: '', title: clip(s.title, 24), color: t.color, isDim: isDim || !s.isInRange || !matches(ui.query, s), isSelected: ui.selected === s.id, isArchived: s.status === 'archived', isActive: s.status === 'active', topicId: t.id }))
       })
     }
@@ -1313,7 +1336,7 @@ export function fieldOf(view: View): FieldProps {
     const positions = chainPositions(steps.length)
     const focusCount = `${steps.filter(s => !s.isYou).length} of ${focus.sessions.length}`
     nodes.push(node({ id: focus.id, kind: 'topic', x: FOCUS_PILL.x, y: FOCUS_PILL.y, w: Math.round(pillWidth(focus.name, focusCount)), label: `${clip(focus.name, 24)} ${focusCount}`, color: focus.color, isMajor: true, title: focus.name }))
-    // The "‹ All topics" pill at the top left: a press on it backs out.
+    // The "‹ All topics" pill at the top left: a press on it goes back to every topic.
     nodes.push(node({ id: 'back', kind: 'back', x: 62, y: 27, w: 96, label: '‹ All topics', color: ACCENT }))
     steps.forEach((step, i) => {
       const pt = positions[i]

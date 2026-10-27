@@ -179,6 +179,7 @@ describe('scanSlug and its cache', () => {
     const stub = r.sessions[0]
     expect(stub?.title).toBe('(large transcript)')
     expect(stub?.large).toBe(true)
+    expect(stub?.stub).toBe(true)
     expect(stub?.startedAt).toBe(123456)
     expect(stub?.lastAt).toBe(123456)
     expect(stub).toEqual(largeStub({ id: 'bigbig', slug: 'x', size: LARGE_BYTES + 1, mtimeMs: 123456 }))
@@ -211,6 +212,8 @@ describe('scanSlug and its cache', () => {
     expect(ran[0]?.[4]).toBe('/root/x/bigbig.jsonl')
     const s = r.sessions[0]
     expect(s?.large).toBe(true)
+    // Read in slices, it is no stub: it clusters on what the slices held.
+    expect(s?.stub).toBeUndefined()
     expect(s?.title).toBe('The long cart session')
     expect(s?.firstPrompt).toBe('fix the flaky cart wait in the checkout tests')
     expect(new Date(s?.startedAt ?? 0).toISOString()).toBe('2026-10-20T09:00:00.200Z')

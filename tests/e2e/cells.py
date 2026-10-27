@@ -41,6 +41,8 @@ def text_at(line):
 
 def main():
     lines = sys.stdin.read().split('\n')
+    if len(sys.argv) < 2 or any(a == '' for a in sys.argv[2:]):
+        return 1
     cmd = sys.argv[1]
     if cmd == 'locate':
         pat, lo, hi = sys.argv[2], int(sys.argv[3]), int(sys.argv[4])

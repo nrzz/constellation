@@ -21,6 +21,8 @@ export type SessionSummary = {
   size: number
   mtimeMs: number
   large?: true
+  /** A transcript over 4 MiB that could be neither sliced nor taken from the cache: nothing of it was read, so it has nothing to cluster on. */
+  stub?: true
 }
 
 /** A transcript read and found to hold no conversation row yet. */

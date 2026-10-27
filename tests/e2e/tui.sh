@@ -154,6 +154,16 @@ else
   echo "FAIL: the topic is not on the screen"; FAILED=$((FAILED+1)); right | tail -30
 fi
 
+# Escape at the empty prompt backs the pane out but leaves the keyboard with the prompt: the next words type, not fire hotkeys.
+keys C-x Tab; sleep 1
+keys Escape
+tmux send-keys -t "$S" -l "hello"; sleep 1.5
+expect_absent right "Close help" "Esc at the empty prompt leaves the keyboard there: typing h-e-l-l-o fires no hotkey"
+expect_text left "hello" "…and the letters land in the prompt"
+clear_input
+# Back to the pane, which /map opens focused.
+type_line "/map" 5
+
 # The hotkeys from the keyboard alone.
 keys h
 expect_text whole "Close help" "h opens the help card (the header's button flips)"

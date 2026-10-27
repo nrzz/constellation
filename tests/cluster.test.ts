@@ -16,6 +16,7 @@ import {
   scoreJoin,
   tokensOf,
   topicIdFor,
+  isStub,
 } from '../hooks/cluster'
 import type { ClusterSettings } from '../hooks/cluster'
 import type { StoreData } from '../types'
@@ -279,7 +280,30 @@ describe('chain order and ages', () => {
 })
 
 describe('a big folder', () => {
-  test('135 sessions that all share common words and noise files still split into their themes; large stubs stay Unsorted', async () => {
+  test('a transcript over 4 MiB read in slices clusters with its theme, on what the slices held; a stub stays Unsorted', async () => {
+    const sessions = folder()
+    const c1 = sessions.find(s => s.id === 'c1')
+    if (!c1) return
+    // Read in slices: the head and the tail gave its title, its prompt and its files; its turn count is a floor.
+    sessions.push({ ...c1, id: 'sliced', title: 'Cart test flake again', firstPrompt: 'the cart test is flaky again', large: true })
+    sessions.push({ ...session({ id: 'stub', title: '(large transcript)', daysAgo: 1 }), large: true, stub: true })
+    const m = buildModel(sessions, EMPTY_STORE, SETTINGS, NOW)
+    expect(m.byId.sliced?.topicId).toBe(m.byId.c1?.topicId)
+    expect(m.byId.sliced?.topicId).not.toBe(UNSORTED_ID)
+    expect(m.byId.stub?.topicId).toBe(UNSORTED_ID)
+    // Stubs cached before they were marked (large, nothing read) are stubs too: two never clump on "large transcript".
+    const old = [...sessions, { ...session({ id: 'old1', title: '(large transcript)', daysAgo: 2 }), firstPrompt: '', filesTouched: [], large: true as const }, { ...session({ id: 'old2', title: '(large transcript)', daysAgo: 3 }), firstPrompt: '', filesTouched: [], large: true as const }]
+    const m2 = buildModel(old, EMPTY_STORE, SETTINGS, NOW)
+    expect(m2.byId.old1?.topicId).toBe(UNSORTED_ID)
+    expect(m2.byId.old2?.topicId).toBe(UNSORTED_ID)
+    expect(m2.byId.sliced?.topicId).toBe(m2.byId.c1?.topicId)
+    // A large transcript read in slices whose prompts were all images and that edited nothing is no stub: its title clusters.
+    expect(isStub({ ...session({ id: 'img', title: 'Dashboard spacing review', daysAgo: 1 }), firstPrompt: '', filesTouched: [], large: true })).toBe(false)
+    expect(isStub({ ...session({ id: 'old', title: '(large transcript)', daysAgo: 1 }), firstPrompt: '', filesTouched: [], large: true })).toBe(true)
+    expect(isStub({ ...session({ id: 'small', title: '(large transcript)', daysAgo: 1 }), firstPrompt: '', filesTouched: [] })).toBe(false)
+  })
+
+  test('135 sessions that all share common words and noise files still split into their themes; stubs stay Unsorted', async () => {
     const themes = ['checkout', 'auth', 'orders', 'billing', 'search', 'deploy', 'docs', 'analytics']
     const kinds = ['flow', 'tests', 'api', 'page']
     const sessions: SessionSummary[] = []
@@ -297,16 +321,16 @@ describe('a big folder', () => {
         }),
       )
     }
-    for (let i = 0; i < 10; i += 1) sessions.push({ ...session({ id: `big${i}`, title: '(large transcript)', daysAgo: i }), large: true })
+    for (let i = 0; i < 10; i += 1) sessions.push({ ...session({ id: `big${i}`, title: '(large transcript)', daysAgo: i }), large: true, stub: true })
     const m = buildModel(sessions, EMPTY_STORE, { ...SETTINGS, rangeDays: ALL_TIME_DAYS }, NOW)
     const topics = m.topics.filter(t => t.id !== UNSORTED_ID)
     expect(topics.length).toBe(8)
     expect(Math.max(...topics.map(t => t.sessions.length))).toBeLessThanOrEqual(16)
     for (const theme of themes) {
-      const ids = new Set(sessions.filter(s => !s.large && s.title.includes(` ${theme} `)).map(s => m.byId[s.id]?.topicId))
+      const ids = new Set(sessions.filter(s => !s.stub && s.title.includes(` ${theme} `)).map(s => m.byId[s.id]?.topicId))
       expect(`${theme}: ${ids.size} topic(s)`).toBe(`${theme}: 1 topic(s)`)
     }
-    for (const s of sessions.filter(s => s.large)) expect(m.byId[s.id]?.topicId).toBe(UNSORTED_ID)
+    for (const s of sessions.filter(s => s.stub)) expect(m.byId[s.id]?.topicId).toBe(UNSORTED_ID)
     expect(m.topicById[UNSORTED_ID]?.sessions.length).toBe(10)
     // Nothing links through the words every session shares, or the files every session edits.
     expect(m.links.length).toBe(0)

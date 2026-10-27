@@ -92,6 +92,9 @@ async function canOpenPane($: EngineInterface, e: { surface: string | null; isIn
   }
 }
 
+/** Per surface: did the pane hold the keyboard at its last drawing? */
+const keysHeld = new Map<string, boolean>()
+
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await registerCommands($)
@@ -203,7 +206,9 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const view: View = { ...(await viewOf($, e.surface)), placement: e.props.placement }
+    // Whether the person has given the pane the keyboard, as of its last drawing on each surface (see the close below).
+    keysHeld.set(e.surface, e.props.isFocused === true)
+    const view: View = { ...(await viewOf($, e.surface)), placement: e.props.placement, ...(e.viewport ? { isFullscreen: e.viewport.isFullscreen } : {}) }
     if (e.surface === 'terminal') {
       // No Svg here: the text-mode map Client stands in for the field and takes the pointer; the pane's ring takes the keys.
       const { Client } = $.ui.resolve({ ...e, surface: 'terminal' as const })
@@ -267,8 +272,9 @@ export const register: Register = (on, options) => {
   on('ui.close', { id: PANE }, async ($, e, next) => {
     if (e.origin.kind !== 'person') return next(e)
     await ensureSession($)
-    // One level back, keeping the pane and the keyboard; with nothing left to back out of, the pane closes.
-    if (!(await escape($))) return next(e)
+    // One level back, keeping the pane (and the keyboard, when it held it); with nothing left to back out of, the pane closes.
+    // The engine raises this close before it redraws the pane without the keyboard, so the last drawing says who had it.
+    if (!(await escape($, [...keysHeld.values()].some(Boolean)))) return next(e)
     return { value: undefined }
   })
 }
