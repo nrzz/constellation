@@ -325,7 +325,10 @@ own height: its width in cells, times the field's proportions, times a cell's
 width over its height (7.7 × 19.8 px in the Desktop's code font). It maps the
 pointer by the same measure. The Desktop reports whole cells, so a satellite
 or a step takes the cell its centre lies in, and a pill or a label takes the
-rest of its box. A click on a pill focuses the topic, on a satellite or a step
+rest of its box. Where two dots share a cell (a dense folder in a narrow
+pane), the one that cell does not pick takes the nearest free cell beside it,
+so every dot can still be clicked; the buttons under the picture pick every
+topic too. A click on a pill focuses the topic, on a satellite or a step
 opens that session, on an anchor focuses the related topic, on ‹ All topics
 goes back.
 

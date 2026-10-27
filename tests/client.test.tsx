@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry, On } from 'claude-code'
 
-import MapModule, { fitText, layerFor, layoutText, nodeAtCell, nodeAtPoint, placeText, scaleFor, textOf } from '../client/map.js'
+import MapModule, { fitText, layerFor, layoutText, nodeAtCell, nodeAtPoint, pickAtCell, placeText, scaleFor, textOf } from '../client/map.js'
 import { placementOf } from '../hooks/actions'
 import { EMPTY_STORE, buildModel } from '../hooks/cluster'
 import { fieldOf, svgOf } from '../hooks/draw'
@@ -367,6 +367,48 @@ test('the Desktop layer: it draws the picture’s own height from its width, map
   expect(nodeAtPoint([near, minor], { x: 589.6, y: 285 }, { w: 8.9, h: 22.8 })?.id).toBe('n')
   expect(nodeAtPoint([near, minor], { x: 589.6, y: 285 })?.id).toBe('m')
   expect(nodeAtPoint([near, minor], { x: 600, y: 285 }, { w: 8.9, h: 22.8 })?.id).toBe('m')
+})
+
+test('two dots in one cell of the layer: the one the cell does not pick takes the nearest free cell, so every dot of a dense cluster is picked by some cell (review A5-2)', () => {
+  const s = layerFor(52, 0, { fieldW: 520, fieldH: 1040, hits: true })
+  const centre = (x: number, y: number) => ({ x: s.fieldX({ x, y }), y: s.fieldY({ x, y }) })
+  // A 3×3 block of cells, two dots in each: the second one off the centre, so the first wins the cell.
+  const dots: Array<{ id: string; kind: string; x: number; y: number; label: string; topicId: string }> = []
+  for (let cx = 20; cx <= 22; cx += 1) {
+    for (let cy = 10; cy <= 12; cy += 1) {
+      const c = centre(cx, cy)
+      dots.push({ id: `a${cx}-${cy}`, kind: 'session', x: c.x, y: c.y, label: '', topicId: 't' })
+      dots.push({ id: `b${cx}-${cy}`, kind: 'session', x: c.x + 2, y: c.y + 3, label: '', topicId: 't' })
+    }
+  }
+  const lone = { id: 'lone', kind: 'session', x: centre(40, 30).x + 1, y: centre(40, 30).y, label: '', topicId: 't' }
+  const nodes = [...dots, lone]
+  const picked = new Set<string>()
+  for (let y = 0; y < s.rows; y += 1) for (let x = 0; x < s.columns; x += 1) {
+    const n = pickAtCell(nodes, s, { x, y })
+    if (n) picked.add(n.id)
+  }
+  expect(nodes.filter(n => !picked.has(n.id)).map(n => n.id)).toEqual([])
+  // A dot that wins its own cell keeps it, and a lone dot's cell is its own.
+  for (let cx = 20; cx <= 22; cx += 1) for (let cy = 10; cy <= 12; cy += 1) expect(pickAtCell(nodes, s, { x: cx, y: cy })?.id).toBe(`a${cx}-${cy}`)
+  expect(pickAtCell(nodes, s, { x: 40, y: 30 })?.id).toBe('lone')
+  // A cell on a pill is never handed to a dot: the pill keeps it.
+  const pill = { id: 'p', kind: 'topic', x: centre(21, 14).x, y: centre(21, 14).y, w: 60, isMajor: true, label: 'Pill 2' }
+  const crowded = [...nodes, pill]
+  expect(pickAtCell(crowded, s, { x: 21, y: 14 })?.id).toBe('p')
+  // A minor topic ringed by dots in every cell it covers and every cell beside them (a narrow pane's big cells): it moves out as a dot does.
+  const minor = { id: 'm', kind: 'topic', x: centre(30, 20).x, y: centre(30, 20).y, w: 10, label: 'Tiny 4' }
+  const around = [27, 28, 29, 30, 31, 32].flatMap(x => [19, 20, 21].map(y => ({ id: `r${x}-${y}`, kind: 'session', x: centre(x, y).x, y: centre(x, y).y, label: '', topicId: 'm' })))
+  const ring = [...around, minor]
+  const reached = new Set<string>()
+  for (let y = 0; y < s.rows; y += 1) for (let x = 0; x < s.columns; x += 1) {
+    const n = pickAtCell(ring, s, { x, y })
+    if (n) reached.add(n.id)
+  }
+  expect(ring.filter(n => !reached.has(n.id)).map(n => n.id)).toEqual([])
+  // A fine pointer is not a cell: the module hit-tests its point as before.
+  const b = dots[1]!
+  expect(nodeAtPoint(nodes, { x: b.x, y: b.y })?.id).toBe(b.id)
 })
 
 test('the Desktop pointer layer is on by default: a picture sized from the pane, a Client of the same size over it that draws nothing, traces on hover and picks on a click; a step and the back pill pick too', { options: { pictureMode: 'clicks' } }, async ($, on) => {
