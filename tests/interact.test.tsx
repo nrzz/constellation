@@ -3,6 +3,7 @@
 // session card's rows, the settings groups, and what was taken out.
 import { expect, test } from 'claude-code/testing'
 
+import MapModule, { scaleFor } from '../client/map.js'
 import { backedOut } from '../hooks/actions'
 import { pointerHint } from '../hooks/draw'
 import { DEFAULT_SETTINGS, INITIAL_UI } from '../hooks/state'
@@ -366,4 +367,100 @@ test('every mark the terminal pane prints is one a Windows console font has: the
   expect([...strays.entries()].map(([ch, where]) => `${ch} (U+${ch.codePointAt(0)?.toString(16).toUpperCase()}) in ${where}`)).toEqual([])
   // The toast's mark is the console's own √.
   expect(done).toBeDefined()
+})
+
+/** Every non-WGL4 character in `entries` (a line break is not a glyph), with the first place it was seen. */
+function straysIn(entries: [string, string][]): string[] {
+  const strays = new Map<string, string>()
+  for (const [where, text] of entries) for (const ch of text) if (ch !== '\n' && !WGL4.has(ch) && !strays.has(ch)) strays.set(ch, `${where}: ${text}`)
+  return [...strays.entries()].map(([ch, where]) => `${ch} (U+${ch.codePointAt(0)?.toString(16).toUpperCase()}) in ${where}`)
+}
+
+/** The strings of every Text in a tree the Client module returned. */
+function textsOfTree(el: unknown, out: string[] = []): string[] {
+  if (Array.isArray(el)) for (const c of el) textsOfTree(c, out)
+  else if (el && typeof el === 'object') {
+    const { type, props } = el as { type?: string; props?: { children?: unknown } }
+    if (type === 'Text') out.push(String(props?.children ?? ''))
+    else textsOfTree(props?.children, out)
+  }
+  return out
+}
+
+test('what the Client itself draws in a console is WGL4 too: its glyphs on the map, a trace, a joined chain, a selected step, an archived session, a drag; and the toasts, the status line, /map help and /topic', async ($, on) => {
+  const stubs = stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const seen: [string, string][] = []
+  seen.push(['/topic', (await run($, 'topic', '')).text ?? ''], ['/map help', (await run($, 'map', 'help')).text ?? ''])
+  const ui = await $.ui.mount(paneOn('terminal'))
+  await ui.resize({ columns: 100, rows: 24, in: 'map' })
+  const scan = async (state: string) => {
+    for (const t of await ui.findAll({ type: 'Text', in: 'map' })) seen.push([state, String(t.text ?? '')])
+  }
+  type Node = { id: string; kind: string; x: number; y: number; topicId?: string; isArchived?: boolean }
+  const field = async () => ((await ui.find({ type: 'Client', key: 'map' }))?.props.props ?? {}) as { nodes?: Node[]; fieldW?: number; fieldH?: number }
+  const cell = async (n: Node, dx = 0) => {
+    const s = scaleFor(100, 24, await field())
+    return { x: s.col(n.x) + dx, y: s.row(n.y) }
+  }
+  await scan('the map')
+  const nodes = (await field()).nodes ?? []
+  const topic = nodes.find(n => n.kind === 'topic')
+  const session = nodes.find(n => n.kind === 'session')
+  const other = nodes.find(n => n.kind === 'topic' && n.id !== session?.topicId)
+  expect(topic && session && other).toBeTruthy()
+  if (!topic || !session || !other) return
+  await ui.pointer({ type: 'move', ...(await cell(topic)), in: 'map' })
+  await scan('a topic traced')
+  await ui.pointer({ type: 'down', ...(await cell(session)), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'move', ...(await cell(other, 1)), button: 'left', in: 'map' })
+  await scan('a session dragged')
+  await ui.pointer({ type: 'up', ...(await cell(other, 1)), button: 'left', in: 'map' })
+  await ui.press({ key: 'toast:undo' })
+  // /topic 1 joins this session: its chain gets a "you" step and the status line its mark.
+  seen.push(['/topic 1', (await run($, 'topic', '1')).text ?? ''])
+  await ui.press({ key: 'mine' })
+  await scan('my topic’s chain, joined')
+  expect((await field()).nodes?.some(n => n.kind === 'you')).toBe(true)
+  await ui.press({ key: `s:${IDS.rounding}` })
+  await scan('a step selected')
+  await ui.press({ key: 'sc:archive' })
+  await ui.press({ key: 'back' })
+  await scan('an archived session on the map')
+  expect((await field()).nodes?.some(n => n.isArchived)).toBe(true)
+  await ui.unmount()
+  for (const t of stubs.toasts) seen.push(['a toast', t])
+  for (const t of stubs.status) seen.push(['the status line', String(t ?? '')])
+  expect(stubs.status.some(Boolean)).toBe(true)
+  expect(straysIn(seen)).toEqual([])
+})
+
+test('the Client module’s every glyph and mark is WGL4, called directly with a node of each kind and a link between topics', () => {
+  const el = (type: string) => (props: Record<string, unknown>) => ({ type, props })
+  const surface = { elements: { Box: el('Box'), Text: el('Text') }, state: undefined as unknown, columns: 100, rows: 24, setState: () => undefined, every: () => () => undefined, post: () => undefined, onPointer: () => () => undefined, onKey: () => () => undefined }
+  const nodes = [
+    { id: 'a', kind: 'topic', x: 200, y: 150, label: 'Checkout', isMajor: true },
+    { id: 'b', kind: 'topic', x: 600, y: 300, label: 'Docs' },
+    { id: 's1', kind: 'session', x: 240, y: 180, topicId: 'a', isActive: true },
+    { id: 's2', kind: 'session', x: 260, y: 120, topicId: 'a' },
+    { id: 's3', kind: 'session', x: 620, y: 340, topicId: 'b', isArchived: true },
+  ]
+  const chain = [
+    { id: 'back', kind: 'back', x: 60, y: 30, label: '' },
+    { id: 'c1', kind: 'step', x: 200, y: 200, label: '1', label2: 'fix rounding' },
+    { id: 'me', kind: 'you', x: 400, y: 200, label: '2', label2: 'now · you' },
+  ]
+  const seen: [string, string][] = []
+  const map = { mode: 'map', hint: '', nodes, links: [{ x1: 200, y1: 150, x2: 600, y2: 300 }], fieldW: 860, fieldH: 520 }
+  for (const [where, props, state] of [
+    ['the map, the default legend', map, undefined],
+    ['the map, a drag', map, { hover: 'a', drag: 's1', pressed: null, last: '', at: null }],
+    ['a focused chain', { mode: 'focus', hint: '', nodes: chain, links: [], legend: '', fieldW: 860, fieldH: 520 }, undefined],
+    ['the outline layer', { ...map, hits: true, outline: true }, { hover: null, drag: null, pressed: null, last: 'down at 3,4', at: { x: 3, y: 4 } }],
+  ] as const) {
+    surface.state = state
+    for (const t of textsOfTree(MapModule(props, surface))) seen.push([where, t])
+  }
+  expect(seen.some(([, t]) => t === '·')).toBe(true)
+  expect(straysIn(seen)).toEqual([])
 })
