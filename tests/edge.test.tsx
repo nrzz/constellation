@@ -651,6 +651,55 @@ test('a narrow pane lays the field out narrower so its text stays legible; a wid
   expect(24 + hint.length * 6.3).toBeLessThanOrEqual(520 - 2 * 118)
 })
 
+/** One topic whose chain has `n` steps, each titled at length, an hour or so apart. */
+function chainFolder(n: number) {
+  const sessions: SessionSummary[] = []
+  const store = { ...EMPTY_STORE, topics: { 'topic:chain': { name: 'Cart Total', createdAt: 0 } } as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string> }
+  for (let i = 0; i < n; i += 1) {
+    const lastAt = NOW - (n - i) * 3_700_000
+    const id = `c${i}`
+    sessions.push({ id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: `Round the cart line totals once, at the end ${i}`, startedAt: lastAt - 3600_000, lastAt, turns: 3 + i, filesTouched: ['src/cart.ts'], lastAssistantText: '', size: 1, mtimeMs: lastAt })
+    store.assign[id] = 'topic:chain'
+  }
+  return buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
+}
+
+test('a focused chain keeps every label and meta line to its room: none meets its neighbour on its row, in a 520, 620 or 860 field, from 3 steps to 24', async () => {
+  const clashes: string[] = []
+  for (const columns of [44, 60, 120]) {
+    for (const n of [3, 5, 8, 11, 16, 24]) {
+      const model = chainFolder(n)
+      const placement = placementOf(model, null, fieldWidthFor(columns))
+      const view = { model, placed: placement.placed, field: placement.size, ui: { ...INITIAL_UI, focusTopic: 'topic:chain' }, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' as const }
+      const svg = svgOf(view)
+      // Meta lines are mono at 10.5 (6.3 units a character); labels at 11.5 (6.4, the layout's own measure).
+      const texts: { y: string; x: number; w: number; text: string }[] = []
+      for (const m of svg.matchAll(/<text class="mono" x="([\d.]+)" y="([\d.]+)" font-size="10.5"[^>]*>([^<]*)<\/text>/g)) texts.push({ y: `meta ${m[2]}`, x: Number(m[1]), w: (m[3] ?? '').length * 6.3, text: m[3] ?? '' })
+      for (const m of svg.matchAll(/<text x="[\d.]+" y="([\d.]+)" font-size="11.5"[^>]*>(.*?)<\/text>/g)) {
+        const lines = [...(m[2] ?? '').matchAll(/<tspan x="([\d.]+)" dy="(\d+)">([^<]*)<\/tspan>/g)]
+        lines.forEach((l, k) => texts.push({ y: `label ${m[1]} line ${k}`, x: Number(l[1]), w: (l[3] ?? '').length * 6.4, text: l[3] ?? '' }))
+      }
+      const rows = new Map<string, typeof texts>()
+      for (const t of texts) rows.set(t.y, [...(rows.get(t.y) ?? []), t])
+      for (const row of rows.values()) {
+        row.sort((a, b) => a.x - b.x)
+        for (let i = 1; i < row.length; i += 1) {
+          const a = row[i - 1]
+          const b = row[i]
+          if (a && b && b.x - a.x < (a.w + b.w) / 2 + 4) clashes.push(`${placement.size.w} wide, ${n} steps: "${a.text}" meets "${b.text}"`)
+        }
+      }
+      // Every meta line stays on the field.
+      for (const t of texts) if (t.x - t.w / 2 < 0 || t.x + t.w / 2 > placement.size.w) clashes.push(`${placement.size.w} wide, ${n} steps: "${t.text}" leaves the field`)
+      // In a wide field an 11-step chain keeps each step's age and turns.
+      if (columns === 120 && n === 11) expect(texts.filter(t => t.y.startsWith('meta')).every(t => / ago( · \d+ turns)?$/.test(t.text) && (t.text.includes('turns') || t.text.startsWith('latest')))).toBe(true)
+      // In a narrow one each keeps its age whole, at least.
+      if (columns === 44 && n === 11) expect(texts.filter(t => t.y.startsWith('meta')).every(t => /\d+[mhdw] ago/.test(t.text))).toBe(true)
+    }
+  }
+  expect(clashes).toEqual([])
+})
+
 test('the panes: a Desktop pane 44 columns wide draws a 520-unit picture, a wide one 860, a terminal pane the full field for its text map', async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })

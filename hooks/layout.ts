@@ -262,6 +262,17 @@ export function chainLabelChars(n: number, size: FieldSize = BASE): number {
   return chars < 8 ? 0 : Math.min(24, chars)
 }
 
+/**
+ * How many characters a chain step's meta line ("55m ago · 3 turns", mono at
+ * 10.5: 6.3 units a character) may hold before it reaches the meta of its
+ * neighbour on the same row. A narrow field's crowded chain gets fewer.
+ */
+export function chainMetaChars(n: number, size: FieldSize = BASE): number {
+  if (n <= 2) return 34
+  const sameRow = (2 * (size.w - 180)) / (n - 1)
+  return Math.max(6, Math.min(34, Math.floor((sameRow - 10) / 6.3)))
+}
+
 /** The related-topic anchors along the bottom of a focused chain. */
 /** The narrowest room an anchor gets: its name, part of the shared file, and its dashed pill. */
 export const ANCHOR_MIN_SLOT = 150

@@ -10,7 +10,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
-import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainPositions, chainRows, focusSize, pillWidth, satellitePosition, starPath, unitEdge } from './layout'
+import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, chainRows, focusSize, pillWidth, satellitePosition, starPath, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
@@ -414,6 +414,8 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       parts.push(`<line x1="${(a.x + ux * 19).toFixed(1)}" y1="${(a.y + uy * 19).toFixed(1)}" x2="${(b.x - ux * 21).toFixed(1)}" y2="${(b.y - uy * 21).toFixed(1)}" stroke="${color}" stroke-width="1.6" marker-end="url(#arrow)" opacity="0.9"/>`)
     }
     const chars = chainLabelChars(steps.length, size)
+    // Every step labelled: each meta line keeps to its room on its row. A crowded chain labels a few steps apart from each other, which take more.
+    const metaChars = chars > 0 ? chainMetaChars(steps.length, size) : 18
     const { upper } = chainRows(size)
     steps.forEach((step, i) => {
       const pt = positions[i]
@@ -433,13 +435,17 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       // A crowded chain labels only the steps that matter here; the tooltips carry the rest.
       const isLabelled = chars > 0 || isYou || isSel || isLatest || i === 0
       const room = chars > 0 ? chars : 14
-      const meta = isYou
-        ? 'now · you'
+      // The meta line keeps to its room on its row and to the field's edge. Where room is short it sheds its turns, then
+      // "latest" (the glow says it), before a word is cut.
+      const metaRoom = Math.max(6, Math.min(metaChars, Math.floor((2 * Math.min(pt.x, size.w - pt.x) - 8) / 6.3)))
+      const age = s ? `${ageOf(s.lastAt, now)} ago` : ''
+      const latestTag = isLatest ? ['latest'] : []
+      const metas = isYou
+        ? ['now · you']
         : s
-          ? isTight
-            ? [...(isLatest ? ['latest'] : []), `${ageOf(s.lastAt, now)} ago`, turnsOf(s)].join(' · ')
-            : sessionMeta(s, now, isLatest ? 'latest' : '')
-          : ''
+          ? [...(isTight ? [] : [sessionMeta(s, now, isLatest ? 'latest' : '')]), [...latestTag, age, turnsOf(s)].join(' · '), [...latestTag, age].join(' · '), age]
+          : ['']
+      const meta = metas.find(m => m.length <= metaRoom) ?? metas[metas.length - 1] ?? ''
       const lines = isLabelled ? wrap2(title, Math.min(isTight ? room : 22, room)) : []
       const tip = withTooltips && s && !isYou ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
       const g: string[] = [`<g class="n hit" opacity="${op.toFixed(2)}">${tip}`]
@@ -450,7 +456,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const labelColor = isYou ? ACCENT : isSel ? 'var(--tx)' : status === 'archived' ? 'var(--mu)' : 'var(--lb)'
       if (isLabelled) {
         // The upper row's label stands above its circle, the lower row's hangs below: neither meets the other row.
-        const metaText = clip(meta, Math.max(room + 4, isTight ? 0 : 34))
+        const metaText = clip(meta, metaRoom)
         const isAbove = pt.y <= upper
         const ty = isAbove ? pt.y - 26 - lines.length * 14 : pt.y + 32
         g.push(`<text x="${pt.x.toFixed(1)}" y="${ty}" font-size="11.5" style="fill:${labelColor}" text-anchor="middle">${lines.map((l, k) => `<tspan x="${pt.x.toFixed(1)}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)

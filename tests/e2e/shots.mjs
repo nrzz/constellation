@@ -4,8 +4,9 @@
 //
 //   node tests/e2e/shots.mjs [outDir]     # default docs/images; needs `claude` and Playwright's Chromium
 //
-// Writes desktop-map.png (the whole folder), desktop-trace.png (a topic traced under the pointer) and
-// desktop-focus.png (that topic focused: its sessions as a numbered chain).
+// Writes desktop-map.png (the whole folder), desktop-trace.png (a topic traced under the pointer),
+// desktop-focus.png (that topic focused: its sessions as a numbered chain) and desktop-narrow.png (the same
+// chain in a pane 44 cells wide, about 340 px, where the field narrows to stay legible).
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -68,14 +69,21 @@ try {
   await desk.flush()
   if (clientOf(desk.tree)?.props.props.mode !== 'focus') throw new Error('the click did not focus the topic')
   shots['desktop-focus'] = svgOfTree(desk.tree).props.source
+
+  // The same chain in a narrow pane, drawn at its real width.
+  desk.bodyColumns = 44
+  const narrow = await desk.pane()
+  if (clientOf(narrow.tree)?.props.props.fieldW !== 520) throw new Error('the narrow pane did not narrow the field')
+  shots['desktop-narrow'] = { svg: svgOfTree(narrow.tree).props.source, width: Math.round(44 * 7.7) }
 } finally {
   await engine.close()
 }
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: WIDTH + 56, height: 800 }, deviceScaleFactor: 2, colorScheme: 'dark' })
-for (const [name, svg] of Object.entries(shots)) {
-  const sized = svg.replace(/<svg ([^>]*?)width="[\d.]+" height="[\d.]+"/, `<svg $1width="${WIDTH}"`)
+for (const [name, shot] of Object.entries(shots)) {
+  const { svg, width } = typeof shot === 'string' ? { svg: shot, width: WIDTH } : shot
+  const sized = svg.replace(/<svg ([^>]*?)width="[\d.]+" height="[\d.]+"/, `<svg $1width="${width}"`)
   await page.setContent(`<!doctype html><html><body style="margin:0;background:${BACKGROUND}"><div id="shot" style="padding:28px;display:inline-block">${sized}</div></body></html>`)
   await page.locator('#shot').screenshot({ path: path.join(OUT, `${name}.png`) })
   squeezePng(path.join(OUT, `${name}.png`))

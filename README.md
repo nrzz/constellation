@@ -61,6 +61,12 @@ glowing:
 
 ![The topic focused: eleven sessions as a numbered two-row chain, labels above and below, the latest glowing](docs/images/desktop-focus.png)
 
+In a narrow pane the field narrows with it, so the same chain stays readable
+at about 340 px (shown here at its real size); each step's line sheds its turn
+count before its age:
+
+<img src="docs/images/desktop-narrow.png" width="395" alt="The same chain in a pane 44 cells wide: shorter labels, each step's age, nothing overlapping">
+
 In a terminal the same map is drawn in text, beside the transcript, and takes
 the mouse: hover traces, a click focuses, a click on a step opens its card,
 Escape and ‹ All topics go back.
