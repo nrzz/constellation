@@ -388,6 +388,18 @@ test('renaming a topic to a name another topic has is refused with a toast: the 
   await ui.unmount()
 })
 
+test('/topic with a taken name in other words and case joins that topic: no second topic reads as the same name', async ($, on) => {
+  const stubs = stubEngine(on, { store: { topics: { 'topic:cashfree-refund': { name: 'Cashfree Refund', createdAt: 1 } } } })
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const joined = (await run($, 'topic', 'refund  CASHFREE')).text ?? ''
+  expect(joined).toContain('This session is in the topic')
+  expect(stubs.toasts.some(t => t.startsWith('Started the topic'))).toBe(false)
+  const listed = (await run($, 'topic', '')).text ?? ''
+  expect(listed).toContain('This session is in Cashfree Refund.')
+  expect(listed).not.toMatch(/refund {1,2}cashfree/i)
+  expect(listed.match(/ Cashfree Refund \(/g)?.length).toBe(1)
+})
+
 test('archive and move leave an Undo; merge folds one topic into another', async ($, on) => {
   const stubs = stubEngine(on, { store: { topics: { 'topic:docs': { name: 'Docs', createdAt: 1 } } } })
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })

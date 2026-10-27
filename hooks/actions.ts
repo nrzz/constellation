@@ -471,7 +471,8 @@ export async function createTopic($: EngineInterface, rawName: string): Promise<
     await joinTopic($, id)
     return
   }
-  const byName = snap.model.topics.find(t => t.name.toLowerCase() === name.toLowerCase() && t.id !== UNSORTED_ID)
+  // A name names one topic: the same words in another order or case join its holder, as a rename is refused.
+  const byName = snap.model.topics.find(t => nameKey(t.name) === nameKey(name) && t.id !== UNSORTED_ID)
   if (byName) {
     await joinTopic($, byName.id)
     return
