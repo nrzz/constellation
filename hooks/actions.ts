@@ -7,7 +7,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ModelUsage, PluginOptions, Timer } from 'claude-code'
 
-import { UNSORTED_ID, ageOf, buildModel, chainSteps, cleanName, latestOf, orderChain, scoreJoin, topicIdFor } from './cluster'
+import { UNSORTED_ID, ageOf, buildModel, chainSteps, cleanName, latestOf, nameKey, orderChain, scoreJoin, topicIdFor } from './cluster'
 import type { Model, SessionView, Topic } from './cluster'
 import { clip, matches, noteText, statsOf } from './draw'
 import type { Actions, View } from './draw'
@@ -790,6 +790,12 @@ export async function renameTopic($: EngineInterface, topicId: string, rawName: 
   const topic = snap.model.topicById[topicId]
   await patchUi($, { editing: null })
   if (!topic || topicId === UNSORTED_ID || !name) return
+  // A name names one topic (`/topic <name>`, `/map <name>`): another topic's name, in any order and case, is refused.
+  const holder = snap.model.topics.find(t => t.id !== topicId && nameKey(t.name) === nameKey(name))
+  if (holder) {
+    await toast($, `${holder.name} is already the name of another topic.`, { problem: true })
+    return
+  }
   const next = cloneStore(snap.store)
   materialise(next, topic, snap.now)
   const record = next.topics[topicId]
