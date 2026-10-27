@@ -237,6 +237,22 @@ export function nodeAtPoint(nodes, p, cell) {
     }
     return dot || inside
   }
+  // Off every box, a dot whose centre lies in the cell is the cell's before any distance comparison: a pill's ring
+  // reaches the cell's centre while the dot's own centre, up to half a cell away, can measure farther.
+  if (cell) {
+    let own = null
+    let ownD = Number.POSITIVE_INFINITY
+    for (const n of nodes) {
+      if (n.kind !== 'session' && n.kind !== 'step') continue
+      if (Math.abs(p.x - n.x) > cell.w / 2 || Math.abs(p.y - n.y) > cell.h / 2) continue
+      const d = Math.hypot(p.x - n.x, p.y - n.y)
+      if (d < ownD) {
+        own = n
+        ownD = d
+      }
+    }
+    if (own) return own
+  }
   let best = null
   let bestD = Number.POSITIVE_INFINITY
   for (const n of nodes) {
@@ -327,6 +343,11 @@ export default function ConstellationMap(props, surface) {
           surface.setState({ ...st, ...seen, hover: null, drag: null })
           if (st.hover !== null) surface.post({ type: 'hover', id: null })
         }
+        return
+      }
+      // Only the left button presses and picks; a press that names no button is a left one (a host may leave it out).
+      if ((e.type === 'down' || e.type === 'up') && (e.button === 'right' || e.button === 'middle')) {
+        if (props.outline) surface.setState({ ...st, ...seen })
         return
       }
       if (e.type === 'down') {
