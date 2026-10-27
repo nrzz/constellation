@@ -3,6 +3,9 @@
 #
 #   bash tests/e2e/tui.sh                  # about three minutes; one short model turn
 #   E2E_SKIP_MODEL=1 bash tests/e2e/tui.sh   # the same without the model turn
+#   E2E_INSTALL=1 bash tests/e2e/tui.sh      # install the plugin from this checkout first (the one-line
+#                                            # install, with the checkout as the marketplace) and run it
+#                                            # as installed rather than from --plugin-dir
 #
 # The pane docks beside the transcript in a fullscreen terminal and sits above the prompt otherwise;
 # the checks read the whole screen, so either layout passes.
@@ -32,8 +35,15 @@ printf '# demo\n' > "$DEMO/README.md"
 echo "config: $CFG"
 echo "demo:   $DEMO"
 
+LOAD="--plugin-dir $REPO"
+if [ -n "${E2E_INSTALL:-}" ]; then
+  echo "installing from the checkout into the test config directory…"
+  CLAUDE_CONFIG_DIR=$CFG claude plugin install constellation --marketplace "$REPO" >"$CFG/install.log" 2>&1 || { cat "$CFG/install.log"; exit 1; }
+  grep -q "Successfully installed plugin" "$CFG/install.log" && echo "PASS: the one-line install from the checkout" || { echo "FAIL: the one-line install"; cat "$CFG/install.log"; exit 1; }
+  LOAD=""
+fi
 tmux kill-session -t "$S" 2>/dev/null
-tmux new-session -d -s "$S" -x 170 -y 60 -c "$DEMO" "CLAUDE_CONFIG_DIR=$CFG claude --plugin-dir $REPO"
+tmux new-session -d -s "$S" -x 170 -y 60 -c "$DEMO" "CLAUDE_CONFIG_DIR=$CFG claude $LOAD"
 
 clear_input() { tmux send-keys -t "$S" C-u; sleep 0.5; }
 # The engine's own dialogs, answered as they come, until the prompt and the band are up.

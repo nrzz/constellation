@@ -591,15 +591,16 @@ Lessons for the next build: a test's `$` has only the event nouns (no
 key }`; the terminal's resolve table carries an `Svg` entry, so pick elements
 by `e.surface`; a Client's props must hold no `undefined`.
 
-## Next steps (local Desktop session)
+## Release checklist
 
-1. Install this `main` over the local copy, open `/map` on the Desktop and
-   in a terminal; compare with `design/TopicMap.dc.html` and the preview
-   page; fix what differs; commit `fix: …`.
-2. Click a pill, a satellite and a step on the picture. If none answers,
-   settings, Advanced, **Clicks on the picture: Outline** shows whether the
-   layer sees the pointer at all (its line changes from "no pointer event
-   yet") and where it sits.
+1. `/plugin install constellation --marketplace nrzz/constellation` in any
+   Claude Code (or `install.sh` / `install.ps1`); `/map` in a folder with
+   sessions. `tests/e2e/tui.sh` with `E2E_INSTALL=1` does the same from a
+   checkout, unattended.
+2. On the Desktop, a click on a pill, a satellite and a step on the picture
+   should pick; the buttons under the field do the same either way, and
+   settings, Advanced, **Clicks on the picture: Outline** shows what the
+   layer sees.
 3. Watch the first real folder: large transcripts, the auto topic names, the
    join suggestions; tune the stopword list and the scoring if needed.
 4. Release: tag v0.1.0, confirm the marketplace install on a clean machine.

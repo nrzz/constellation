@@ -18,27 +18,53 @@ Desktop sidebar and nothing is lost between them.
   zero-token path is one setting away, and the settings view counts what the
   model was asked.
 
-Status: built in Claude Code 2.1.310. `claude plugin validate --strict`,
-`claude plugin test` (123 tests, including an edge-case suite), `tsc` and an end-to-end run of the real Claude Code TUI
-(`tests/e2e/tui.sh`) pass. The rendered field was checked
-against the approved prototype
+Status: built against Claude Code 2.1.310 and run end to end on 2.1.311.
+`claude plugin validate --strict`, `claude plugin test` (123 tests, including
+an edge-case suite), `tsc` and `tests/e2e/tui.sh` (the real Claude Code TUI
+driven in tmux, the plugin installed with the one-line install, a real model
+turn that quotes the injected handoff note) pass. The rendered field was
+checked against the approved prototype
 ([preview](https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u),
-[prototype](https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0));
-the first look at the live pane in the Desktop app is still to come.
+[prototype](https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0)).
+The Desktop surface is exercised through the engine's own desktop surface in
+the test kit and the engine facts recorded in `PLAN.md`.
 
 ## Install
 
-```bash
-claude plugin marketplace add nrzz/constellation
-claude plugin install constellation@constellation
+One line, anywhere. Inside any Claude Code (a terminal, the Desktop app's
+Code tab, VS Code), type at the prompt:
+
+```
+/plugin install constellation --marketplace nrzz/constellation
 ```
 
-At the prompt of a terminal session: `/plugin install constellation --marketplace nrzz/constellation`.
-In the Desktop app's Code tab: click + next to the prompt box, then Plugins,
-Add marketplace with `nrzz/constellation`, then Add plugin.
+Or from a shell:
 
-Requires Claude Code 2.1.287 or later. To run it from a checkout while
-developing: `claude --plugin-dir <path to this repo>`.
+```bash
+claude plugin install constellation --marketplace nrzz/constellation
+```
+
+Or copy and paste an installer, which runs that command after checking that
+Claude Code 2.1.287 or later is on PATH:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nrzz/constellation/main/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/nrzz/constellation/main/install.ps1 | iex
+```
+
+Any of these adds this repository as a marketplace and installs the plugin
+for every Claude Code on the machine (they share one plugin store); the next
+session in any folder has the band, `/map` and the rest. The settings keep
+their defaults until you change them (`/plugin configure constellation`,
+`/config`, or the pane's own settings). To remove it: `claude plugin
+uninstall constellation`.
+
+To run it from a checkout while developing: `claude --plugin-dir <path to
+this repo>`, or install from the checkout with `claude plugin install
+constellation --marketplace <path to this repo>`.
 
 ## How a session joins a topic
 
@@ -63,7 +89,7 @@ developing: `claude --plugin-dir <path to this repo>`.
 | Command | What it does |
 | --- | --- |
 | `/map` | Opens or closes the Constellation pane (the live sidebar) |
-| `/map here` | Prints the map in the main chat, as of that moment: the picture, its buttons and the chooser as a row where the surface draws trees in the transcript (the Desktop), a numbered text outline of the topics in a terminal |
+| `/map here` | Prints the map in the main chat, as of that moment: a numbered text outline of the topics (what a terminal shows), and the picture, its buttons and the chooser as a row where the surface draws a plugin's output row as a tree |
 | `/map <topic>` | Opens the pane focused on a topic: its number in the `/topic` list, its name, or the start of its name |
 | `/map find <text>` | Opens the pane searching titles, first prompts, notes, files and branches |
 | `/map settings` | Opens the pane on its settings view |
@@ -97,9 +123,10 @@ Major topics are labelled pills with a session count
 (and "· you" on your topic), minor topics small dots with a mono label,
 sessions satellites around their topic (filled = active in the last five
 minutes, hollow = idle, dashed = archived, ★ = pinned), dashed lines between
-topics that touched the same file. Hovering a topic traces it: its sessions and
-links take its colour and everything else dims. Searching dims non-matches and
-shows match counts on the pills.
+topics that touched the same file. Tab onto a topic, or point at it on the
+terminal map, and it is traced: its sessions and links take its colour,
+everything else dims, and its card shows under the field. Searching dims
+non-matches and shows match counts on the pills.
 
 **Focus mode**: pick a topic and it alone stays, its in-range sessions laid out
 as a numbered zigzag chain with arrows, the latest glowing, this session as the
@@ -142,7 +169,7 @@ it); a bare digit in an empty prompt also answers the band.
 
 Set them in `/config`, or live in the pane's settings view (saved to the
 store), where they come in three groups: Map, Session, and Advanced (the
-major-topic rules and the Desktop hit layer), folded until asked for.
+major-topic rules and the Desktop pointer layer), folded until asked for.
 
 | Setting | Values | Default | What it does |
 | --- | --- | --- | --- |
@@ -179,7 +206,7 @@ false`. The mod never approves tool calls and never touches the network.
 
 | | Desktop app (and VS Code) | Terminal |
 | --- | --- | --- |
-| Field | One SVG sized to the pane: pills, satellites, chain, glow, CSS hover tracing, tooltips; on the Desktop an invisible pointer layer lies over it | A text-mode map (a Client module) with real pointer and arrow-key input |
+| Field | One SVG drawn as an image at the pane's width: pills, satellites, chain, glow; tracing from the focus ring; on the Desktop an invisible pointer layer lies over it | A text-mode map (a Client module) with real pointer and arrow-key input |
 | Picking | Desktop: a click on a pill, a satellite, a step, an anchor or ‹ All topics on the picture, or the buttons under it; VS Code: the buttons, Tab/Enter, hotkeys | Click a topic or session, drag a session onto a topic, arrows walk topics or steps, Enter picks, Backspace goes back |
 | Everything else | Header, cards, settings, band, commands | The same |
 
@@ -263,6 +290,7 @@ claude plugin validate --strict .
 claude plugin test .
 npx -y typescript@5.9.3 tsc -p .          # needs .claude-plugin/types laid by the engine or the plugin-authoring skill
 bash tests/e2e/tui.sh                    # the real Claude Code TUI in tmux, end to end (about three minutes, one model turn)
+E2E_INSTALL=1 bash tests/e2e/tui.sh      # the same after the one-line install from this checkout, run as installed
 E2E_SKIP_MODEL=1 bash tests/e2e/tui.sh   # the same without the model turn
 node tests/fixtures/sync.mjs             # after editing a *.jsonl fixture
 node tests/preview/render.mjs            # SVGs of the field for demo data, under tests/out
@@ -283,7 +311,11 @@ band, `/map`, the pane's hotkeys, `/map help`, a join by digit, `/pickup
 list`, `/park`, `/topic`, `/map find`, `/map close`, a real model turn that
 quotes the injected handoff note, and `/clear`), `tests/interact.test.tsx` (the
 help card, Jump back in, my topic, the search clear, Refresh, the band's cap,
-the numbered commands, the session card's rows, the settings groups) and
+the numbered commands, the session card's rows, the settings groups),
+`tests/review.test.tsx` (the shared store merging, the scan cache under a
+refusing store, one chain numbering, Undo per entry, the old caches, placed
+panes, the start-time pane across a resume, anchors under the pointer, a focus
+ring on a chip, the chat row's hotkeys) and
 `tests/edge.test.tsx` (empty
 folders, hostile and huge transcripts, bounded scans, every `openOnStart`, a
 refusing store, model failures, dismissed dialogs, key and hotkey uniqueness
