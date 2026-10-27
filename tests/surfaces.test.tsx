@@ -214,8 +214,9 @@ test('the topic card: a hairline and faint fill in the topic colour, the kind an
   const head = kids((await boxesOf(ui, 'ch:')).find(b => b.id === 'topic')?.box)
   expect(head.find(k => k.type === 'Text' && k.text === '●')?.props.color).toBe(color)
   expect(head.find(k => k.type === 'Text' && k.text === 'live')?.props.color).toBe(ACCENT)
-  expect(await ui.find({ type: 'Text', text: /^related$/ })).toBeDefined()
   const rel = await boxesOf(ui, 'kb:')
+  // A sentence-case label before the chips, or one dim sentence when there are none.
+  expect(await ui.find({ type: 'Text', text: rel.length > 0 ? /^related$/ : /^No related topics yet/ })).toBeDefined()
   for (const { id, box: r } of rel) {
     const inside = kids(r)
     const rgb = rgbOf(inside.find(k => k.type === 'Text' && k.text === '●')?.props.color)
@@ -481,4 +482,62 @@ test('a toast: a translucent hairline card in no topic colour, the done mark dim
 test('a toast that failed shows the reason alone, not the error class', async ($, hooks) => {
   expect(reasonOf(new Error('no composer'))).toBe('no composer')
   expect(reasonOf('plain words')).toBe('plain words')
+})
+
+/** The empty-state card: a hairline, a medium sentence-case title and one dim line under it. */
+async function emptyCard(ui: Parameters<typeof boxesOf>[0]) {
+  const card = (await boxesOf(ui, 'cd:')).find(b => b.id === 'empty')?.box
+  expect(card?.props.borderColor).toBe(HAIRLINE)
+  expect(card?.props.borderStyle).toBe('round')
+  const [title, line] = kids(card)
+  expect(title?.props.weight).toBe('medium')
+  expect(line?.props.dimColor).toBe(true)
+  return { title: title?.text ?? '', line: line?.text ?? '' }
+}
+
+test('an empty folder: the List view says so in a hairline card, a medium title and one dim line; the field draws a faint unformed constellation over its title', async ($, hooks) => {
+  stubEngine(hooks, { files: {} })
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount(paneOn('desktop'))
+  const source = String((await ui.find({ type: 'Svg' }))?.props.source)
+  expect(source).toMatch(/<g class="empty"[^>]*>(<path[^>]*\/>)?(<circle[^>]*\/>){3,}/)
+  expect(source).toContain('No sessions on this map yet')
+  // Nothing to hover and nothing to tell apart: no pointer hint and no legend.
+  expect(source).not.toContain('Hover a topic')
+  expect(source).not.toContain('>shipped<')
+  await ui.press({ key: 'view:list' })
+  const { title, line } = await emptyCard(ui)
+  expect(title).toBe('No sessions on this map yet')
+  expect(line).toContain('/topic')
+  await noShouting(ui)
+  await ui.unmount()
+})
+
+test('a search that matches nothing: the List view names the search in the card and says what it looks through', async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  await ui.press({ key: 'view:list' })
+  await ui.input({ key: 'q', text: 'zzqx', kind: 'change' })
+  const { title, line } = await emptyCard(ui)
+  expect(title).toBe('Nothing matches “zzqx”')
+  expect(line).toMatch(/titles.*notes/)
+  expect(await ui.find({ type: 'Button', key: 'q:clear' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a topic with no sessions yet: its card says so in a dim line that tells what will fill it, and how related topics come', async ($, hooks) => {
+  stubEngine(hooks, { files: {} })
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  await run($, 'topic', 'Fresh start')
+  const ui = await $.ui.mount(paneOn('desktop'))
+  const chip = (await ui.findAll({ type: 'Button' })).find(b => b.text === 'Fresh start' && b.key?.startsWith('t:'))
+  expect(chip).toBeDefined()
+  await ui.press({ key: chip!.key! })
+  const empty = await ui.find({ type: 'Text', text: /^No sessions yet/ })
+  expect(empty?.props.dimColor).toBe(true)
+  expect(empty?.text).toMatch(/join/)
+  // No related topics: one dim sentence saying how they come, not a bare "related none".
+  expect(await ui.find({ type: 'Text', text: /^none$/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^No related topics yet/ }))?.props.dimColor).toBe(true)
+  await ui.unmount()
 })
