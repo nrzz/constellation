@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { BASE, FIELD_H, FIELD_W, GAP_X, anchorPositions, chainLabelChars, chainPositions, hashOf, placeTopics, satellitePosition, seedAngle, topicBox, unitCentre, unitEdge, unitWidth } from '../hooks/layout'
+import { BASE, FIELD_H, FIELD_W, GAP_X, anchorPositions, chainLabelChars, chainPositions, focusSize, hashOf, placeTopics, satellitePosition, seedAngle, topicBox, unitCentre, unitEdge, unitWidth } from '../hooks/layout'
 import type { PlacedTopic, TopicSpec } from '../hooks/layout'
 
 /** Two boxes overlap when they are apart on neither axis. */
@@ -199,5 +199,44 @@ describe('layout', () => {
     expect(anchorPositions(3).map(p => p.x)).toEqual([200, 430, 660])
     expect(anchorPositions(1)[0]).toEqual({ x: 430, y: 470 })
     expect(anchorPositions(1, { w: 860, h: 720 })[0]).toEqual({ x: 430, y: 670 })
+  })
+
+  test('step circles never meet: a long chain wraps into more two-row bands, the field growing to hold them, every same-row gap at least 34', async () => {
+    const problems: string[] = []
+    for (const w of [520, 620, 860]) {
+      for (let n = 1; n <= 60; n += 1) {
+        const size = focusSize({ w, h: FIELD_H }, n)
+        const at = chainPositions(n, size)
+        const tag = `${w} wide, ${n} steps`
+        if (at.length !== n) problems.push(`${tag}: ${at.length} positions`)
+        // A circle is r 16 with a 2-unit stroke: 34 across. No two meet, on a row or across rows.
+        for (let i = 0; i < at.length; i += 1) {
+          for (let k = i + 1; k < at.length; k += 1) {
+            const a = at[i]
+            const b = at[k]
+            if (a && b && a.y === b.y && Math.abs(a.x - b.x) < 34) problems.push(`${tag}: steps ${i + 1} and ${k + 1} ${Math.abs(a.x - b.x).toFixed(1)} apart on a row`)
+            else if (a && b && Math.hypot(a.x - b.x, a.y - b.y) < 34) problems.push(`${tag}: steps ${i + 1} and ${k + 1} meet`)
+          }
+        }
+        // Rows keep the room the labels above and below them take: 92 within a band, more between bands.
+        const rows = [...new Set(at.map(p => p.y))].sort((a, b) => a - b)
+        rows.forEach((y, k) => { if (k > 0 && y - (rows[k - 1] ?? 0) < 92) problems.push(`${tag}: rows ${rows[k - 1]} and ${y} too close`) })
+        // On the field, under the pill and its goal, over the related anchors.
+        const anchorY = anchorPositions(1, size)[0]?.y ?? 0
+        for (const p of at) if (p.x < 90 - 1e-9 || p.x > w - 90 + 1e-9 || p.y < 200 || p.y > anchorY - 100) problems.push(`${tag}: a step at ${p.x.toFixed(1)},${p.y} leaves its room`)
+        // Each step leads to the next: within a band a short diagonal, between bands straight down at the band's end.
+        for (let i = 1; i < at.length; i += 1) {
+          const a = at[i - 1]
+          const b = at[i]
+          if (a && b && b.y < a.y && Math.abs(b.x - a.x) > (2 * (w - 180)) / 2) problems.push(`${tag}: step ${i + 1} jumps back`)
+        }
+      }
+    }
+    expect(problems).toEqual([])
+    // A chain that fits two rows is drawn as before, on the base field.
+    expect(focusSize({ w: 520, h: FIELD_H }, 20)).toEqual({ w: 520, h: FIELD_H })
+    expect(chainPositions(20, focusSize({ w: 520, h: FIELD_H }, 20)).map(p => p.y).slice(0, 2)).toEqual([250, 342])
+    // Past it the field grows, and the anchors move down with it.
+    expect(focusSize({ w: 520, h: FIELD_H }, 21).h).toBeGreaterThan(FIELD_H)
   })
 })

@@ -10,7 +10,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
-import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, chainRows, crowdedLabels, focusSize, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
+import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, crowdedLabels, focusSize, isUpperStep, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
@@ -232,9 +232,10 @@ export function marks(view: Pick<View, 'surface'>): { gear: string; refresh: str
     : { gear: '⚙ ', refresh: '↻ ', open: '▾', shut: '▸', pin: '★', done: '✓' }
 }
 
-/** The field a drawing draws: the map's, or a focused topic's (as wide as the map's, the base height). */
+/** The field a drawing draws: the map's, or a focused topic's (as wide as the map's, the base height, taller for a chain that wraps). */
 export function sizeOf(view: View): FieldSize {
-  return view.ui.focusTopic && view.model.topicById[view.ui.focusTopic] ? focusSize(view.field) : view.field
+  const focus = view.ui.focusTopic ? view.model.topicById[view.ui.focusTopic] : undefined
+  return focus ? focusSize(view.field, chainOf(view, focus).length) : view.field
 }
 
 /** The focused topic's pill: its count ("3 of 4", "· you" on your own topic) and its width, the same in the picture and the pointer layer. */
@@ -604,7 +605,6 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
           if (s !== undefined && latest !== undefined && s.id === latest.id) return 2
           return i === 0 ? 1 : 0
         }), positions)
-    const { upper } = chainRows(size)
     steps.forEach((step, i) => {
       const pt = positions[i]
       if (!pt) return
@@ -653,7 +653,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
       if (isLabelled) {
         // The upper row's label stands above its circle, the lower row's hangs below: neither meets the other row.
         const metaText = clip(meta, metaRoom)
-        const isAbove = pt.y <= upper
+        const isAbove = isUpperStep(i, size.w)
         const ty = isAbove ? pt.y - 26 - lines.length * 14 : pt.y + 32
         g.push(`<text x="${pt.x.toFixed(1)}" y="${ty}" font-size="11.5" style="fill:${labelColor}" text-anchor="middle">${lines.map((l, k) => `<tspan x="${pt.x.toFixed(1)}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)
         g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${ty + lines.length * 14}" font-size="10.5" style="fill:${isLatest ? color : 'var(--mu)'}" text-anchor="middle">${esc(metaText)}</text>`)

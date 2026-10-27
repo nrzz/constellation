@@ -6,14 +6,14 @@
 // (so the picture is stable for one set of topics), each row's slack spread as
 // gaps with a seeded jitter inside the slack, so no two boxes can overlap and
 // every box stays inside the field. Sessions orbit their topic as satellites.
-// Focus mode lays a topic's sessions out as a zigzag chain.
+// Focus mode lays a topic's sessions out as a zigzag chain, a long one wrapped
+// into more bands (the field grows taller for them).
 export const FIELD_W = 860
 export const FIELD_H = 520
 export const GRID = 60
-export const FOCUS_PILL = { x: 430, y: 92 }
+/** The focused topic's pill: centred across the field, at this y. */
+export const FOCUS_PILL = { y: 92 }
 export const ANCHOR_GAP = 230
-/** The y of the related anchors, in a field of the base height. */
-export const ANCHOR_Y = 470
 
 export type Point = { x: number; y: number }
 export type FieldSize = { w: number; h: number }
@@ -34,7 +34,8 @@ export const MIN_FIELD_W = 520
  * The field's width for a pane `columns` cells wide. The picture is drawn at
  * the pane's width, so an 860-unit field in a 300 px pane draws 13 px text at
  * 4.5 px. Below about 83 columns the field narrows (to 520 at most) so its text
- * draws at 7 px or more; a wider pane, or none known, gets the full 860.
+ * draws at 7 px or more from 42 columns (6.5 px at 39, where 520 is the floor);
+ * a wider pane, or none known, gets the full 860.
  */
 export function fieldWidthFor(columns?: number): number {
   if (!columns || !Number.isFinite(columns) || columns <= 0) return FIELD_W
@@ -45,9 +46,9 @@ export function fieldWidthFor(columns?: number): number {
   return Math.max(MIN_FIELD_W, Math.min(FIELD_W, w))
 }
 
-/** A focused topic's field: as wide as the map's, the base height. */
-export function focusSize(map: FieldSize): FieldSize {
-  return { w: map.w, h: FIELD_H }
+/** A focused topic's field: as wide as the map's, the base height, and a band taller for each band a chain of `steps` wraps into. */
+export function focusSize(map: FieldSize, steps = 0): FieldSize {
+  return { w: map.w, h: FIELD_H + (chainBands(steps, map.w) - 1) * CHAIN_BAND_PITCH }
 }
 /**
  * A topic's place: its anchor (the pill's centre, or a minor topic's dot), its
@@ -239,12 +240,57 @@ export function chainRows(size: FieldSize = BASE): { upper: number; lower: numbe
   return { upper: mid - 46, lower: mid + 46 }
 }
 
-/** The numbered steps of a focused chain: spread across the field, alternating between the two rows. */
+/** A step circle is r 16 with a 2-unit stroke: two on one row keep at least this far apart, centre to centre. */
+export const STEP_GAP = 34
+/**
+ * One band of a wrapped chain below the last: its two rows (92) and the room
+ * between the lower row's labels and the next band's upper row's (63 each, and 8).
+ */
+export const CHAIN_BAND_PITCH = 226
+
+/**
+ * How many steps one band of a chain holds in a field `w` wide: as many as
+ * keep `STEP_GAP` between the steps on a row, and even, so a band ends on its
+ * lower row and the link to the next band runs clear of every circle.
+ */
+export function chainBandSize(w: number): number {
+  const fit = Math.floor((2 * (w - 180)) / STEP_GAP) + 1
+  return Math.max(2, fit - (fit % 2))
+}
+
+/** How many bands a chain of `n` steps takes in a field `w` wide (at least one). */
+export function chainBands(n: number, w: number): number {
+  return Math.max(1, Math.ceil(n / chainBandSize(w)))
+}
+
+/** Whether the i-th step of a chain sits on its band's upper row (its label above it) rather than its lower (the label below). */
+export function isUpperStep(i: number, w: number): boolean {
+  return (i % chainBandSize(w)) % 2 === 0
+}
+
+/**
+ * The numbered steps of a focused chain: spread across the field, alternating
+ * between the two rows. A chain too long for that (its circles would meet)
+ * wraps: each band keeps `STEP_GAP` on a row and runs the other way from the
+ * one above (left to right, then right to left), one `CHAIN_BAND_PITCH` lower,
+ * in a field `focusSize` made taller for it.
+ */
 export function chainPositions(n: number, size: FieldSize = BASE): Point[] {
-  const { upper, lower } = chainRows(size)
+  const bands = chainBands(n, size.w)
+  const { upper, lower } = chainRows({ w: size.w, h: size.h - (bands - 1) * CHAIN_BAND_PITCH })
   const out: Point[] = []
+  if (bands === 1) {
+    for (let i = 0; i < n; i += 1) {
+      out.push({ x: n === 1 ? size.w / 2 : 90 + (i * (size.w - 180)) / (n - 1), y: i % 2 === 0 ? upper : lower })
+    }
+    return out
+  }
+  const per = chainBandSize(size.w)
+  const dx = (size.w - 180) / (per - 1)
   for (let i = 0; i < n; i += 1) {
-    out.push({ x: n === 1 ? size.w / 2 : 90 + (i * (size.w - 180)) / (n - 1), y: i % 2 === 0 ? upper : lower })
+    const band = Math.floor(i / per)
+    const j = i % per
+    out.push({ x: band % 2 === 0 ? 90 + j * dx : size.w - 90 - j * dx, y: (j % 2 === 0 ? upper : lower) + band * CHAIN_BAND_PITCH })
   }
   return out
 }

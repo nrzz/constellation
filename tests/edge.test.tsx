@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { EMPTY_STORE, buildModel } from '../hooks/cluster'
-import { fieldOf, svgOf } from '../hooks/draw'
+import { fieldOf, sizeOf, svgOf } from '../hooks/draw'
 import { placementOf } from '../hooks/actions'
 import { DESKTOP_CELL, chainPositions, fieldWidthFor, pillWidth } from '../hooks/layout'
 import { READS_PER_PASS } from '../hooks/scan'
@@ -775,7 +775,7 @@ test('a crowded chain never overprints its labels: a selected step, "you" and a 
       // The latest is not the last started: an older session resumed (the third step), so it is labelled without a click.
       const view = chainView(columns, n, { model: chainFolder(n, 2) })
       const resumed = chainClashes(svgOf(view), view.field.w, `${view.field.w} wide, ${n} steps, c2 resumed`)
-      const at = chainPositions(n, view.field)[2]?.x.toFixed(1)
+      const at = chainPositions(n, sizeOf(view))[2]?.x.toFixed(1)
       expect(resumed.texts.some(t => t.y.startsWith('meta') && t.x.toFixed(1) === at)).toBe(true)
       clashes.push(...resumed.clashes)
     }
@@ -783,8 +783,41 @@ test('a crowded chain never overprints its labels: a selected step, "you" and a 
   expect(clashes).toEqual([])
   // The selected step keeps its label: it wins its row over the first step, whose label it would meet.
   const view = chainView(44, 16, { selected: 'c2' })
-  const x = chainPositions(16, view.field)[2]?.x.toFixed(1)
+  const x = chainPositions(16, sizeOf(view))[2]?.x.toFixed(1)
   expect(chainClashes(svgOf(view), view.field.w, '').texts.some(t => t.y.startsWith('label') && t.x.toFixed(1) === x)).toBe(true)
+})
+
+test('a long chain wraps into bands: the drawn step circles never meet, the picture grows to hold them, and the layer takes every step where it is drawn', async () => {
+  const problems: string[] = []
+  for (const columns of [44, 60, 120]) {
+    for (const n of [12, 22, 30, 45, 60]) {
+      const view = chainView(columns, n, { selected: `c${n - 3}`, you: true })
+      const svg = svgOf(view)
+      const tag = `${view.field.w} wide, ${n} steps`
+      const rings = [...svg.matchAll(/<circle class="ring" cx="([\d.]+)" cy="([\d.]+)" r="16"/g)].map(m => ({ x: Number(m[1]), y: Number(m[2]) }))
+      if (rings.length !== n + 1) problems.push(`${tag}: ${rings.length} rings drawn`)
+      for (let i = 0; i < rings.length; i += 1) {
+        for (let k = i + 1; k < rings.length; k += 1) {
+          const a = rings[i]
+          const b = rings[k]
+          if (a && b && Math.hypot(a.x - b.x, a.y - b.y) < 34) problems.push(`${tag}: rings ${i + 1} and ${k + 1} meet`)
+        }
+      }
+      // Every ring inside the picture, which is as tall as the field the layer is.
+      const size = sizeOf(view)
+      const box = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)" role="img"/)
+      if (Number(box?.[1]) !== size.w || Number(box?.[2]) !== size.h) problems.push(`${tag}: viewBox ${box?.[1]} ${box?.[2]} against ${size.w} ${size.h}`)
+      for (const r of rings) if (r.y + 21 > size.h - 60) problems.push(`${tag}: a ring at ${r.y} reaches the bottom`)
+      const layer = fieldOf(view).nodes.filter(nd => nd.kind === 'step' || nd.kind === 'you')
+      for (const nd of layer) if (!rings.some(r => Math.abs(r.x - nd.x) < 0.51 && Math.abs(r.y - nd.y) < 0.51)) problems.push(`${tag}: layer step ${nd.label} at ${nd.x},${nd.y} drawn nowhere`)
+      // Its labels still keep clear of one another, band by band.
+      problems.push(...chainClashes(svg, size.w, tag).clashes)
+    }
+  }
+  expect(problems).toEqual([])
+  // A chain that fits two rows keeps the base field.
+  expect(sizeOf(chainView(44, 20)).h).toBe(520)
+  expect(sizeOf(chainView(44, 21)).h).toBeGreaterThan(520)
 })
 
 test('the "you" meta is never cut to "now · y…": it reads "now · you", or "you" where that does not fit', async () => {
