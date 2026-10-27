@@ -436,6 +436,25 @@ export function orderChain(sessions: readonly SessionView[], numbering: Numberin
   return numbering === 'newestFirst' ? asc.reverse() : asc
 }
 
+/** One step of a topic's chain as the pane numbers it: a session, or the running session itself. */
+export type ChainStep = { id: string; session?: SessionView; isYou: boolean }
+
+/** A topic's chain as the pane numbers it: its in-range sessions in order, and the running session as a step when it joined the topic. */
+export function chainSteps(topic: Topic, numbering: Numbering, meTopicId: string | null): ChainStep[] {
+  const steps: ChainStep[] = orderChain(topic.sessions.filter(s => s.isInRange), numbering).map(s => ({ id: s.id, session: s, isYou: false }))
+  if (meTopicId === topic.id) {
+    const you: ChainStep = { id: 'you', isYou: true }
+    if (numbering === 'newestFirst') steps.unshift(you)
+    else steps.push(you)
+  }
+  return steps
+}
+
+/** Satellites drawn per topic, on the picture and in the pointer layer alike: one budget, so forty topics do not mean four hundred marks. */
+export function satellitesPerTopic(topicCount: number): number {
+  return Math.max(2, Math.min(60, Math.floor(240 / Math.max(1, topicCount))))
+}
+
 /** The session with the newest activity. */
 export function latestOf(sessions: readonly SessionView[]): SessionView | undefined {
   return [...sessions].sort((a, b) => b.lastAt - a.lastAt)[0]

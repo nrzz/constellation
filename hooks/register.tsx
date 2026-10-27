@@ -6,7 +6,7 @@
 // next prompt, a note generated after each turn when that setting is on,
 // tracing on focus, and Escape backing out of focus mode before it closes.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, PluginOptions, Register, ResolveInput } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, ResolveInput, Timer } from 'claude-code'
 
 import {
   actionsFor,
@@ -41,6 +41,10 @@ import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-2' })
 const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-3' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
+
+// One of each, however often session.start fires in a process (a reload, a respawn).
+let rescanTimer: Timer | undefined
+let watchTimer: Timer | undefined
 
 const COMMANDS = [
   { name: 'map', description: 'Open or close the Constellation topic map; "here" prints it in the chat, a topic name opens on it', argumentHint: '[here|<topic>|find <text>|settings|export [path]|close|help]' },
@@ -92,16 +96,17 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await registerCommands($)
     await startSession($, options, e.cwd, await canOpenPane($, e))
-    $.clock.every(120_000, () => void periodicRescan($))
+    rescanTimer?.cancel()
+    rescanTimer = $.clock.every(120_000, () => void periodicRescan($))
     // The session can change under the process (/clear, a resume) without a hook this mod can count on: a cheap watch.
-    $.clock.every(3000, () => void ensureSession($))
+    watchTimer?.cancel()
+    watchTimer = $.clock.every(3000, () => void ensureSession($))
     return next(e)
   })
 
+  // Where this hook reaches the mod (another plugin may keep it), the session the engine runs is checked and a new one started over.
   on('classic.SessionStart', async ($, e, next) => {
-    if (e.source === 'clear' || e.source === 'resume' || e.source === 'fork') {
-      await startSession($, options, e.cwd, true)
-    }
+    if (e.source === 'clear' || e.source === 'resume' || e.source === 'fork') await ensureSession($)
     return next(e)
   })
 
@@ -130,7 +135,8 @@ export const register: Register = (on, options) => {
       await rescan($)
       return { text: await inlineMapText($) }
     }
-    const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
+    // Open means drawn: a pane the start left waiting unplaced is shown, not closed.
+    const isOpen = (await $.ui.panes()).some(p => p.id === PANE && p.isPlaced)
     if (arg === 'close') {
       if (isOpen) await $.ui.close({ id: PANE })
       return { text: 'Constellation closed.' }

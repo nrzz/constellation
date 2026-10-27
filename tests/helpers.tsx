@@ -73,6 +73,8 @@ export type Stubs = {
   opened: number
   closed: number
   ran: string[][]
+  /** What `$.ui.open` answers; flip it to play a surface that cannot place the pane. */
+  isPlaced: boolean
 }
 
 export type StubOptions = {
@@ -82,6 +84,8 @@ export type StubOptions = {
   panes?: UiPane[]
   /** Every `$.store.set` rejects. */
   failStore?: boolean
+  /** A store the test can read and write from outside, as another session would. */
+  liveStore?: Record<string, unknown>
   /** The model's answer: a text, `'error'` for an API error, `'empty'` for an empty reply. */
   model?: string
   /** Names `$.tool.list()` answers. */
@@ -110,8 +114,21 @@ export function stubEngine(on: On, options: StubOptions = {}): Stubs {
     opened: 0,
     closed: 0,
     ran: [],
+    isPlaced: true,
   }
-  if (options.failStore) {
+  if (options.liveStore) {
+    const live = options.liveStore
+    on('store.get', (_, e) => ({ value: live[e.key] }))
+    on('store.set', (_, e) => {
+      live[e.key] = JSON.parse(JSON.stringify(e.value))
+      return { value: undefined }
+    })
+    on('store.delete', (_, e) => {
+      delete live[e.key]
+      return { value: undefined }
+    })
+    on('store.keys', () => ({ value: Object.keys(live) }))
+  } else if (options.failStore) {
     const seed = options.store ?? {}
     on('store.get', (_, e) => ({ value: seed[e.key] }))
     on('store.set', () => ({ deny: 'the store is full' }))
@@ -126,7 +143,7 @@ export function stubEngine(on: On, options: StubOptions = {}): Stubs {
   on('session.id', () => ({ value: stubs.sessionId }))
   on('ui.open', () => {
     stubs.opened += 1
-    return { value: { isPlaced: true } }
+    return { value: stubs.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no room' } }
   })
   on('ui.panes', () => ({ value: options.panes ?? [] }))
   on('ui.close', () => {

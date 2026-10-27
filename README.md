@@ -234,10 +234,20 @@ click on the picture does.
   so it starts over for the new session either way.
 - Arrow keys cannot be bound by a mod on the Desktop; the terminal map gets
   them through its Client.
-- Transcripts over 4 MiB cannot be read by a mod; such a session shows as a
-  stub titled "(large transcript)" until a smaller read of it is cached.
+- Transcripts over 4 MiB cannot be read whole by a mod. Constellation reads
+  such a transcript in slices through the shell (its head, its title rows and
+  its tail; `sh` on macOS and Linux, PowerShell on Windows), so the session
+  keeps its title, first prompt, times and last answer, flagged as large with
+  a turn count that is a floor. Where the shell is not there, the session
+  shows as a stub titled "(large transcript)".
+- Every session of the folder shares the plugin's store. Each write merges
+  this session's own changes, entry by entry, over what the store holds at
+  that moment, and every rescan reads the store again, so two sessions
+  running at once keep each other's notes, joins and moves. Undo reverses
+  only what the undone action changed.
 - The map reads `~/.claude/projects/<slug>/*.jsonl` (`CLAUDE_CONFIG_DIR`
-  respected) and never writes a transcript. A scan reads at most 40 changed
+  respected; on Windows the home folder is `USERPROFILE`, as Claude Code's
+  own) and never writes a transcript. A scan reads at most 40 changed
   transcripts per pass, newest first, and follows up within a second until
   the folder is covered, so a first look at a big folder fills in over a few
   seconds. Its own data lives in the plugin store (4 MiB in all), which is why

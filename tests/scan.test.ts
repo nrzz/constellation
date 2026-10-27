@@ -9,6 +9,7 @@ import {
   isTranscript,
   largeStub,
   parseTranscript,
+  projectsRoot,
   relativeTo,
   scanSlug,
   sliceCommand,
@@ -238,6 +239,10 @@ describe('scanSlug and its cache', () => {
     expect(script).toContain("$f = 'C:\\Users\\n''s\\.claude\\projects\\x/bigbig.jsonl'")
     expect(script).toContain('OpenRead')
     expect(script).toContain('custom-title|ai-title|summary')
+    // Bytes to standard output, never a .NET string through the console's code page.
+    expect(script).toContain('OpenStandardOutput')
+    expect(script).toContain('-Encoding UTF8')
+    expect(script).not.toContain('GetString')
     expect(r.sessions[0]?.title).toBe('Fix flaky cart wait')
     expect(r.sessions[0]?.large).toBe(true)
     const failing = fakeFs(big, { slices: new Error('spawn sh ENOENT') })
@@ -252,6 +257,17 @@ describe('scanSlug and its cache', () => {
     const r = await scanSlug($, '/nowhere', 'x', {})
     expect(r.sessions).toEqual([])
     expect(r.isChanged).toBe(false)
+  })
+})
+
+describe('the projects root', () => {
+  const fake = (env: Record<string, string>) => ({ env: { get: async (k: string) => env[k] } }) as unknown as EngineInterface
+  test('CLAUDE_CONFIG_DIR first; then USERPROFILE on Windows and HOME elsewhere, as Claude Code picks its home', async () => {
+    expect(await projectsRoot(fake({ CLAUDE_CONFIG_DIR: 'D:\\cfg\\', HOME: '/h' }))).toBe('D:\\cfg/projects')
+    expect(await projectsRoot(fake({ OS: 'Windows_NT', HOME: 'D:\\home', USERPROFILE: 'C:\\Users\\n' }))).toBe('C:\\Users\\n/.claude/projects')
+    expect(await projectsRoot(fake({ OS: 'Windows_NT', HOME: 'D:\\home' }))).toBe('D:\\home/.claude/projects')
+    expect(await projectsRoot(fake({ HOME: '/home/n', USERPROFILE: 'C:\\x' }))).toBe('/home/n/.claude/projects')
+    expect(await projectsRoot(fake({}))).toBe('~/.claude/projects')
   })
 })
 

@@ -59,7 +59,9 @@ export function trimSlash(path: string): string {
 export async function projectsRoot($: EngineInterface): Promise<string> {
   const configDir = await $.env.get('CLAUDE_CONFIG_DIR')
   if (configDir) return `${trimSlash(configDir)}/projects`
-  const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? '~'
+  // Claude Code takes its home from USERPROFILE on Windows (os.homedir ignores HOME there) and from HOME elsewhere.
+  const isWindows = /windows/i.test((await $.env.get('OS')) ?? '')
+  const home = isWindows ? ((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '~') : ((await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? '~')
   return `${trimSlash(home)}/.claude/projects`
 }
 
@@ -244,12 +246,13 @@ export function parseTranscript(
 export function sliceCommand(path: string, isWindows: boolean): string[] {
   if (isWindows) {
     const quoted = path.replace(/'/g, "''")
+    // Bytes go straight to standard output: the console's own code page would otherwise re-encode the UTF-8 text.
     const script =
-      `$f = '${quoted}'; $s = [System.IO.File]::OpenRead($f); $n = [int][Math]::Min(${SLICE_BYTES}, $s.Length); $b = New-Object byte[] $n; ` +
-      `[void]$s.Read($b, 0, $n); [Console]::Out.Write([System.Text.Encoding]::UTF8.GetString($b)); [Console]::Out.Write("\`n"); ` +
-      `if ($s.Length -gt $n) { [void]$s.Seek(-$n, 'End'); [void]$s.Read($b, 0, $n); [Console]::Out.Write([System.Text.Encoding]::UTF8.GetString($b)) }; ` +
-      `$s.Close(); [Console]::Out.Write("\`n"); ` +
-      `Select-String -LiteralPath $f -Pattern '"type":"(custom-title|ai-title|summary)"' | ForEach-Object { [Console]::Out.Write($_.Line + "\`n") }`
+      `$f = '${quoted}'; $o = [Console]::OpenStandardOutput(); $nl = [byte[]]@(10); ` +
+      `$s = [System.IO.File]::OpenRead($f); $n = [int][Math]::Min(${SLICE_BYTES}, $s.Length); $b = New-Object byte[] $n; ` +
+      `$r = $s.Read($b, 0, $n); $o.Write($b, 0, $r); $o.Write($nl, 0, 1); ` +
+      `if ($s.Length -gt $n) { [void]$s.Seek(-$n, 'End'); $r = $s.Read($b, 0, $n); $o.Write($b, 0, $r) }; $s.Close(); $o.Write($nl, 0, 1); ` +
+      `Select-String -LiteralPath $f -Encoding UTF8 -Pattern '"type":"(custom-title|ai-title|summary)"' | ForEach-Object { $t = [System.Text.Encoding]::UTF8.GetBytes($_.Line + "\`n"); $o.Write($t, 0, $t.Length) }; $o.Flush()`
     return ['powershell', '-NoProfile', '-NonInteractive', '-Command', script]
   }
   const script = `head -c ${SLICE_BYTES} -- "$1"; printf '\n'; grep -E '"type":"(custom-title|ai-title|summary)"' -- "$1"; printf '\n'; tail -c ${SLICE_BYTES} -- "$1"`
@@ -367,6 +370,14 @@ export async function scanSlug(
 
 export type ScanScope = 'folder' | 'all'
 
+/** Each slug's cache as the last pass left it, so a pass builds on the one before even when the store refuses the write. */
+const memory = new Map<string, ScanCache>()
+
+/** Forgets the caches in memory: a new session starts from the store. */
+export function resetScanMemory(): void {
+  memory.clear()
+}
+
 /** Every slug the scope covers: this folder's, or each folder under the projects root. */
 export async function slugsInScope($: EngineInterface, root: string, scope: ScanScope, cwd: string): Promise<string[]> {
   if (scope !== 'all') return [slugOf(cwd)]
@@ -391,24 +402,24 @@ export async function scanProject(
   const sessions: SessionSummary[] = []
   let isPartial = false
   for (const slug of slugs) {
-    // `scan2`: summaries parsed since titles came from the title rows and noise files were dropped; the old key is cleared once.
+    // `scan2`: summaries parsed since titles came from the title rows and noise files were dropped (the old `cache:` keys are cleared at start).
     const key = `scan2:${slug}`
-    try {
-      if ((await $.store.get(`cache:${slug}`)) !== undefined) await $.store.delete(`cache:${slug}`)
-    } catch {
-      // the old key stays; it is never read
-    }
-    const stored = asObject(await $.store.get(key))
-    const cache: ScanCache = {}
-    if (stored) {
-      for (const [id, value] of Object.entries(stored)) {
-        const s = asObject(value)
-        if (!s || typeof s.size !== 'number' || typeof s.mtimeMs !== 'number') continue
-        if (s.isEmpty === true) cache[id] = { id, size: s.size, mtimeMs: s.mtimeMs, isEmpty: true }
-        else if (typeof s.lastAt === 'number') cache[id] = s as unknown as SessionSummary
+    const memoryKey = `${root}/${slug}`
+    let cache = memory.get(memoryKey)
+    if (!cache) {
+      cache = {}
+      const stored = asObject(await $.store.get(key))
+      if (stored) {
+        for (const [id, value] of Object.entries(stored)) {
+          const s = asObject(value)
+          if (!s || typeof s.size !== 'number' || typeof s.mtimeMs !== 'number') continue
+          if (s.isEmpty === true) cache[id] = { id, size: s.size, mtimeMs: s.mtimeMs, isEmpty: true }
+          else if (typeof s.lastAt === 'number') cache[id] = s as unknown as SessionSummary
+        }
       }
     }
     const result = await scanSlug($, `${root}/${slug}`, slug, cache)
+    memory.set(memoryKey, result.cache)
     if (result.isPartial) isPartial = true
     if (result.isChanged) {
       try {

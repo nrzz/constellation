@@ -8,8 +8,8 @@
 // touches `$`.
 import type { Elements, RenderElement } from 'claude-code'
 
-import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, latestOf, orderChain } from './cluster'
-import type { Link, Model, SessionView, Topic } from './cluster'
+import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
+import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
 import { BASE, FOCUS_PILL, anchorPositions, chainPositions, pillWidth, satellitePosition, starPath } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
@@ -40,6 +40,13 @@ export type View = {
   surface: string
   /** This session's own handoff note, when one is parked. */
   myNote?: NoteRecord
+  /** Drawn as a row in the transcript (`/map here`): no site holds the focus there, so no hotkeys are offered. */
+  isRow?: boolean
+}
+
+/** A Button's hotkey where it can fire: in the pane or the band, never in a transcript row. */
+export function hk(view: View, key: string | undefined): string | undefined {
+  return view.isRow ? undefined : key
 }
 
 export function esc(text: string): string {
@@ -110,18 +117,11 @@ export function noteText(s: SessionView): string {
   return s.note?.text ?? s.lastAssistantText
 }
 
-/** The focused topic's chain: in-range sessions in order, plus a "you" step when this session joined it. */
-export type Step = { id: string; session?: SessionView; isYou: boolean }
+/** The focused topic's chain: in-range sessions in order, plus a "you" step when this session joined it (the numbering every command shares). */
+export type Step = ChainStep
 
 export function chainOf(view: View, topic: Topic): Step[] {
-  const inRange = orderChain(topic.sessions.filter(s => s.isInRange), view.settings.numbering)
-  const steps: Step[] = inRange.map(s => ({ id: s.id, session: s, isYou: false }))
-  if (view.me.topicId === topic.id) {
-    const you: Step = { id: 'you', isYou: true }
-    if (view.settings.numbering === 'newestFirst') steps.unshift(you)
-    else steps.push(you)
-  }
-  return steps
+  return chainSteps(topic, view.settings.numbering, view.me.topicId)
 }
 
 export function stepNumber(view: View, topic: Topic, sessionId: string): number {
@@ -170,8 +170,9 @@ export function themeCss(background: MapSettings['fieldBackground']): string {
 /** The whole field as an SVG document, under the 131072-character cap. */
 export function svgOf(view: View, options: SvgOptions = {}): string {
   const withTooltips = options.withTooltips ?? true
-  const maxSessions = options.maxSessions ?? 60
   const { model, ui, placed, now } = view
+  // The same budget the pointer layer takes, so what is drawn is what is clickable.
+  const maxSessions = options.maxSessions ?? satellitesPerTopic(model.topics.length)
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
   const size = focus ? BASE : view.field
   const anchorY = BASE.h - 50
@@ -415,7 +416,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       { withTooltips: false, maxSessions: 4 },
       { withTooltips: false, maxSessions: 0 },
     ]
-    const next = ladder.find(step => step.withTooltips !== withTooltips || (step.maxSessions ?? 60) < maxSessions)
+    const next = ladder.find(step => step.withTooltips !== withTooltips || (step.maxSessions ?? maxSessions) < maxSessions)
     if (next) return svgOf(view, next)
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}"><style>${themeCss(view.settings.fieldBackground)}</style><rect width="${size.w}" height="${size.h}" rx="16" fill="none" style="stroke:var(--line)"/><text x="${size.w / 2}" y="${size.h / 2}" font-size="13" style="fill:var(--mu)" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`
   }
@@ -535,12 +536,12 @@ export function drawHeader(T: Table, view: View, act: Actions): RenderElement {
         </Box>
         {Input ? <Input key="q" placeholder="Search sessions, notes, files" value={ui.query} submitLabel="search" onInput={v => act.setQuery(v)} onSubmit={v => act.setQuery(v)} /> : null}
         {Select ? <Select key="range" options={RANGE_OPTIONS} value={String(view.settings.rangeDays)} onSelect={v => act.setRange(Number(v))} /> : null}
-        <Button key="view:map" label="Map" hotkey="m" variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
-        <Button key="view:list" label="List" hotkey="l" variant={ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />
-        <Button key="settings" label={ui.showSettings ? '⚙ Done' : '⚙ Settings'} hotkey="s" onPress={() => act.toggleSettings()} />
-        <Button key="help" label={ui.showHelp ? 'Close help' : 'Help'} hotkey="h" onPress={() => act.toggleHelp()} />
+        <Button key="view:map" label="Map" hotkey={hk(view, 'm')} variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
+        <Button key="view:list" label="List" hotkey={hk(view, 'l')} variant={ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />
+        <Button key="settings" label={ui.showSettings ? '⚙ Done' : '⚙ Settings'} hotkey={hk(view, 's')} onPress={() => act.toggleSettings()} />
+        <Button key="help" label={ui.showHelp ? 'Close help' : 'Help'} hotkey={hk(view, 'h')} onPress={() => act.toggleHelp()} />
         {view.me.topicId ? (
-          <Button key="mine" hotkey="y" plain onPress={() => act.myTopic()}>
+          <Button key="mine" hotkey={hk(view, 'y')} plain onPress={() => act.myTopic()}>
             <Text color={ACCENT}>◆</Text> my topic
           </Button>
         ) : null}
@@ -588,11 +589,11 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
   return (
     <Box flexDirection="column" gap="xs">
       <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-        <Button key="back" label="‹ All topics" hotkey="b" onPress={() => act.back()} />
+        <Button key="back" label="‹ All topics" hotkey={hk(view, 'b')} onPress={() => act.back()} />
         {steps.map((s, i) => (
           <Button
             key={`s:${s.id}`}
-            hotkey={i < 9 ? String(i + 1) : undefined}
+            hotkey={hk(view, i < 9 ? String(i + 1) : undefined)}
             plain
             variant={ui.selected === s.id ? 'primary' : undefined}
             onPress={() => (s.isYou ? act.selectSession(null) : act.selectSession(ui.selected === s.id ? null : s.id))}
@@ -766,7 +767,7 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
               <Button
                 key={`s:${s.id}`}
                 plain
-                hotkey={stepHotkeys && i < 9 ? String(i + 1) : undefined}
+                hotkey={hk(view, stepHotkeys && i < 9 ? String(i + 1) : undefined)}
                 variant={ui.selected === s.id ? 'primary' : undefined}
                 onPress={() => (s.isYou ? act.selectSession(null) : act.selectSession(ui.selected === s.id ? null : s.id))}
               >
@@ -914,7 +915,7 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
       {shown.map((t, i) => {
         const latest = latestOf(t.sessions)
         return (
-          <Button key={`j:${t.id}`} hotkey={i < 9 ? String(i + 1) : undefined} variant={me.suggested === t.id ? 'primary' : undefined} onPress={() => act.join(t.id)}>
+          <Button key={`j:${t.id}`} hotkey={hk(view, i < 9 ? String(i + 1) : undefined)} variant={me.suggested === t.id ? 'primary' : undefined} onPress={() => act.join(t.id)}>
             <Text color={t.color}>●</Text> {clip(t.name, 26)}{' '}
             <Text dimColor mono>{`${t.sessions.length}${latest ? ` · ${ageOf(latest.lastAt, view.now)} ago` : ''}`}</Text>
             {me.suggested === t.id ? <Text color={ACCENT}> SUGGESTED</Text> : ''}
@@ -922,8 +923,8 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
         )
       })}
       {more > 0 ? <Button key="j:more" plain onPress={() => act.openMap()}>{`+${more} more in the map`}</Button> : null}
-      <Button key="j:new" label="+ New topic" hotkey="n" onPress={() => act.newTopic()} />
-      {where === 'band' ? <Button key="j:map" label="Open map" hotkey="o" onPress={() => act.openMap()} /> : null}
+      <Button key="j:new" label="+ New topic" hotkey={hk(view, 'n')} onPress={() => act.newTopic()} />
+      {where === 'band' ? <Button key="j:map" label="Open map" hotkey={hk(view, 'o')} onPress={() => act.openMap()} /> : null}
       {where === 'band' ? <Button key="j:dismiss" label="Dismiss" role="dismiss" onPress={() => act.dismissBand()} /> : null}
     </Box>,
   )
@@ -971,10 +972,10 @@ export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElemen
       </Box>
     ) : null,
     <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      {topic ? <Button key="c:focus" label="Focus my topic" hotkey="f" variant="primary" onPress={() => act.focusTopic(topic.id)} /> : null}
-      {latest ? <Button key="c:draft" label="Draft next prompt" hotkey="d" onPress={() => act.draft(null)} /> : null}
-      <Button key="c:change" label="Change topic" hotkey="c" onPress={() => act.changeTopic()} />
-      {!me.askNote ? <Button key="c:park" label="Park a note" hotkey="p" onPress={() => act.parkPrompt()} /> : null}
+      {topic ? <Button key="c:focus" label="Focus my topic" hotkey={hk(view, 'f')} variant="primary" onPress={() => act.focusTopic(topic.id)} /> : null}
+      {latest ? <Button key="c:draft" label="Draft next prompt" hotkey={hk(view, 'd')} onPress={() => act.draft(null)} /> : null}
+      <Button key="c:change" label="Change topic" hotkey={hk(view, 'c')} onPress={() => act.changeTopic()} />
+      {!me.askNote ? <Button key="c:park" label="Park a note" hotkey={hk(view, 'p')} onPress={() => act.parkPrompt()} /> : null}
     </Box>,
   ])
 }
@@ -1027,16 +1028,16 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
       })}
     </Box>,
     <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-      <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} hotkey="f" variant="primary" onPress={() => (isFocused ? act.back() : act.focusTopic(topic.id))} />
-      {latest ? <Button key="tc:pickup" label="Pick up latest" hotkey="u" onPress={() => act.pickUpLatest(topic.id)} /> : null}
-      {view.me.topicId !== topic.id && !isUnsorted ? <Button key="tc:join" label="Join this topic" hotkey="j" onPress={() => act.join(topic.id)} /> : null}
+      <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} hotkey={hk(view, 'f')} variant="primary" onPress={() => (isFocused ? act.back() : act.focusTopic(topic.id))} />
+      {latest ? <Button key="tc:pickup" label="Pick up latest" hotkey={hk(view, 'u')} onPress={() => act.pickUpLatest(topic.id)} /> : null}
+      {view.me.topicId !== topic.id && !isUnsorted ? <Button key="tc:join" label="Join this topic" hotkey={hk(view, 'j')} onPress={() => act.join(topic.id)} /> : null}
       {tidyTargets.length ? <Button key="tc:tidy" label={`Archive ${tidyTargets.length} idle`} onPress={() => act.tidy(topic.id)} /> : null}
     </Box>,
     !isUnsorted ? (
       <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-        {Input ? <Button key="tc:rename" label="Rename" hotkey="r" onPress={() => act.edit(ui.editing === 'rename' ? null : 'rename')} /> : null}
-        {Input ? <Button key="tc:goal" label={topic.goal ? 'Edit goal' : 'Set goal'} hotkey="g" onPress={() => act.edit(ui.editing === 'goal' ? null : 'goal')} /> : null}
-        <Button key="tc:merge" label="Merge into…" hotkey="e" onPress={() => act.mergeMode(topic.id)} />
+        {Input ? <Button key="tc:rename" label="Rename" hotkey={hk(view, 'r')} onPress={() => act.edit(ui.editing === 'rename' ? null : 'rename')} /> : null}
+        {Input ? <Button key="tc:goal" label={topic.goal ? 'Edit goal' : 'Set goal'} hotkey={hk(view, 'g')} onPress={() => act.edit(ui.editing === 'goal' ? null : 'goal')} /> : null}
+        <Button key="tc:merge" label="Merge into…" hotkey={hk(view, 'e')} onPress={() => act.mergeMode(topic.id)} />
         {Select ? <Select key={`color:${topic.id}`} label="Colour" options={COLOR_OPTIONS} value={PALETTE.includes(topic.color as (typeof PALETTE)[number]) ? topic.color : undefined} onSelect={hex => act.setColor(topic.id, hex)} /> : null}
       </Box>
     ) : null,
@@ -1088,15 +1089,15 @@ export function drawSessionCard(T: Table, view: View, act: Actions, s: SessionVi
   }
   rows.push(
     <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      <Button key="sc:pickup" label="Pick up here" hotkey="u" variant="primary" onPress={() => act.pickUp(s.id)} />
-      <Button key="sc:draft" label="Draft prompt" hotkey="d" onPress={() => act.draft(s.id)} />
-      <Button key="sc:new" label="New session from here" hotkey="n" onPress={() => act.newSession(s.id)} />
+      <Button key="sc:pickup" label="Pick up here" hotkey={hk(view, 'u')} variant="primary" onPress={() => act.pickUp(s.id)} />
+      <Button key="sc:draft" label="Draft prompt" hotkey={hk(view, 'd')} onPress={() => act.draft(s.id)} />
+      <Button key="sc:new" label="New session from here" hotkey={hk(view, 'n')} onPress={() => act.newSession(s.id)} />
     </Box>,
     <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      <Button key="sc:pin" label={s.isPinned ? 'Unpin' : 'Pin'} hotkey="p" onPress={() => act.pin(s.id)} />
-      <Button key="sc:move" label={ui.moveMode ? 'Cancel move' : 'Move to topic'} hotkey="v" onPress={() => act.moveMode(!ui.moveMode)} />
-      <Button key="sc:archive" label={s.status === 'archived' ? 'Unarchive' : 'Archive'} hotkey="x" onPress={() => act.archive(s.id)} />
-      {Input ? <Button key="sc:message" label="Message" hotkey="t" dimColor={s.status !== 'active'} onPress={() => act.messageMode(!ui.messageMode)} /> : null}
+      <Button key="sc:pin" label={s.isPinned ? 'Unpin' : 'Pin'} hotkey={hk(view, 'p')} onPress={() => act.pin(s.id)} />
+      <Button key="sc:move" label={ui.moveMode ? 'Cancel move' : 'Move to topic'} hotkey={hk(view, 'v')} onPress={() => act.moveMode(!ui.moveMode)} />
+      <Button key="sc:archive" label={s.status === 'archived' ? 'Unarchive' : 'Archive'} hotkey={hk(view, 'x')} onPress={() => act.archive(s.id)} />
+      {Input ? <Button key="sc:message" label="Message" hotkey={hk(view, 't')} dimColor={s.status !== 'active'} onPress={() => act.messageMode(!ui.messageMode)} /> : null}
     </Box>,
     <Text dimColor mono size="footnote" wrap="truncate">
       {`resume it in a terminal: claude --resume ${s.id}`}
@@ -1113,7 +1114,7 @@ export function drawToast(T: Table, view: View, act: Actions): RenderElement | n
     <Box flexDirection="row" gap="sm" alignItems="center" borderStyle="round" borderColor="#5FD3A6" paddingX={1}>
       <Text color="#5FD3A6">✓</Text>
       <Text>{toast.text}</Text>
-      {toast.hasUndo ? <Button key="toast:undo" label="Undo" hotkey="z" onPress={() => act.undo()} /> : null}
+      {toast.hasUndo ? <Button key="toast:undo" label="Undo" hotkey={hk(view, 'z')} onPress={() => act.undo()} /> : null}
       <Button key="toast:dismiss" label="Dismiss" plain onPress={() => act.dismissToast()} />
     </Box>
   )
@@ -1164,8 +1165,9 @@ export function drawPane(T: Table, view: View, act: Actions, field?: RenderEleme
  * conversation. The row is as wide as the transcript, scrolls with the chat,
  * and redraws while it is on screen; the pane stays the live sidebar.
  */
-export function drawInlineRow(T: Table, view: View, act: Actions): RenderElement {
+export function drawInlineRow(T: Table, raw: View, act: Actions): RenderElement {
   const { Box, Text, Svg } = T
+  const view: View = { ...raw, isRow: true }
   const { model, me } = view
   return (
     <Box flexDirection="column" gap="xs">
@@ -1228,6 +1230,8 @@ export type FieldNode = {
   isArchived?: boolean
   isActive?: boolean
   topicId?: string
+  /** A related-topic anchor in focus mode: a pill centred on its point, unlike a minor topic's dot with a label to the right. */
+  isAnchor?: boolean
 }
 
 export type FieldProps = {
@@ -1259,10 +1263,10 @@ export function fieldOf(view: View): FieldProps {
   const nodes: FieldNode[] = []
   const links: FieldProps['links'] = []
   const legend = '● active  ○ idle  ◌ shipped  ◆ you'
-  // Satellites share a budget across topics, so forty topics do not mean four hundred nodes.
-  const perTopic = Math.max(2, Math.min(40, Math.floor(240 / Math.max(1, model.topics.length))))
+  const perTopic = satellitesPerTopic(model.topics.length)
   if (!focus) {
-    const traced = ui.hover
+    // The focus ring may rest on a chip that is no topic (+ New topic): that traces nothing.
+    const traced = ui.hover && model.topicById[ui.hover] ? ui.hover : null
     for (const t of model.topics) {
       const p = placed[t.id]
       if (!p) continue
@@ -1314,7 +1318,7 @@ export function fieldOf(view: View): FieldProps {
       rel.forEach((r, i) => {
         const rt = model.topicById[r.id]
         const ap = apos[i]
-        if (rt && ap) nodes.push(node({ id: rt.id, kind: 'topic', x: ap.x, y: ap.y, w: 40 + (clip(rt.name, 20).length + clip(r.via, 18).length + 2) * 6.4, label: `${clip(rt.name, 14)} · ${clip(r.via, 10)}`, color: rt.color, isMajor: false, isDim: true, title: rt.name }))
+        if (rt && ap) nodes.push(node({ id: rt.id, kind: 'topic', x: ap.x, y: ap.y, w: 40 + (clip(rt.name, 20).length + clip(r.via, 18).length + 2) * 6.4, label: `${clip(rt.name, 14)} · ${clip(r.via, 10)}`, color: rt.color, isMajor: false, isDim: true, isAnchor: true, title: rt.name }))
       })
     }
   }

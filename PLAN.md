@@ -540,6 +540,31 @@ Nothing here needs tuning per machine: the layer follows the picture's own
 box. Where a Desktop build sends a Client no pointer events, the buttons
 under the field do the same work; `pictureClicks: outline` shows which.
 
+Review pass (2026-10-27), four lenses over the code, each finding checked:
+the store is one file every session of the folder shares, and `saveStore`
+wrote whole maps from this session's copy (two sessions erased each other's
+notes): writes now merge entry by entry over the live store and each rescan
+reads the store again; a bounded scan whose cache write the store refused
+re-read the same forty files for ever: the cache lives in memory across
+passes; `/pickup n`, `/pickup list` and the handoff's "step N" numbered
+without the "you" step the pane shows under `newestFirst`: one `chainSteps`
+numbers them all; Undo wrote back a whole snapshot and so reverted notes
+written since: it reverses only the ids the action changed; the old
+`cache:<slug>` keys of every folder are cleared once at start; a note timer
+armed before a session switch is cancelled by the bootstrap and the note
+checks the session first; `/map` treated an unplaced pane as open and closed
+it: open means placed; the digest's "last look" moves only when the pane
+was placed; `classic.SessionStart` goes through the session-id check instead
+of a second bootstrap; the two timers are armed once per process; an attach
+during the bootstrap is honoured; the start-time pane opens again for a
+session id returned to by a resume; related anchors are hit-tested as the
+centred pills they are drawn as; a focus ring on "+ New topic" no longer
+dims the whole terminal map; the picture and the pointer layer share one
+satellite budget; the chat row offers no hotkeys (no site holds the focus
+there); the PowerShell slices write bytes, so the console code page cannot
+re-encode them; the home folder on Windows is `USERPROFILE`, as Claude
+Code's own.
+
 Run end to end on the real engine (2026-10-27, Claude Code 2.1.311 in tmux,
 `tests/e2e/tui.sh`): the plugin loads from the checkout; the band offers the
 folder's topics at the prompt; a bare digit in the empty prompt joins; the

@@ -7,13 +7,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ModelUsage, PluginOptions, Timer } from 'claude-code'
 
-import { UNSORTED_ID, ageOf, buildModel, cleanName, latestOf, orderChain, scoreJoin, topicIdFor } from './cluster'
+import { UNSORTED_ID, ageOf, buildModel, chainSteps, cleanName, latestOf, orderChain, scoreJoin, topicIdFor } from './cluster'
 import type { Model, SessionView, Topic } from './cluster'
 import { clip, matches, noteText, statsOf } from './draw'
 import type { Actions, View } from './draw'
 import { placeTopics } from './layout'
 import type { FieldSize, PlacedTopic } from './layout'
-import { basenameOf, scanProject, slugOf } from './scan'
+import { basenameOf, resetScanMemory, scanProject, slugOf } from './scan'
 import { DEFAULT_SETTINGS, EMPTY_STORE, INITIAL_ME, INITIAL_SCAN, INITIAL_UI, INITIAL_USAGE, PANE, resolveSettings, settingValue } from './state'
 import type { MapSettings, MeState, NoteRecord, SessionSummary, StoreData, UiState, UndoState, UsageState } from '../types'
 
@@ -24,7 +24,7 @@ const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const,
 const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-3' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
 const scanAtom = atom({ plugin: 'constellation', key: 'scan' } as const, INITIAL_SCAN, { shape: 'scan-1' })
-const undoAtom = atom({ plugin: 'constellation', key: 'undo' } as const, null as UndoState | null, { shape: 'undo-2' })
+const undoAtom = atom({ plugin: 'constellation', key: 'undo' } as const, null as UndoState | null, { shape: 'undo-3' })
 const usageAtom = atom({ plugin: 'constellation', key: 'usage' } as const, INITIAL_USAGE, { shape: 'usage-1' })
 
 const STORE_KEYS = ['topics', 'assign', 'notes', 'archived', 'pins', 'titles', 'goals', 'seen'] as const
@@ -79,18 +79,44 @@ export async function loadStore($: EngineInterface): Promise<StoreData> {
   return next
 }
 
-/** Writes the keys that changed to `$.store` and the whole store to its atom. */
+/** The ids whose values differ between two maps of one store key: added, changed or removed. */
+function changedIds(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+  const ids = new Set([...Object.keys(before), ...Object.keys(after)])
+  return [...ids].filter(id => JSON.stringify(before[id]) !== JSON.stringify(after[id]))
+}
+
+/**
+ * Writes what this session changed to `$.store`, entry by entry over what
+ * the store holds now: the store is one file every session of the folder
+ * shares, and another session may have written the same key since this one
+ * read it. The merged maps go to the atom.
+ */
 export async function saveStore($: EngineInterface, next: StoreData): Promise<void> {
   const current = await read($, storeAtom)
+  const merged = cloneStore(next)
   for (const key of STORE_KEYS) {
-    if (JSON.stringify(current[key]) === JSON.stringify(next[key])) continue
+    const before = current[key] as Record<string, unknown>
+    const after = next[key] as Record<string, unknown>
+    const ids = changedIds(before, after)
+    if (ids.length === 0) continue
+    let live: Record<string, unknown>
     try {
-      await $.store.set(key, next[key])
+      live = sanitise(key, await $.store.get(key))
+    } catch {
+      live = { ...before }
+    }
+    for (const id of ids) {
+      if (id in after) live[id] = after[id]
+      else delete live[id]
+    }
+    ;(merged as unknown as Record<string, unknown>)[key] = live
+    try {
+      await $.store.set(key, live)
     } catch (error) {
       $.ui.log(`constellation: ${key} not saved: ${String(error)}`, { to: 'debug' })
     }
   }
-  await update($, storeAtom, () => next)
+  await update($, storeAtom, () => merged)
 }
 
 export async function loadSettings($: EngineInterface, options: PluginOptions): Promise<MapSettings> {
@@ -217,6 +243,14 @@ let scanTimer: Timer | undefined
 export async function rescan($: EngineInterface): Promise<void> {
   const settings = await read($, settingsAtom)
   const me = await read($, meAtom)
+  // Other sessions write the same store: their joins, notes and moves are read in before the model is built.
+  const store = await loadStore($)
+  const assigned = me.sessionId ? (store.assign[me.sessionId] ?? null) : null
+  const topicId = assigned === UNSORTED_ID ? null : assigned
+  if (me.sessionId && topicId !== me.topicId) {
+    await patchMe($, { topicId })
+    await refreshStatus($)
+  }
   await update($, scanAtom, s => ({ ...s, isScanning: true }))
   try {
     const { sessions, root, isPartial } = await scanProject($, settings.scope, me.cwd)
@@ -251,7 +285,20 @@ export async function periodicRescan($: EngineInterface): Promise<void> {
 
 let startContext: { options: PluginOptions; cwd: string; canOpen: boolean } | undefined
 let ensuring: Promise<void> | undefined
-const openedFor = new Set<string>()
+/** The session the start-time pane last opened for: once per session id, however many times it is started over. */
+let lastOpenedFor: string | null = null
+let isLegacyCleaned = false
+
+/** Once per process: the scan caches of the previous build, under every slug, go (they were never small). */
+async function cleanLegacyKeys($: EngineInterface): Promise<void> {
+  if (isLegacyCleaned) return
+  isLegacyCleaned = true
+  try {
+    for (const key of await $.store.keys()) if (key.startsWith('cache:')) await $.store.delete(key)
+  } catch (error) {
+    $.ui.log(`constellation: old caches not cleared: ${String(error)}`, { to: 'debug' })
+  }
+}
 
 /** Session start, and again when the session changes under the process: the bootstrap, then the pane when the settings ask and a surface can show it. */
 export async function startSession($: EngineInterface, options: PluginOptions, cwd: string, canOpen: boolean): Promise<void> {
@@ -261,14 +308,15 @@ export async function startSession($: EngineInterface, options: PluginOptions, c
   } catch (error) {
     $.ui.log(`constellation: start failed: ${String(error)}`, { to: 'debug' })
   }
-  if (canOpen) await openAtStart($)
+  // A window may have attached while the bootstrap ran.
+  if (canOpen || startContext?.canOpen) await openAtStart($)
 }
 
 async function openAtStart($: EngineInterface): Promise<void> {
   const settings = await read($, settingsAtom)
   const me = await read($, meAtom)
-  if (settings.openOnStart !== 'pane' || openedFor.has(me.sessionId)) return
-  openedFor.add(me.sessionId)
+  if (settings.openOnStart !== 'pane' || me.sessionId === lastOpenedFor) return
+  lastOpenedFor = me.sessionId
   try {
     await openMapPane($)
   } catch (error) {
@@ -317,6 +365,13 @@ export async function ensureSession($: EngineInterface): Promise<void> {
 
 /** Session start, and again after /clear or a resume: settings, store, this session's place, a scan. */
 export async function bootstrap($: EngineInterface, options: PluginOptions, cwd: string): Promise<void> {
+  // Timers armed for the session before would act on this one.
+  scanTimer?.cancel()
+  scanTimer = undefined
+  noteTimer?.cancel()
+  noteTimer = undefined
+  resetScanMemory()
+  await cleanLegacyKeys($)
   let sessionId = ''
   try {
     sessionId = await $.session.id()
@@ -355,8 +410,9 @@ export function handoffText(s: SessionView, topic: Topic | undefined, step: numb
   return lines.join('\n')
 }
 
+/** A session's number in its topic's chain, as the pane shows it (with this session as a step once it joined). */
 function stepOf(snap: Snapshot, topic: Topic, sessionId: string): number | undefined {
-  const i = orderChain(topic.sessions.filter(s => s.isInRange), snap.settings.numbering).findIndex(s => s.id === sessionId)
+  const i = chainSteps(topic, snap.settings.numbering, snap.me.topicId).findIndex(s => s.id === sessionId)
   return i >= 0 ? i + 1 : undefined
 }
 
@@ -498,12 +554,22 @@ export async function pickUpStep($: EngineInterface, arg: string): Promise<strin
   const snap = await snapshot($)
   const topic = snap.me.topicId ? snap.model.topicById[snap.me.topicId] : undefined
   if (!topic) return 'This session has not joined a topic yet. Use /topic <name>, or pick one in the band or /map.'
-  const chain = orderChain(topic.sessions.filter(s => s.isInRange), snap.settings.numbering)
+  if (arg.trim() === '') {
+    const latest = latestOf(topic.sessions)
+    if (!latest) return `${topic.name} has no session to pick up from yet.`
+    await pickUp($, latest.id)
+    return `Handoff note from “${latest.title}” (latest of ${topic.name}) goes into your next prompt.`
+  }
+  // The numbers are the pane's: this session counts as a step once it joined.
+  const steps = chainSteps(topic, snap.settings.numbering, snap.me.topicId)
+  const earlier = steps.filter(s => !s.isYou).length
+  if (earlier === 0) return `${topic.name} has 0 steps in range; widen the range in /map settings, or pin a session.`
   const n = Number.parseInt(arg.trim(), 10)
-  const target = arg.trim() === '' ? latestOf(topic.sessions) : chain[n - 1]
-  if (!target) return `${topic.name} has ${chain.length} step${chain.length === 1 ? '' : 's'} in range; nothing at ${arg.trim()}.`
-  await pickUp($, target.id)
-  return `Handoff note from “${target.title}” (${arg.trim() === '' ? 'latest' : `step ${n}`} of ${topic.name}) goes into your next prompt.`
+  const step = steps[n - 1]
+  if (!step) return `${topic.name} has ${steps.length} step${steps.length === 1 ? '' : 's'} in range; nothing at ${arg.trim()}.`
+  if (step.isYou || !step.session) return `Step ${n} is this session; pick an earlier step.`
+  await pickUp($, step.session.id)
+  return `Handoff note from “${step.session.title}” (step ${n} of ${topic.name}) goes into your next prompt.`
 }
 
 /** Fills the composer with a prompt drafted from a note; the person edits and sends it. */
@@ -586,8 +652,18 @@ async function desktopArchiveServer($: EngineInterface): Promise<string | undefi
   return undefined
 }
 
-async function rememberUndo($: EngineInterface, label: string, before: StoreData): Promise<void> {
-  await update($, undoAtom, () => ({ label, store: before }))
+/** The ids an action changed, per store key, so Undo reverses exactly those and nothing written since. */
+function touchedBy(before: StoreData, after: StoreData): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const key of STORE_KEYS) {
+    const ids = changedIds(before[key] as Record<string, unknown>, after[key] as Record<string, unknown>)
+    if (ids.length) out[key] = ids
+  }
+  return out
+}
+
+async function rememberUndo($: EngineInterface, label: string, before: StoreData, after: StoreData): Promise<void> {
+  await update($, undoAtom, () => ({ label, before, touched: touchedBy(before, after) }))
 }
 
 export async function toggleArchive($: EngineInterface, sessionId: string): Promise<void> {
@@ -598,7 +674,7 @@ export async function toggleArchive($: EngineInterface, sessionId: string): Prom
   const isArchiving = !next.archived[sessionId]
   if (isArchiving) next.archived[sessionId] = true
   else delete next.archived[sessionId]
-  await rememberUndo($, isArchiving ? 'Undo archive' : 'Undo unarchive', snap.store)
+  await rememberUndo($, isArchiving ? 'Undo archive' : 'Undo unarchive', snap.store, next)
   await saveStore($, next)
   await toast($, `${isArchiving ? 'Archived' : 'Unarchived'} “${clip(s.title, 40)}”.`, { undo: true })
   if (!isArchiving) return
@@ -643,7 +719,7 @@ export async function tidyTopic($: EngineInterface, topicId: string): Promise<vo
     await toast($, `Nothing archived in ${topic.name}.`)
     return
   }
-  await rememberUndo($, 'Undo tidy', snap.store)
+  await rememberUndo($, 'Undo tidy', snap.store, next)
   await saveStore($, next)
   await toast($, `Archived ${n} idle session${n === 1 ? '' : 's'} in ${topic.name}.`, { undo: true })
 }
@@ -687,7 +763,7 @@ export async function moveSession($: EngineInterface, sessionId: string, topicId
   if (from) materialise(next, from, snap.now)
   materialise(next, target, snap.now)
   next.assign[s.id] = topicId
-  await rememberUndo($, 'Undo move', snap.store)
+  await rememberUndo($, 'Undo move', snap.store, next)
   await saveStore($, next)
   await patchUi($, { moveMode: false, selected: null })
   await toast($, `Moved “${clip(s.title, 40)}” to ${target.name}.`, { undo: true })
@@ -709,7 +785,7 @@ export async function renameTopic($: EngineInterface, topicId: string, rawName: 
   const record = next.topics[topicId]
   if (!record) return
   next.topics[topicId] = { ...record, name }
-  await rememberUndo($, 'Undo rename', snap.store)
+  await rememberUndo($, 'Undo rename', snap.store, next)
   await saveStore($, next)
   await toast($, `Renamed ${topic.name} to ${name}.`, { undo: true })
   await refreshStatus($)
@@ -772,7 +848,7 @@ export async function mergeInto($: EngineInterface, targetId: string): Promise<v
   delete next.topics[from.id]
   delete next.goals[from.id]
   delete next.titles[from.id]
-  await rememberUndo($, 'Undo merge', snap.store)
+  await rememberUndo($, 'Undo merge', snap.store, next)
   await saveStore($, next)
   if (snap.me.topicId === from.id) await patchMe($, { topicId: targetId === UNSORTED_ID ? null : targetId })
   await toast($, `Merged ${from.name} into ${target.name}: ${from.sessions.length} session${from.sessions.length === 1 ? '' : 's'} moved.`, { undo: true })
@@ -782,10 +858,20 @@ export async function mergeInto($: EngineInterface, targetId: string): Promise<v
 export async function undoLast($: EngineInterface): Promise<void> {
   const undo = await read($, undoAtom)
   if (!undo) return
-  await saveStore($, undo.store)
+  // Only what the action changed goes back; a note written since, or another session's work, stays.
+  const next = cloneStore(await read($, storeAtom))
+  for (const key of STORE_KEYS) {
+    const map = next[key] as Record<string, unknown>
+    const was = undo.before[key] as Record<string, unknown>
+    for (const id of undo.touched[key] ?? []) {
+      if (id in was) map[id] = was[id]
+      else delete map[id]
+    }
+  }
+  await saveStore($, next)
   await update($, undoAtom, () => null)
   const me = await read($, meAtom)
-  const assigned = undo.store.assign[me.sessionId] ?? null
+  const assigned = next.assign[me.sessionId] ?? null
   if (assigned !== me.topicId) await patchMe($, { topicId: assigned === UNSORTED_ID ? null : assigned })
   await toast($, 'Undone.')
   await refreshStatus($)
@@ -898,6 +984,8 @@ export function scheduleNote($: EngineInterface, ms = 2000): void {
 /** One haiku call over the last 20 messages: a note of at most 60 words, saved as this session's. */
 export async function generateNote($: EngineInterface): Promise<void> {
   try {
+    // The note is this session's: the atoms must describe the session the engine runs.
+    await ensureSession($)
     const messages = await $.session.messages()
     const recent = messages.slice(-20).filter(m => m.text.trim() !== '' || m.toolUses.length > 0)
     if (recent.length === 0) return
@@ -1024,11 +1112,16 @@ export async function listSteps($: EngineInterface): Promise<string> {
   const snap = await snapshot($)
   const topic = snap.me.topicId ? snap.model.topicById[snap.me.topicId] : undefined
   if (!topic) return 'This session has not joined a topic yet. Use /topic <name or number>, or pick one in the band or /map.'
-  const chain = orderChain(topic.sessions.filter(s => s.isInRange), snap.settings.numbering)
-  if (chain.length === 0) return `${topic.name} has no steps in the time range; widen it in /map settings.`
+  const steps = chainSteps(topic, snap.settings.numbering, snap.me.topicId)
+  const sessions = steps.filter(s => !s.isYou)
+  if (sessions.length === 0) return `${topic.name} has no steps in the time range; widen it in /map settings.`
   const latest = latestOf(topic.sessions)
-  const lines = chain.map((s, i) => `${i + 1}. ${s.title} · ${ageOf(s.lastAt, snap.now)} ago${latest && s.id === latest.id ? ' · latest' : ''}${noteText(s) ? ` · ${clip(noteText(s), 100)}` : ''}`)
-  return [`${topic.name}: ${chain.length} step${chain.length === 1 ? '' : 's'}. /pickup <n> puts a step’s note beside your next prompt.`, ...lines].join('\n')
+  const lines = steps.map((step, i) =>
+    step.isYou || !step.session
+      ? `${i + 1}. This session · you`
+      : `${i + 1}. ${step.session.title} · ${ageOf(step.session.lastAt, snap.now)} ago${latest && step.session.id === latest.id ? ' · latest' : ''}${noteText(step.session) ? ` · ${clip(noteText(step.session), 100)}` : ''}`,
+  )
+  return [`${topic.name}: ${sessions.length} step${sessions.length === 1 ? '' : 's'}${steps.length > sessions.length ? ', and you' : ''}. /pickup <n> puts a step’s note beside your next prompt.`, ...lines].join('\n')
 }
 
 /** What `/map here` prints; the row's tree replaces it where a surface draws trees in the transcript (the Desktop), and a terminal shows it as is. */
@@ -1125,7 +1218,8 @@ export async function openMapPane($: EngineInterface, options: { settings?: bool
   await patchUi($, { showSettings: options.settings === true, showHelp: false, editing: null, messageMode: false, moveMode: false, mergeFrom: null, ...(options.settings ? { selected: null } : {}) })
   const placed = await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
   await rescan($)
-  await openDigest($)
+  // The "last look" moves only when a look was had.
+  if (placed.isPlaced) await openDigest($)
   return placed
 }
 

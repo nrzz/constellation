@@ -103,8 +103,8 @@ export type MeState = {
 
 export type ScanState = { isScanning: boolean; at: number; root: string; error: string | null }
 
-/** The store before the last reversible change, with the toast's label. */
-export type UndoState = { label: string; store: StoreData }
+/** The last reversible change: the store before it, and the ids it changed per key, so Undo reverses exactly those. */
+export type UndoState = { label: string; before: StoreData; touched: Record<string, string[]> }
 
 /** What the mod has spent on the model this session. */
 export type UsageState = { calls: number; inputTokens: number; outputTokens: number }

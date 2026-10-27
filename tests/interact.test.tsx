@@ -149,7 +149,8 @@ test('/topic lists the topics numbered and /topic n joins one; /map <topic> open
   expect(joined).toBe(`This session is in the topic ${name}.`)
   expect(stubs.status[stubs.status.length - 1]).toContain('step 3')
   const steps = (await run($, 'pickup', 'list')).text ?? ''
-  expect(steps).toContain(`${name}: 2 steps.`)
+  expect(steps).toContain(`${name}: 2 steps, and you.`)
+  expect(steps).toContain('3. This session · you')
   expect(steps).toContain('1. Checkout total rounding')
   expect(steps).toContain('2. Fix flaky cart wait')
   expect(steps).toContain('· latest')

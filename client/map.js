@@ -90,10 +90,12 @@ function nodeAtPoint(nodes, p) {
   for (const n of nodes) {
     let d
     if (n.kind === 'topic') {
+      // A pill (a major topic, or a related anchor) is centred on its point; a minor topic's label hangs right of its dot.
       const w = n.w > 0 ? n.w : 60
-      const left = n.isMajor ? n.x - w / 2 : n.x - 14
-      const right = n.isMajor ? n.x + w / 2 : n.x + w
-      const half = n.isMajor ? 24 : 14
+      const centred = n.isMajor || n.isAnchor
+      const left = centred ? n.x - w / 2 : n.x - 14
+      const right = centred ? n.x + w / 2 : n.x + w
+      const half = n.isMajor ? 24 : 16
       d = outside(p, left, n.y - half, right, n.y + half)
       if (d > 14) continue
     } else if (n.kind === 'back') {
@@ -210,7 +212,7 @@ export default function Map(props, surface) {
         left: 1,
         children: [Text({ color: ACCENT, children: `layer ${s.columns}×${s.rows} cells · field ${s.fieldW}×${s.fieldH} · ${state.last || 'no pointer event yet'}` })],
       }),
-      Box({ position: 'absolute', top: s.rows - 1, left: 1, children: [Text({ color: ACCENT, children: 'match this edge to the picture: cell width and height in the advanced settings' })] }),
+      Box({ position: 'absolute', top: s.rows - 1, left: 1, children: [Text({ color: ACCENT, children: 'this edge sits on the picture; if a click on the picture does nothing, set Clicks on the picture to Off and use the buttons under it' })] }),
     ]
     if (state.at) children.push(Box({ position: 'absolute', top: Math.max(0, Math.min(s.rows - 1, state.at.y)), left: Math.max(0, Math.min(s.columns - 1, state.at.x)), children: [Text({ color: ACCENT, children: '+' })] }))
     return Box({ flexDirection: 'column', width: '100%', height: s.rows, borderStyle: 'round', borderColor: ACCENT, children })
