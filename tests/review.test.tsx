@@ -2,10 +2,10 @@
 // one numbering for the chain, Undo per entry, the old caches, placed panes, the start-time pane
 // across a resume, anchors under the pointer, a focus ring on a chip, and the chat row's hotkeys.
 import { expect, test } from 'claude-code/testing'
-import type { Timer } from 'claude-code'
+import type { EngineInterface, Timer } from 'claude-code'
 
-import { cancelReclaim, notePaneFocus, scheduleReclaim } from '../hooks/actions'
-import type { ReclaimIo } from '../hooks/actions'
+import { cancelReclaim, closeIoOf, closePane, notePaneFocus, scheduleReclaim } from '../hooks/actions'
+import type { CloseIo, ReclaimIo } from '../hooks/actions'
 import { READS_PER_PASS } from '../hooks/scan'
 import { CHECKOUT, CWD, IDS, ME, NOW, bandOn, boxesOf, kids, paneOn, run, stubEngine, submit, turn, userRow, assistantRow } from './helpers'
 import type { FakeFile } from './helpers'
@@ -340,4 +340,83 @@ test('the 360 ms ask stays quiet once the pane had the keyboard again: a move to
   notePaneFocus('terminal', false)
   await rig.advance(300)
   expect(rig.shownAt).toEqual([60])
+})
+
+test('a pane listed but not placed gets no ask, and a second reclaim replaces the first: one chain, not two', async () => {
+  const rig = reclaimRig()
+  notePaneFocus('terminal', false)
+  rig.panes = () => Promise.resolve([{ id: 'constellation', isPlaced: false }])
+  scheduleReclaim(rig.io)
+  await rig.advance(400)
+  expect(rig.shownAt).toEqual([])
+  // The replaced chain's timers are gone: the engine is asked for its panes twice, not four times.
+  const again = reclaimRig()
+  let asks = 0
+  again.panes = () => ((asks += 1), Promise.resolve([{ id: 'constellation', isPlaced: true }]))
+  scheduleReclaim(again.io)
+  await again.advance(30)
+  scheduleReclaim(again.io)
+  await again.advance(400)
+  expect(again.shownAt).toEqual([90, 390])
+  expect(asks).toBe(2)
+})
+
+/** The close hook's engine side, faked: `backs` says whether there is a level to back out of. */
+function closeRig(backs: boolean) {
+  const rig = reclaimRig()
+  const calls: string[] = []
+  const io: CloseIo = {
+    ensure: async () => void calls.push('ensure'),
+    back: async () => (calls.push('back'), backs),
+    reclaim: rig.io,
+  }
+  return { rig, calls, io }
+}
+
+test('the pane’s close: a person close with nothing left, or a plugin’s or an unload’s, cancels a pending reclaim and lets the pane close', async () => {
+  notePaneFocus('terminal', false)
+  for (const close of [{ byPerson: true, hadKeys: true }, { byPerson: false, hadKeys: true }, { byPerson: false, hadKeys: false }]) {
+    const { rig, calls, io } = closeRig(false)
+    // A reclaim from an earlier Escape is still pending when this close comes.
+    scheduleReclaim(rig.io)
+    expect(await closePane(close, io)).toBe(true)
+    await rig.advance(400)
+    expect(rig.shownAt).toEqual([])
+    // Only the person's close backs out; another origin is never kept.
+    expect(calls).toEqual(close.byPerson ? ['ensure', 'back'] : [])
+  }
+})
+
+test('the pane’s close: a back-out keeps the pane, and arms a new reclaim only when the pane held the keyboard', async () => {
+  notePaneFocus('terminal', false)
+  const held = closeRig(true)
+  expect(await closePane({ byPerson: true, hadKeys: true }, held.io)).toBe(false)
+  expect(held.calls).toEqual(['ensure', 'back'])
+  await held.rig.advance(400)
+  expect(held.rig.shownAt).toEqual([60, 360])
+  // Escape at an idle prompt raised the close: the pane never had the keyboard and must not take it.
+  const prompt = closeRig(true)
+  expect(await closePane({ byPerson: true, hadKeys: false }, prompt.io)).toBe(false)
+  await prompt.rig.advance(400)
+  expect(prompt.rig.shownAt).toEqual([])
+})
+
+test('the reclaim the engine gets asks its pane list and opens the pane focused, and asks nothing once it is gone', async () => {
+  notePaneFocus('terminal', false)
+  for (const placed of [true, false]) {
+    const rig = reclaimRig()
+    const opened: unknown[] = []
+    const fake = {
+      clock: { after: rig.io.after },
+      ui: {
+        panes: async () => (placed ? [{ id: 'constellation', isPlaced: true }] : []),
+        open: async (args: unknown) => (opened.push(args), { isPlaced: true }),
+        log: () => undefined,
+      },
+    } as unknown as EngineInterface
+    scheduleReclaim(closeIoOf(fake).reclaim)
+    await rig.advance(100)
+    expect(opened.map(a => { const { id, focus } = a as { id: string; focus: boolean }; return { id, focus } })).toEqual(placed ? [{ id: 'constellation', focus: true }] : [])
+    cancelReclaim()
+  }
 })
