@@ -346,6 +346,65 @@ describe('topic names', () => {
     expect(out.get('auto:c')).toBe('Continuation Cashfree 3')
     expect(new Set([...out.values()].map(nameKey)).size).toBe(3)
   })
+
+  test('resuming an old session keeps a disambiguated name: its words rank by when the sessions started', async () => {
+    counter = 0
+    const sessions: SessionSummary[] = []
+    for (let i = 0; i < 5; i += 1) sessions.push(session({ title: `Cashfree handover webhook retry ${i}`, firstPrompt: 'cashfree handover webhook retry', daysAgo: i, filesTouched: ['src/webhook.ts'] }))
+    sessions.push(session({ id: 'y1', title: 'Cashfree handover refund', firstPrompt: '', daysAgo: 5, filesTouched: ['src/refund.ts'] }))
+    sessions.push(session({ id: 'y2', title: 'Cashfree handover flow', firstPrompt: '', daysAgo: 4, filesTouched: ['src/refund.ts'] }))
+    sessions.push(session({ id: 'y3', title: 'Cashfree handover', firstPrompt: '', daysAgo: 3, filesTouched: ['src/refund.ts'] }))
+    for (const [i, theme] of ['orders', 'billing', 'search', 'deploy', 'docs'].entries()) sessions.push(session({ title: `${theme} page tidy`, daysAgo: i + 1, filesTouched: [`src/${theme}.ts`] }))
+    const nameOfY = (all: SessionSummary[]) => {
+      const m = buildModel(all, EMPTY_STORE, SETTINGS, NOW)
+      return m.topicById[m.byId.y1?.topicId ?? '']?.name
+    }
+    const before = nameOfY(sessions)
+    // y1 resumed: written now, started when it started.
+    const after = nameOfY(sessions.map(s => (s.id === 'y1' ? { ...s, lastAt: NOW } : s)))
+    expect(before).toBe('Cashfree Handover Refund')
+    expect(after).toBe(before)
+  })
+
+  test('K2b: the extra word is one the kept topic does not lead with', async () => {
+    counter = 0
+    const of = (id: string, title: string, n: number) => Array.from({ length: n }, (_, i) => session({ id: `${id}${i}`, title, daysAgo: i + 1 }))
+    const out = uniqueNames([
+      { id: 'auto:a', name: 'Cashfree Handover', isExplicit: false, sessions: of('a', 'cashfree handover webhook retry', 3) },
+      { id: 'auto:b', name: 'Cashfree Handover', isExplicit: false, sessions: of('b', 'cashfree handover webhook refund', 2) },
+    ])
+    expect(out.get('auto:b')).toBe('Cashfree Handover Refund')
+  })
+
+  test('K2c: a word that lands on a person’s own name is walked on in a later round', async () => {
+    counter = 0
+    const of = (id: string, title: string, n: number) => Array.from({ length: n }, (_, i) => session({ id: `${id}${i}`, title, daysAgo: i + 1 }))
+    const out = uniqueNames([
+      { id: 'topic:mine', name: 'Cashfree Handover Refund', isExplicit: true, sessions: of('m', 'cashfree handover refund', 1) },
+      { id: 'auto:a', name: 'Cashfree Handover', isExplicit: false, sessions: of('a', 'cashfree handover', 3) },
+      { id: 'auto:b', name: 'Cashfree Handover', isExplicit: false, sessions: of('b', 'cashfree handover refund payout', 2) },
+    ])
+    const keys = [...out.values()].map(nameKey)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(out.get('topic:mine')).toBe('Cashfree Handover Refund')
+  })
+
+  test('a clash still left after the rounds of words is numbered: names end unique', async () => {
+    counter = 0
+    const of = (id: string, title: string, n: number) => Array.from({ length: n }, (_, i) => session({ id: `${id}${i}`, title, daysAgo: i + 1 }))
+    // auto:b walks onto the person's names one round after another (refund, then payout, then alpha).
+    const mine = ['Cashfree Handover Refund', 'Cashfree Handover Refund Payout', 'Cashfree Handover Refund Payout Alpha']
+    const out = uniqueNames([
+      ...mine.map((name, i) => ({ id: `topic:m${i}`, name, isExplicit: true, sessions: of(`m${i}`, name.toLowerCase(), 1) })),
+      { id: 'auto:a', name: 'Cashfree Handover', isExplicit: false, sessions: of('a', 'cashfree handover', 3) },
+      { id: 'auto:b', name: 'Cashfree Handover', isExplicit: false, sessions: of('b', 'cashfree handover refund payout alpha', 2) },
+    ])
+    const keys = [...out.values()].map(nameKey)
+    expect(new Set(keys).size).toBe(keys.length)
+    mine.forEach((name, i) => expect(out.get(`topic:m${i}`)).toBe(name))
+    expect(out.get('auto:a')).toBe('Cashfree Handover')
+    expect(out.get('auto:b')).toBe('Cashfree Handover Refund Payout Alpha 2')
+  })
 })
 
 describe('a big folder', () => {

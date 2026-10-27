@@ -185,11 +185,22 @@ export function nameKey(name: string): string {
  * name, the one with the most sessions keeps it (a topic the person named is
  * never renamed); each other one takes its own next most frequent word that the
  * others in the clash do not lead with ("Cashfree Handover Refund"), or, when
- * it has none, a number ("Cashfree Handover 2").
+ * it has none, a number ("Cashfree Handover 2"). Words rank by when the
+ * sessions started, so resuming an old session never renames its topic; a clash
+ * the rounds of words leave is numbered.
  */
 export function uniqueNames(topics: { id: string; name: string; isExplicit: boolean; sessions: readonly SessionSummary[] }[]): Map<string, string> {
   const out = new Map<string, string>()
   for (const t of topics) out.set(t.id, t.name)
+  const ranked = new Map<string, ReturnType<typeof rankedWords>>()
+  const wordsOfTopic = (t: (typeof topics)[number]) => {
+    let words = ranked.get(t.id)
+    if (!words) {
+      words = rankedWords([...t.sessions].sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id)))
+      ranked.set(t.id, words)
+    }
+    return words
+  }
   for (let round = 0; round < 3; round += 1) {
     const groups = new Map<string, typeof topics>()
     for (const t of topics) {
@@ -202,13 +213,13 @@ export function uniqueNames(topics: { id: string; name: string; isExplicit: bool
       // The person's names first, then the biggest topic: they keep the name.
       const ordered = [...group].sort((a, b) => Number(b.isExplicit) - Number(a.isExplicit) || b.sessions.length - a.sessions.length || a.id.localeCompare(b.id))
       const taken = new Set(group.map(t => nameKey(out.get(t.id) ?? t.name)))
-      const leads = new Map(group.map(t => [t.id, new Set(rankedWords(t.sessions).slice(0, 3).map(w => w.stem))]))
+      const leads = new Map(group.map(t => [t.id, new Set(wordsOfTopic(t).slice(0, 3).map(w => w.stem))]))
       ordered.slice(1).forEach((t, i) => {
         if (t.isExplicit) return
         const current = out.get(t.id) ?? t.name
         const used = new Set(nameKey(current).split(' ').map(stemOf))
         const others = new Set(ordered.filter(o => o.id !== t.id).flatMap(o => [...(leads.get(o.id) ?? [])]))
-        const extra = rankedWords(t.sessions).find(w => !used.has(w.stem) && !others.has(w.stem)) ?? rankedWords(t.sessions).find(w => !used.has(w.stem))
+        const extra = wordsOfTopic(t).find(w => !used.has(w.stem) && !others.has(w.stem)) ?? wordsOfTopic(t).find(w => !used.has(w.stem))
         let next = extra ? `${current} ${extra.word}` : `${current} ${i + 2}`
         if (taken.has(nameKey(next))) next = `${current} ${i + 2}`
         taken.add(nameKey(next))
@@ -217,6 +228,18 @@ export function uniqueNames(topics: { id: string; name: string; isExplicit: bool
       })
     }
     if (!changed) break
+  }
+  // Three rounds of words can walk a name onto the person's names each time: number what is left.
+  const seen = new Set<string>()
+  const ordered = [...topics].sort((a, b) => Number(b.isExplicit) - Number(a.isExplicit) || b.sessions.length - a.sessions.length || a.id.localeCompare(b.id))
+  for (const t of ordered) if (t.isExplicit) seen.add(nameKey(out.get(t.id) ?? t.name))
+  for (const t of ordered) {
+    if (t.isExplicit) continue
+    const current = out.get(t.id) ?? t.name
+    let next = current
+    for (let n = 2; seen.has(nameKey(next)); n += 1) next = `${current} ${n}`
+    seen.add(nameKey(next))
+    out.set(t.id, next)
   }
   return out
 }

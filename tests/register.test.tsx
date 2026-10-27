@@ -368,6 +368,26 @@ test('a topic card renames, sets a goal that travels with the handoff, and the s
   await ui.unmount()
 })
 
+test('renaming a topic to a name another topic has is refused with a toast: the list names it once', async ($, on) => {
+  const stubs = stubEngine(on, { store: { topics: { 'topic:docs': { name: 'Docs', createdAt: 1 }, 'topic:api': { name: 'API', createdAt: 2 } } } })
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 't:topic:docs' })
+  await ui.press({ key: 'tc:rename' })
+  // Another topic's name in other words order and case reads as the same name.
+  await ui.input({ key: 'rename', text: 'api' })
+  expect(stubs.toasts.some(t => t.startsWith('Renamed'))).toBe(false)
+  expect(stubs.toasts[stubs.toasts.length - 1]).toBe('API is already the name of another topic.')
+  const listed = (await run($, 'topic', '')).text ?? ''
+  expect(listed.match(/ API \(/g)?.length).toBe(1)
+  expect(listed).toContain(' Docs (0)')
+  // Its own name in another case is still a rename (the card stays open after a refusal).
+  await ui.press({ key: 'tc:rename' })
+  await ui.input({ key: 'rename', text: 'DOCS' })
+  expect(stubs.toasts[stubs.toasts.length - 1]).toBe('Renamed Docs to DOCS.')
+  await ui.unmount()
+})
+
 test('archive and move leave an Undo; merge folds one topic into another', async ($, on) => {
   const stubs = stubEngine(on, { store: { topics: { 'topic:docs': { name: 'Docs', createdAt: 1 } } } })
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
