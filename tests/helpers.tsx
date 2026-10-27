@@ -34,6 +34,11 @@ export function textOf(file: FakeFile): string {
   return file.text ?? transcripts[file.key ?? ''] ?? ''
 }
 
+/** A path as the engine hands it to a stub, made comparable on every platform: forward slashes, no drive letter (`C:\home\n\x` → `/home/n/x`). */
+export function pathOf(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^[A-Za-z]:(?=\/)/, '')
+}
+
 export function paneOn<S extends 'desktop' | 'terminal' | 'vscode' | 'mobile'>(surface: S) {
   return {
     plugin: 'constellation',
@@ -143,7 +148,7 @@ export function stubEngine(on: On, options: StubOptions = {}): Stubs {
   on('mcp.call', () => ({ value: { content: [], isError: false } }))
   on('fs.list', (_, e) => ({
     value:
-      e.path === `${ROOT}/${SLUG}`
+      pathOf(e.path) === `${ROOT}/${SLUG}`
         ? [
             ...Object.entries(files).map(([id, f]): FsEntry => ({ name: `${id}.jsonl`, kind: 'file', size: f.size ?? textOf(f).length, mtimeMs: Date.parse(f.mtime), isLink: false })),
             { name: 'agent-55555555.jsonl', kind: 'file', size: 10, mtimeMs: 1, isLink: false },
@@ -152,7 +157,7 @@ export function stubEngine(on: On, options: StubOptions = {}): Stubs {
         : [],
   }))
   on('fs.read', (_, e) => {
-    const id = (e.path.split('/').pop() ?? '').replace(/\.jsonl$/, '')
+    const id = (pathOf(e.path).split('/').pop() ?? '').replace(/\.jsonl$/, '')
     stubs.reads.push(id)
     const file = files[id]
     if (!file) return { deny: `no such file ${e.path}` }
@@ -160,7 +165,7 @@ export function stubEngine(on: On, options: StubOptions = {}): Stubs {
   })
   on('fs.exists', () => ({ value: false }))
   on('fs.write', (_, e) => {
-    stubs.written[e.path] = e.text
+    stubs.written[pathOf(e.path)] = e.text
     return { value: undefined }
   })
   on('process.run', (_, e) => {
@@ -189,6 +194,9 @@ export function stubEngine(on: On, options: StubOptions = {}): Stubs {
     return { value: { isAnswered: true, text: options.model ?? 'Replaced the fixed wait with findByText; the CI re-run is still pending.', usage } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  on('session.attach', (_, e) => ({ clientId: e.clientId }))
+  on('session.cwd', () => ({ value: CWD }))
   on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('ui.render', ($, e) => {

@@ -6,7 +6,7 @@
 // `/topic`, a move), then auto-clustering of the rest (union-find over shared
 // title tokens, shared files, a shared non-main branch), then "Unsorted".
 // Everything here is pure: the store's data and the clock come in as values.
-import { basenameOf } from './scan'
+import { basenameOf, isNoiseFile } from './scan'
 import type { SessionSummary } from './scan'
 import type { NoteRecord, StoreData } from '../types'
 
@@ -110,10 +110,6 @@ export function tokensOf(text: string): string[] {
   return wordsOf(text).map(w => w.stem)
 }
 
-function tokenSet(session: SessionSummary): Set<string> {
-  return new Set([...tokensOf(session.title), ...tokensOf(session.firstPrompt)])
-}
-
 /** A branch that says nothing about the topic. */
 export function isPlainBranch(branch: string): boolean {
   const b = branch.trim().toLowerCase()
@@ -168,35 +164,73 @@ export function autoName(sessions: readonly SessionSummary[]): string {
   return words.join(' ')
 }
 
-class UnionFind {
-  private parent = new Map<string, string>()
-  find(x: string): string {
-    let root = x
-    while ((this.parent.get(root) ?? root) !== root) root = this.parent.get(root) ?? root
-    let cur = x
-    while (cur !== root) {
-      const next = this.parent.get(cur) ?? cur
-      this.parent.set(cur, root)
-      cur = next
-    }
-    return root
-  }
-  union(a: string, b: string): void {
-    const ra = this.find(a)
-    const rb = this.find(b)
-    if (ra !== rb) this.parent.set(ra, rb)
-  }
+/** A word, a file or a branch that more than this many sessions share says nothing about a topic: the project's own name, "bug", its README. A topic may still hold most of a small folder. */
+export function commonBound(n: number): number {
+  return Math.max(4, Math.floor(n * 0.6))
 }
 
-/** Why two sessions belong together, if they do. */
-export function areRelated(a: SessionSummary, b: SessionSummary, tokensA: Set<string>, tokensB: Set<string>): boolean {
-  if (sharedCount(tokensA, tokensB) >= 2) return true
-  if (a.filesTouched.length && b.filesTouched.length) {
-    const files = new Set(a.filesTouched)
-    if (b.filesTouched.some(f => files.has(f))) return true
+export type Signals = { tokens: Set<string>; files: Set<string>; branch: string }
+
+const NO_SIGNALS: Signals = { tokens: new Set(), files: new Set(), branch: '' }
+
+/**
+ * Each session's distinguishing signals: the words of its title and first
+ * prompt, its touched files (noise files aside) and its non-main branch, each
+ * kept only while fewer than `commonBound` sessions share it. A large stub
+ * has none, so its placeholder title clusters nothing.
+ */
+export function signalsOf(sessions: readonly SessionSummary[]): Map<string, Signals> {
+  const bound = commonBound(sessions.length)
+  const raw = sessions.map(s => ({
+    id: s.id,
+    tokens: s.large ? new Set<string>() : new Set([...tokensOf(s.title), ...tokensOf(s.firstPrompt)]),
+    files: new Set(s.large ? [] : s.filesTouched.filter(f => !isNoiseFile(f))),
+    branch: s.large || isPlainBranch(s.branch) ? '' : s.branch.trim().toLowerCase(),
+  }))
+  const frequency = (pick: (r: (typeof raw)[number]) => Iterable<string>) => {
+    const m = new Map<string, number>()
+    for (const r of raw) for (const x of pick(r)) m.set(x, (m.get(x) ?? 0) + 1)
+    return m
   }
-  if (!isPlainBranch(a.branch) && a.branch === b.branch) return true
-  return false
+  const tokenDf = frequency(r => r.tokens)
+  const fileDf = frequency(r => r.files)
+  const branchDf = frequency(r => (r.branch ? [r.branch] : []))
+  const out = new Map<string, Signals>()
+  for (const r of raw) {
+    out.set(r.id, {
+      tokens: new Set([...r.tokens].filter(t => (tokenDf.get(t) ?? 0) <= bound)),
+      files: new Set([...r.files].filter(f => (fileDf.get(f) ?? 0) <= bound)),
+      branch: r.branch && (branchDf.get(r.branch) ?? 0) <= bound ? r.branch : '',
+    })
+  }
+  return out
+}
+
+/** How far two sessions' signals agree: a shared file 2 (two at most), a shared word 1 (three at most), a shared branch 2. */
+export function relationOf(a: Signals, b: Signals): number {
+  let score = Math.min(2, sharedCount(a.files, b.files)) * 2
+  score += Math.min(3, sharedCount(a.tokens, b.tokens))
+  if (a.branch && a.branch === b.branch) score += 2
+  return score
+}
+
+/** Two sessions belong together from a score of 2: a shared rare file, two shared rare words, or a shared rare branch. */
+export const RELATED_AT = 2
+
+/** The share of a cluster's members a session must relate to in order to join it: average linkage, so chains never fuse into one blob. */
+export const LINKAGE = 0.34
+
+/** How many of a cluster's members a session must relate to: one while the cluster is small, a `LINKAGE` share once it has grown. */
+export function neededLinks(size: number): number {
+  return size <= 3 ? 1 : Math.ceil(size * LINKAGE)
+}
+
+/** Why two sessions belong together, if they do, judged on their own. */
+export function areRelated(a: SessionSummary, b: SessionSummary): boolean {
+  const signals = signalsOf([a, b])
+  const sa = signals.get(a.id)
+  const sb = signals.get(b.id)
+  return sa !== undefined && sb !== undefined && relationOf(sa, sb) >= RELATED_AT
 }
 
 export function statusOf(session: SessionSummary, store: StoreData, now: number, thisSessionId?: string): SessionStatus {
@@ -214,11 +248,13 @@ export function isMajorTopic(sessions: readonly SessionView[], settings: Cluster
 }
 
 /**
- * Assigns every session a topic id: explicit assignments first, then
- * union-find clusters (an edge that would merge two explicit topics is
- * skipped; an unassigned session linked to an explicit topic's session joins
- * it), then `unsorted` for the rest. Returns the id per session and the
- * auto topics' member lists.
+ * Assigns every session a topic id. Explicit assignments first: their
+ * sessions seed one cluster per explicit topic and never move. Then the
+ * rest, oldest first: each joins the cluster it relates to best, when it
+ * relates to at least a `LINKAGE` share of that cluster's members (so one
+ * shared word never chains a folder into a blob), else it starts a cluster.
+ * A cluster of one is Unsorted; a large stub is always Unsorted. Returns the
+ * id per session and the auto topics' member lists.
  */
 export function assignTopics(
   sessions: readonly SessionSummary[],
@@ -234,67 +270,76 @@ export function assignTopics(
     for (const s of sessions) topicOf[s.id] = explicit(s) ?? UNSORTED_ID
     return { topicOf, autoMembers: {} }
   }
-  const byStart = [...sessions].sort((a, b) => a.startedAt - b.startedAt)
-  const uf = new UnionFind()
-  const explicitOfRoot = new Map<string, string>()
+  const byStart = [...sessions].sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
+  const signals = signalsOf(byStart)
+  type Cluster = { explicitId?: string; members: SessionSummary[]; signals: Signals[] }
+  const clusters: Cluster[] = []
+  const explicitClusters = new Map<string, Cluster>()
   for (const s of byStart) {
     const t = explicit(s)
-    if (t) explicitOfRoot.set(uf.find(s.id), t)
-  }
-  const tokens = new Map<string, Set<string>>()
-  for (const s of byStart) tokens.set(s.id, tokenSet(s))
-  for (let i = 0; i < byStart.length; i += 1) {
-    const a = byStart[i]
-    if (!a) continue
-    for (let j = i + 1; j < byStart.length; j += 1) {
-      const b = byStart[j]
-      if (!b) continue
-      const ra = uf.find(a.id)
-      const rb = uf.find(b.id)
-      if (ra === rb) continue
-      const ta = explicitOfRoot.get(ra)
-      const tb = explicitOfRoot.get(rb)
-      if (ta && tb && ta !== tb) continue
-      if (!areRelated(a, b, tokens.get(a.id) ?? new Set(), tokens.get(b.id) ?? new Set())) continue
-      uf.union(a.id, b.id)
-      const root = uf.find(a.id)
-      const keep = ta ?? tb
-      if (keep) explicitOfRoot.set(root, keep)
+    if (!t) continue
+    let c = explicitClusters.get(t)
+    if (!c) {
+      c = { explicitId: t, members: [], signals: [] }
+      explicitClusters.set(t, c)
+      clusters.push(c)
     }
+    c.members.push(s)
+    c.signals.push(signals.get(s.id) ?? NO_SIGNALS)
   }
-  const members = new Map<string, SessionSummary[]>()
   for (const s of byStart) {
-    const root = uf.find(s.id)
-    const list = members.get(root) ?? []
-    list.push(s)
-    members.set(root, list)
+    if (explicit(s)) continue
+    if (s.large) {
+      topicOf[s.id] = UNSORTED_ID
+      continue
+    }
+    const sig = signals.get(s.id) ?? NO_SIGNALS
+    let best: Cluster | undefined
+    let bestShare = 0
+    let bestRelated = 0
+    for (const c of clusters) {
+      const related = c.signals.filter(x => relationOf(sig, x) >= RELATED_AT).length
+      if (related < neededLinks(c.members.length)) continue
+      const share = related / c.members.length
+      if (share > bestShare || (share === bestShare && related > bestRelated)) {
+        best = c
+        bestShare = share
+        bestRelated = related
+      }
+    }
+    if (best) {
+      best.members.push(s)
+      best.signals.push(sig)
+    } else {
+      clusters.push({ members: [s], signals: [sig] })
+    }
   }
   const autoMembers: Record<string, SessionSummary[]> = {}
-  for (const [root, list] of members) {
-    const t = explicitOfRoot.get(root)
-    if (t) {
-      for (const s of list) topicOf[s.id] = explicit(s) ?? t
+  for (const c of clusters) {
+    if (c.explicitId) {
+      for (const s of c.members) topicOf[s.id] = explicit(s) ?? c.explicitId
       continue
     }
-    if (list.length < 2) {
-      for (const s of list) topicOf[s.id] = UNSORTED_ID
+    if (c.members.length < 2) {
+      for (const s of c.members) topicOf[s.id] = UNSORTED_ID
       continue
     }
-    const earliest = list[0]
+    const earliest = c.members[0]
     if (!earliest) continue
     const id = `auto:${earliest.id}`
-    autoMembers[id] = list
-    for (const s of list) topicOf[s.id] = id
+    autoMembers[id] = c.members
+    for (const s of c.members) topicOf[s.id] = id
   }
   return { topicOf, autoMembers }
 }
 
-/** Links between topics: a shared touched file, the most-shared one as the label. */
+/** Links between topics: a shared touched file (noise files and files most of the folder edits aside), the most-shared one as the label. */
 export function linksOf(topics: readonly Topic[]): Link[] {
   const out: Link[] = []
+  const signals = signalsOf(topics.flatMap(t => t.sessions))
   const fileSets = topics.map(t => {
     const set = new Set<string>()
-    for (const s of t.sessions) for (const f of s.filesTouched) set.add(f)
+    for (const s of t.sessions) for (const f of signals.get(s.id)?.files ?? []) set.add(f)
     return set
   })
   for (let i = 0; i < topics.length; i += 1) {

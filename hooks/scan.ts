@@ -92,6 +92,19 @@ export function basenameOf(path: string): string {
   return parts[parts.length - 1] ?? path
 }
 
+/**
+ * Files that unrelated sessions edit alike, so they say nothing about a
+ * topic: anything under a `.claude` folder (memory, plans, settings), the
+ * project's instruction files, lockfiles, env files and the gitignore.
+ */
+export function isNoiseFile(path: string): boolean {
+  const p = normalise(path).toLowerCase()
+  if (/(^|\/)\.claude\//.test(p)) return true
+  const base = p.split('/').pop() ?? p
+  if (base === 'claude.md' || base === 'agents.md' || base === '.gitignore' || base === '.env' || base.startsWith('.env.')) return true
+  return /^(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|cargo\.lock|poetry\.lock|go\.sum|composer\.lock|gemfile\.lock|uv\.lock|bun\.lockb?)$/.test(base)
+}
+
 /** A typed user prompt: a string body that is not a meta row and not a slash command's record. */
 function promptOf(row: Json): string | undefined {
   if (row.isMeta === true) return undefined
@@ -116,6 +129,9 @@ export function parseTranscript(
   let branch = ''
   let firstPrompt = ''
   let summary = ''
+  // Claude Code 2.1.3xx names a session in `custom-title` (the person's) and `ai-title` rows; older builds in `summary` rows.
+  let customTitle = ''
+  let aiTitle = ''
   let startedAt = Number.POSITIVE_INFINITY
   let lastAt = Number.NEGATIVE_INFINITY
   let turns = 0
@@ -137,6 +153,16 @@ export function parseTranscript(
     if (type === 'summary') {
       const s = asString(row.summary)
       if (s) summary = s
+      continue
+    }
+    if (type === 'custom-title') {
+      const s = asString(row.customTitle)
+      if (s && s.trim()) customTitle = s
+      continue
+    }
+    if (type === 'ai-title') {
+      const s = asString(row.aiTitle)
+      if (s && s.trim()) aiTitle = s
       continue
     }
     if (type !== 'user' && type !== 'assistant') continue
@@ -174,7 +200,7 @@ export function parseTranscript(
       } else if (block.type === 'tool_use' && EDIT_TOOLS.has(asString(block.name) ?? '')) {
         const input = asObject(block.input)
         const filePath = asString(input?.file_path) ?? asString(input?.notebook_path)
-        if (!filePath) continue
+        if (!filePath || isNoiseFile(filePath)) continue
         const rel = relativeTo(cwd, filePath)
         if (!seenFiles.has(rel) && files.length < FILES_MAX) {
           seenFiles.add(rel)
@@ -192,7 +218,7 @@ export function parseTranscript(
     slug: seed.slug,
     branch,
     firstPrompt: shortPrompt,
-    title: summary ? cut(summary, 80) : cut(firstPrompt, TITLE_CHARS) || '(untitled session)',
+    title: cut(customTitle || aiTitle || summary, 80) || cut(firstPrompt, TITLE_CHARS) || '(untitled session)',
     startedAt,
     lastAt,
     turns,
@@ -313,7 +339,13 @@ export async function scanProject(
   const sessions: SessionSummary[] = []
   let isPartial = false
   for (const slug of slugs) {
-    const key = `cache:${slug}`
+    // `scan2`: summaries parsed since titles came from the title rows and noise files were dropped; the old key is cleared once.
+    const key = `scan2:${slug}`
+    try {
+      if ((await $.store.get(`cache:${slug}`)) !== undefined) await $.store.delete(`cache:${slug}`)
+    } catch {
+      // the old key stays; it is never read
+    }
     const stored = asObject(await $.store.get(key))
     const cache: ScanCache = {}
     if (stored) {

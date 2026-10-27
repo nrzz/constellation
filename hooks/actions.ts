@@ -12,7 +12,7 @@ import type { Model, SessionView, Topic } from './cluster'
 import { clip, matches, noteText, statsOf } from './draw'
 import type { Actions, View } from './draw'
 import { placeTopics } from './layout'
-import type { PlacedTopic } from './layout'
+import type { FieldSize, PlacedTopic } from './layout'
 import { basenameOf, scanProject, slugOf } from './scan'
 import { DEFAULT_SETTINGS, EMPTY_STORE, INITIAL_ME, INITIAL_SCAN, INITIAL_UI, INITIAL_USAGE, PANE, resolveSettings, settingValue } from './state'
 import type { MapSettings, MeState, NoteRecord, SessionSummary, StoreData, UiState, UndoState, UsageState } from '../types'
@@ -20,7 +20,7 @@ import type { MapSettings, MeState, NoteRecord, SessionSummary, StoreData, UiSta
 // The atoms are declared where they are read, as `claude plugin validate` asks.
 const sessionsAtom = atom({ plugin: 'constellation', key: 'sessions' } as const, [] as SessionSummary[], { shape: 'sessions-1' })
 const storeAtom = atom({ plugin: 'constellation', key: 'store' } as const, EMPTY_STORE, { shape: 'store-2' })
-const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-1' })
+const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-2' })
 const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-3' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
 const scanAtom = atom({ plugin: 'constellation', key: 'scan' } as const, INITIAL_SCAN, { shape: 'scan-1' })
@@ -130,10 +130,17 @@ export function modelOf(sessions: readonly SessionSummary[], store: StoreData, s
   )
 }
 
-export function placementOf(model: Model): Record<string, PlacedTopic> {
+/** Where every topic sits and how tall the field is. The count label is part of the drawn pill, so the box is sized for the wider of its two forms: the count (with "· you"), or a search's match count. */
+export function placementOf(model: Model, meTopicId: string | null = null): { placed: Record<string, PlacedTopic>; size: FieldSize } {
+  const specs = model.topics.map(t => {
+    const count = `${t.sessions.length}${meTopicId === t.id ? ' · you' : ''}`
+    const match = `${t.sessions.length} match`
+    return { id: t.id, name: t.name, isMajor: t.isMajor, count: count.length >= match.length ? count : match }
+  })
+  const { placed, size } = placeTopics(specs)
   const out: Record<string, PlacedTopic> = {}
-  for (const p of placeTopics(model.topics.map(t => ({ id: t.id, name: t.name, isMajor: t.isMajor })))) out[p.id] = p
-  return out
+  for (const p of placed) out[p.id] = p
+  return { placed: out, size }
 }
 
 export type Snapshot = { sessions: SessionSummary[]; store: StoreData; settings: MapSettings; ui: UiState; me: MeState; usage: UsageState; now: number; model: Model }
@@ -155,9 +162,11 @@ export async function snapshot($: EngineInterface): Promise<Snapshot> {
 export async function viewOf($: EngineInterface, surface: string): Promise<View> {
   const snap = await snapshot($)
   const myNote = snap.store.notes[snap.me.sessionId]
+  const placement = placementOf(snap.model, snap.me.topicId)
   return {
     model: snap.model,
-    placed: placementOf(snap.model),
+    placed: placement.placed,
+    field: placement.size,
     ui: snap.ui,
     me: snap.me,
     settings: snap.settings,
@@ -238,6 +247,72 @@ export async function periodicRescan($: EngineInterface): Promise<void> {
   } catch {
     // no surface to ask
   }
+}
+
+let startContext: { options: PluginOptions; cwd: string; canOpen: boolean } | undefined
+let ensuring: Promise<void> | undefined
+const openedFor = new Set<string>()
+
+/** Session start, and again when the session changes under the process: the bootstrap, then the pane when the settings ask and a surface can show it. */
+export async function startSession($: EngineInterface, options: PluginOptions, cwd: string, canOpen: boolean): Promise<void> {
+  startContext = { options, cwd, canOpen }
+  try {
+    await bootstrap($, options, cwd)
+  } catch (error) {
+    $.ui.log(`constellation: start failed: ${String(error)}`, { to: 'debug' })
+  }
+  if (canOpen) await openAtStart($)
+}
+
+async function openAtStart($: EngineInterface): Promise<void> {
+  const settings = await read($, settingsAtom)
+  const me = await read($, meAtom)
+  if (settings.openOnStart !== 'pane' || openedFor.has(me.sessionId)) return
+  openedFor.add(me.sessionId)
+  try {
+    await openMapPane($)
+  } catch (error) {
+    $.ui.log(`constellation: pane not opened: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+/** A Desktop or VS Code window attached after the start (the engine saw a headless start): the pane opens now if it could not then. */
+export async function openOnAttach($: EngineInterface, surface: string): Promise<void> {
+  if (surface !== 'desktop' && surface !== 'vscode') return
+  if (startContext) startContext.canOpen = true
+  await openAtStart($)
+}
+
+/**
+ * The session the engine runs is the one the atoms describe; when it is not
+ * (a /clear or a resume moved the process to a new id, `$.state` was reset,
+ * or another plugin kept `classic.SessionStart` from this one), the mod
+ * starts over for the session it finds. Cheap: one `$.session.id()`.
+ */
+export async function ensureSession($: EngineInterface): Promise<void> {
+  if (ensuring) return ensuring
+  ensuring = (async () => {
+    let id = ''
+    try {
+      id = await $.session.id()
+    } catch {
+      return
+    }
+    const me = await read($, meAtom)
+    if (!id || id === me.sessionId) return
+    const context = startContext
+    if (!context) return
+    let cwd = context.cwd
+    try {
+      cwd = (await $.session.cwd()) || cwd
+    } catch {
+      // the start's folder stands
+    }
+    await startSession($, context.options, cwd, context.canOpen)
+  })().finally(() => {
+    ensuring = undefined
+  })
+  return ensuring
 }
 
 /** Session start, and again after /clear or a resume: settings, store, this session's place, a scan. */
@@ -999,6 +1074,10 @@ export async function onClientMessage($: EngineInterface, data: unknown): Promis
   }
   if (data.type === 'pick') {
     if (!id) return
+    if (kind === 'back') {
+      await back($)
+      return
+    }
     if (kind === 'topic') {
       await focusTopic($, snap.ui.focusTopic === id ? null : id)
       return
@@ -1029,9 +1108,9 @@ export async function openMapPane($: EngineInterface): Promise<{ isPlaced: boole
   return placed
 }
 
-/** The drawing's presses, bound to `$`. */
+/** The drawing's presses, bound to `$`; each first makes sure the atoms describe the session the engine runs. */
 export function actionsFor($: EngineInterface): Actions {
-  return {
+  const raw: Actions = {
     setView: view => void patchUi($, { view }),
     focusTopic: id => void focusTopic($, id),
     selectSession: id => void patchUi($, { selected: id, messageMode: false, showSettings: false, editing: null, moveMode: id === null ? false : undefined }),
@@ -1076,4 +1155,13 @@ export function actionsFor($: EngineInterface): Actions {
     back: () => void back($),
     openMap: () => void openMapPane($).catch(error => $.ui.log(`constellation: pane not opened: ${String(error)}`, { to: 'debug' })),
   }
+  const guarded = {} as Record<string, (...args: unknown[]) => void>
+  for (const [name, fn] of Object.entries(raw) as [string, (...args: unknown[]) => void][]) {
+    guarded[name] = (...args: unknown[]) => {
+      void ensureSession($)
+        .catch(() => undefined)
+        .then(() => fn(...args))
+    }
+  }
+  return guarded as unknown as Actions
 }

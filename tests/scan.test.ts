@@ -4,6 +4,7 @@ import type { EngineInterface, FsEntry } from 'claude-code'
 import {
   LARGE_BYTES,
   basenameOf,
+  isNoiseFile,
   isTranscript,
   largeStub,
   parseTranscript,
@@ -13,6 +14,7 @@ import {
 } from '../hooks/scan'
 import type { ScanCache } from '../hooks/scan'
 import { transcripts } from './fixtures/transcripts'
+import { assistantRow, userRow } from './helpers'
 
 const CHECKOUT = transcripts['checkout-tests'] ?? ''
 const ORDERS = transcripts['orders-pagination'] ?? ''
@@ -181,5 +183,54 @@ describe('scanSlug and its cache', () => {
     const r = await scanSlug($, '/nowhere', 'x', {})
     expect(r.sessions).toEqual([])
     expect(r.isChanged).toBe(false)
+  })
+})
+
+describe('titles and noise files', () => {
+  const at = '2026-10-20T08:00:00.000Z'
+  const rows = (id: string, titles: string[]) => [
+    userRow(id, 'u1', at, 'add cursor pagination to the orders API, with tests, please'),
+    assistantRow(id, 'a1', '2026-10-20T08:01:00.000Z', [
+      { type: 'text', text: 'Done.' },
+      { type: 'tool_use', id: 't1', name: 'Edit', input: { file_path: 'D:\\Projects\\web-app\\src\\orders.route.ts' } },
+      { type: 'tool_use', id: 't2', name: 'Edit', input: { file_path: 'D:\\Projects\\web-app\\.claude\\plans\\pagination.md' } },
+      { type: 'tool_use', id: 't3', name: 'Write', input: { file_path: 'D:\\Projects\\web-app\\CLAUDE.md' } },
+      { type: 'tool_use', id: 't4', name: 'Edit', input: { file_path: 'D:\\Projects\\web-app\\package-lock.json' } },
+      { type: 'tool_use', id: 't5', name: 'Edit', input: { file_path: 'C:\\Users\\n\\.claude\\CLAUDE.md' } },
+      { type: 'tool_use', id: 't6', name: 'Edit', input: { file_path: 'D:\\Projects\\web-app\\src\\OrdersList.tsx' } },
+    ]),
+    ...titles,
+  ].join('\n')
+  const custom = JSON.stringify({ type: 'custom-title', customTitle: 'Orders · cursor pages' })
+  const ai = JSON.stringify({ type: 'ai-title', aiTitle: 'Cursor pagination for orders' })
+  const summary = JSON.stringify({ type: 'summary', summary: 'Old summary row', leafUuid: 'a1' })
+
+  test('the title the Desktop sidebar shows: the custom title, else the AI title, else a summary, else the first prompt', async () => {
+    expect(parseTranscript(rows('s', [summary, ai, custom]), seed('s'))?.title).toBe('Orders · cursor pages')
+    expect(parseTranscript(rows('s', [custom, ai, summary]), seed('s'))?.title).toBe('Orders · cursor pages')
+    expect(parseTranscript(rows('s', [summary, ai]), seed('s'))?.title).toBe('Cursor pagination for orders')
+    expect(parseTranscript(rows('s', [summary]), seed('s'))?.title).toBe('Old summary row')
+    expect(parseTranscript(rows('s', []), seed('s'))?.title).toBe('add cursor pagination to the orders API, with tests, please')
+    const later = JSON.stringify({ type: 'custom-title', customTitle: 'Renamed later' })
+    expect(parseTranscript(rows('s', [custom, later]), seed('s'))?.title).toBe('Renamed later')
+    const blank = JSON.stringify({ type: 'custom-title', customTitle: '   ' })
+    expect(parseTranscript(rows('s', [ai, blank]), seed('s'))?.title).toBe('Cursor pagination for orders')
+    const long = JSON.stringify({ type: 'ai-title', aiTitle: 'x'.repeat(120) })
+    expect(parseTranscript(rows('s', [long]), seed('s'))?.title.length).toBe(80)
+  })
+
+  test('files under .claude, the instruction files and lockfiles are not files touched', async () => {
+    const s = parseTranscript(rows('s', []), seed('s'))
+    expect(s?.filesTouched).toEqual(['src/orders.route.ts', 'src/OrdersList.tsx'])
+    expect(isNoiseFile('.claude/settings.json')).toBe(true)
+    expect(isNoiseFile('D:\\Projects\\app\\.claude\\plans\\x.md')).toBe(true)
+    expect(isNoiseFile('/home/n/.claude/CLAUDE.md')).toBe(true)
+    expect(isNoiseFile('CLAUDE.md')).toBe(true)
+    expect(isNoiseFile('docs/AGENTS.md')).toBe(true)
+    expect(isNoiseFile('pnpm-lock.yaml')).toBe(true)
+    expect(isNoiseFile('.env.local')).toBe(true)
+    expect(isNoiseFile('src/claude.ts')).toBe(false)
+    expect(isNoiseFile('src/env.ts')).toBe(false)
+    expect(isNoiseFile('packages/lock/index.ts')).toBe(false)
   })
 })

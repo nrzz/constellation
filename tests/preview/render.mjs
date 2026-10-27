@@ -101,10 +101,11 @@ topics.forEach((t, i) => {
 
 const settings = { ...state.DEFAULT_SETTINGS }
 const model = cluster.buildModel(sessions, store, settings, NOW, 'me')
+const placement = layout.placeTopics(model.topics.map(t => ({ id: t.id, name: t.name, isMajor: t.isMajor, count: `${t.sessions.length} match` })))
 const placed = {}
-for (const p of layout.placeTopics(model.topics.map(t => ({ id: t.id, name: t.name, isMajor: t.isMajor })))) placed[p.id] = p
+for (const p of placement.placed) placed[p.id] = p
 const me = { ...state.INITIAL_ME, sessionId: 'me', cwd: CWD, folder: 'web-app', topicId: null }
-const base = { model, placed, ui: { ...state.INITIAL_UI }, me, settings, usage: state.INITIAL_USAGE, now: NOW, surface: 'desktop' }
+const base = { model, placed, field: placement.size, ui: { ...state.INITIAL_UI }, me, settings, usage: state.INITIAL_USAGE, now: NOW, surface: 'desktop' }
 
 const views = {
   map: base,
@@ -113,6 +114,27 @@ const views = {
   selected: { ...base, me: { ...me, topicId: 'topic:checkout-tests' }, ui: { ...base.ui, focusTopic: 'topic:checkout-tests', selected: 's5' } },
   search: { ...base, ui: { ...base.ui, query: 'cursor' } },
 }
+// A folder of the office PC's size: twenty-one topics, sixteen of them major, 135 sessions, to see the packing hold.
+const crowdedNames = ['Checkout tests', 'Auth refactor', 'Orders pagination', 'CI pipeline', 'Design tokens', 'Payment webhooks', 'Search indexing', 'Billing invoices', 'Notifications service', 'Admin dashboard', 'Mobile layout', 'Data export', 'Rate limiting', 'Onboarding flow', 'Image uploads', 'Analytics events', 'Docs site', 'Error boundaries', 'Feature flags', 'Localization strings', 'Dependency upgrades']
+const crowdedSessions = []
+const crowdedStore = { ...cluster.EMPTY_STORE, topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {}, goals: {}, seen: {} }
+crowdedNames.forEach((name, i) => {
+  const id = `topic:${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+  crowdedStore.topics[id] = { name, createdAt: NOW - (90 - i) * DAY }
+  const n = i < 16 ? 4 + ((i * 7) % 9) : 1
+  for (let k = 0; k < n; k += 1) {
+    const sid = `x${i}-${k}`
+    const lastAt = NOW - (i < 16 ? k * 3 + (i % 4) : 40 + i) * DAY
+    crowdedSessions.push({ id: sid, cwd: CWD, slug: 'D--Projects-web-app', branch: 'main', firstPrompt: `${name} work ${k}`, title: `${name} work item ${k}`, startedAt: lastAt - 3600_000, lastAt, turns: 5 + k, filesTouched: [`src/${id.slice(6)}/${k}.ts`], lastAssistantText: 'Done.', size: 1000, mtimeMs: lastAt })
+    crowdedStore.assign[sid] = id
+  }
+})
+const crowdedModel = cluster.buildModel(crowdedSessions, crowdedStore, settings, NOW, 'me')
+const crowdedPlacement = layout.placeTopics(crowdedModel.topics.map(t => ({ id: t.id, name: t.name, isMajor: t.isMajor, count: `${t.sessions.length} match` })))
+const crowdedPlaced = {}
+for (const p of crowdedPlacement.placed) crowdedPlaced[p.id] = p
+views.crowded = { ...base, model: crowdedModel, placed: crowdedPlaced, field: crowdedPlacement.size, me: { ...me, topicId: 'topic:billing-invoices' } }
+
 const sizes = {}
 for (const [name, view] of Object.entries(views)) {
   const svg = draw.svgOf(view)

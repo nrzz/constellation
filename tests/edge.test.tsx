@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { EMPTY_STORE, buildModel } from '../hooks/cluster'
 import { fieldOf, svgOf } from '../hooks/draw'
-import { placeTopics } from '../hooks/layout'
+import { placementOf } from '../hooks/actions'
 import { READS_PER_PASS } from '../hooks/scan'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, resolveSettings, settingValue } from '../hooks/state'
 import type { SessionSummary } from '../types'
@@ -502,9 +502,9 @@ test('four hundred sessions in forty topics stay under the Svg cap and the Clien
   }
   const model = buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
   expect(model.topics.length).toBe(40)
-  const placed: Record<string, ReturnType<typeof placeTopics>[number]> = {}
-  for (const p of placeTopics(model.topics.map(t => ({ id: t.id, name: t.name, isMajor: t.isMajor })))) placed[p.id] = p
-  const view = { model, placed, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
+  const placement = placementOf(model, null)
+  expect(placement.size.h).toBeGreaterThan(520)
+  const view = { model, placed: placement.placed, field: placement.size, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
   const svg = svgOf(view)
   expect(svg.length).toBeLessThanOrEqual(131072)
   expect(svg.endsWith('</svg>')).toBe(true)

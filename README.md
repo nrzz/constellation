@@ -19,7 +19,7 @@ Desktop sidebar and nothing is lost between them.
   model was asked.
 
 Status: built in Claude Code 2.1.310. `claude plugin validate --strict`,
-`claude plugin test` (94 tests, including an edge-case suite) and `tsc` pass. The rendered field was checked
+`claude plugin test` (109 tests, including an edge-case suite) and `tsc` pass. The rendered field was checked
 against the approved prototype
 ([preview](https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u),
 [prototype](https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0));
@@ -87,9 +87,12 @@ One press opens the session's card with its topic focused, so **Pick up
 here** is the next press. The row steps aside in focus mode, while searching,
 and under the settings or help cards.
 
-**Map**: the field, drawn transparent on the pane's own surface and following
-the app's light or dark scheme (`fieldBackground: night` paints the
-prototype's solid ground instead). Major topics are labelled pills with a session count
+**Map**: the field, sized to the pane's width, drawn transparent on the pane's
+own surface and following the app's light or dark scheme (`fieldBackground:
+night` paints the prototype's solid ground instead). Topics are packed into
+rows with room for their satellites, so pills never overlap; a crowded folder
+gets a taller field. Session titles are the ones the Desktop sidebar shows.
+Major topics are labelled pills with a session count
 (and "· you" on your topic), minor topics small dots with a mono label,
 sessions satellites around their topic (filled = active in the last five
 minutes, hollow = idle, dashed = archived, ★ = pinned), dashed lines between
@@ -153,9 +156,11 @@ major-topic rules and the Desktop hit layer), folded until asked for.
 | `autoJoin` | suggest, auto, off | suggest | After your first prompt: mark the best topic, join it when clear, or do nothing |
 | `rangeDays` | 1–45 | 30 | Sessions older than this are dimmed and left out of chains; 45 means all time |
 | `useModelForTitles` | true, false | false | Name auto topics with one short haiku call instead of their most frequent words |
-| `openOnStart` | band, pane, none | band | What a new session shows: the chooser band, the pane, or nothing |
-| `desktopHits` | true, false | false | Experimental: an invisible pointer layer over the map on the Desktop, so clicks and drags on the picture itself trace, pick and move. Off until a local check confirms it covers the picture |
+| `openOnStart` | band, pane, none | band | What a new session shows: the chooser band, the pane, or nothing. A Desktop or VS Code session counts as able to show the pane, though the engine starts it headless |
 | `fieldBackground` | transparent, night | transparent | transparent sits on the pane's own surface and follows light or dark; night is the prototype's solid ground |
+| `pictureClicks` | on, outline, off | on | The Desktop's pointer layer over the picture: on; drawn with its outline and readings, to check it sits on the picture; or off (the buttons under the map remain) |
+| `cellWidthPx` | 4–14 | 7.2 | CSS pixels per character cell across on the Desktop; the picture and its pointer layer are both sized from it |
+| `cellHeightPx` | 8–36 | 17 | CSS pixels per character cell down on the Desktop |
 
 ## Model use and cost
 
@@ -175,12 +180,44 @@ false`. The mod never approves tool calls and never touches the network.
 
 | | Desktop app (and VS Code) | Terminal |
 | --- | --- | --- |
-| Field | One SVG: pills, satellites, chain, glow, CSS hover tracing, tooltips | A text-mode map (a Client module) with real pointer and arrow-key input |
-| Picking | Buttons under the field, Tab/Enter, hotkeys | Click a topic or session, drag a session onto a topic, arrows walk topics or steps, Enter picks, Backspace goes back |
+| Field | One SVG sized to the pane: pills, satellites, chain, glow, CSS hover tracing, tooltips; on the Desktop an invisible pointer layer lies over it | A text-mode map (a Client module) with real pointer and arrow-key input |
+| Picking | Desktop: a click on a pill, a satellite, a step, an anchor or ‹ All topics on the picture, or the buttons under it; VS Code: the buttons, Tab/Enter, hotkeys | Click a topic or session, drag a session onto a topic, arrows walk topics or steps, Enter picks, Backspace goes back |
 | Everything else | Header, cards, settings, band, commands | The same |
 
 Mobile has the SVG and the buttons but no text fields, so renaming, goals and
 messaging are not offered there.
+
+## How topics form
+
+Unassigned sessions are clustered from what they share: the words of their
+titles and first prompts, the files they edited, a non-main branch. A word or
+a file that more than 60 % of the folder shares counts for nothing (the
+project's name, "bug", a README); files under `.claude/`, `CLAUDE.md`,
+`AGENTS.md`, lockfiles and env files never count; a transcript too large to
+read stays Unsorted. A session joins the cluster it relates to best, and
+only when it relates to enough of that cluster's members (one while the
+cluster holds up to three, a third of them beyond), so one shared word never
+chains a folder into a single blob. Joining, moving, renaming or `/topic`
+makes a topic explicit, and explicit sessions never move.
+
+## Matching the pointer layer to the picture (Desktop)
+
+The Desktop draws the field as a picture no click can reach, so Constellation
+lays an invisible Client over it to take the clicks. Both are sized from two
+numbers in the Advanced settings, `cellWidthPx` and `cellHeightPx`, because
+the Desktop never reports its cell size. To check them once on a machine:
+
+1. In the pane's settings, under Advanced, set **Clicks on the picture** to
+   **Outline**. An orange frame shows where the layer is, with a line that
+   reads `layer <cols>×<rows> cells · field 860×520 · <last pointer event>`.
+2. Move the pointer over the picture. If the line stays at "no pointer event
+   yet", the Desktop sends this Client no pointer events; set the option to
+   **Off** and use the buttons under the map, which do everything a click would.
+3. If the frame falls short of the picture's right edge, raise the cell
+   width; if it runs past, lower it. The same at the bottom edge with the cell
+   height. The `+` marks where the layer last saw the pointer and should sit
+   under it.
+4. Set the option back to **On**. The settings are saved.
 
 ## Known limits
 
@@ -191,12 +228,20 @@ messaging are not offered there.
 - A node on the map can never switch the Desktop app to an existing session;
   Claude Code has no API for it. A node can message that session while it
   runs, pick up its note into this chat, or start a new session from it.
-- On the Desktop the SVG is a sandboxed picture: clicks and drags on it do not
-  reach the mod, so picking goes through the buttons under the field and
+- On the Desktop the SVG is a sandboxed picture: no click on it reaches a
+  mod. The pointer layer over it (above) takes the clicks, at a size matched
+  to the picture by the cell-size settings; where the Desktop sends a Client
+  no pointer events, the buttons under the field remain the way to pick, and
   moving a session is "Move to topic" then a pick. The terminal's text-mode
-  map takes clicks and drags. `desktopHits` lays that map's pointer layer,
-  drawing nothing, over the SVG; whether the Desktop places it exactly over
-  the picture is the check a local session has to make.
+  map takes clicks and drags itself.
+- The engine starts a Desktop or VS Code session headless (`isInteractive`
+  false). Constellation treats those surfaces, and a `CLAUDE_CODE_ENTRYPOINT`
+  of `claude-desktop` or `claude-vscode`, as able to show the pane, and opens
+  it when a Desktop window attaches later.
+- Another plugin can keep `classic.SessionStart` from reaching this one.
+  Constellation also hears `session.end` on `/clear` and a resume, and checks
+  the session id on every command, press and turn and every three seconds,
+  so it starts over for the new session either way.
 - Arrow keys cannot be bound by a mod on the Desktop; the terminal map gets
   them through its Client.
 - Transcripts over 4 MiB cannot be read by a mod; such a session shows as a
@@ -226,7 +271,10 @@ node tests/preview/page.mjs              # the comparison page, tests/out/previe
 Tests: `tests/scan.test.ts` (parsing, cache, large files), `tests/cluster.test.ts`
 (topics, links, scoring, order), `tests/layout.test.ts`, `tests/register.test.tsx`
 (the whole mod through the engine on desktop and terminal), `tests/client.test.tsx`
-(the terminal map and the Desktop hit layer), `tests/interact.test.tsx` (the
+(the terminal map and the Desktop pointer layer, its outline and sizing),
+`tests/desktop.test.tsx` (headless Desktop starts, a later attach, `/clear`
+and a resume without `classic.SessionStart`, Windows-resolved paths in the
+stubs), `tests/interact.test.tsx` (the
 help card, Jump back in, my topic, the search clear, Refresh, the band's cap,
 the numbered commands, the session card's rows, the settings groups) and
 `tests/edge.test.tsx` (empty

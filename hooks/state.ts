@@ -21,8 +21,10 @@ export const DEFAULT_SETTINGS: MapSettings = {
   rangeDays: 30,
   useModelForTitles: false,
   openOnStart: 'band',
-  desktopHits: false,
   fieldBackground: 'transparent',
+  pictureClicks: 'on',
+  cellWidthPx: 7.2,
+  cellHeightPx: 17,
 }
 
 export const EMPTY_STORE: StoreData = { topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {}, goals: {}, seen: {} }
@@ -73,15 +75,22 @@ const CHOICES: { [K in keyof MapSettings]: readonly MapSettings[K][] | 'number' 
   rangeDays: 'number',
   useModelForTitles: 'boolean',
   openOnStart: ['band', 'pane', 'none'],
-  desktopHits: 'boolean',
   fieldBackground: ['transparent', 'night'],
+  pictureClicks: ['on', 'outline', 'off'],
+  cellWidthPx: 'number',
+  cellHeightPx: 'number',
 }
 
 const RANGES: Partial<Record<keyof MapSettings, [number, number]>> = {
   majorMinSessions: [1, 20],
   recentDays: [1, 90],
   rangeDays: [1, 45],
+  cellWidthPx: [4, 14],
+  cellHeightPx: [8, 36],
 }
+
+/** Settings kept to a tenth rather than a whole number. */
+const TENTHS = new Set<keyof MapSettings>(['cellWidthPx', 'cellHeightPx'])
 
 /** One setting's value from an untyped source, or `undefined` when it does not fit. */
 export function settingValue<K extends keyof MapSettings>(key: K, value: unknown): MapSettings[K] | undefined {
@@ -90,7 +99,8 @@ export function settingValue<K extends keyof MapSettings>(key: K, value: unknown
     const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
     if (!Number.isFinite(n)) return undefined
     const [min, max] = RANGES[key] ?? [Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY]
-    return Math.min(max, Math.max(min, Math.round(n))) as MapSettings[K]
+    const rounded = TENTHS.has(key) ? Math.round(n * 10) / 10 : Math.round(n)
+    return Math.min(max, Math.max(min, rounded)) as MapSettings[K]
   }
   if (choice === 'boolean') {
     if (typeof value === 'boolean') return value as MapSettings[K]

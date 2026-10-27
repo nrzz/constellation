@@ -129,11 +129,32 @@
       ],
       "default": "band"
     },
-    "desktopHits": {
-      "type": "boolean",
-      "title": "Desktop hit layer (experimental)",
-      "description": "Lays an invisible pointer layer over the map on the Desktop so clicks and drags on the picture itself trace, pick and move; off until a local check confirms it sits over the picture",
-      "default": false
+    "pictureClicks": {
+      "type": "string",
+      "title": "Clicks on the picture (Desktop)",
+      "description": "on lays an invisible pointer layer over the map so clicks on the picture trace, pick and move; outline draws that layer's edge and its readings, to check it sits on the picture; off keeps only the buttons under the map",
+      "options": [
+        "on",
+        "outline",
+        "off"
+      ],
+      "default": "on"
+    },
+    "cellWidthPx": {
+      "type": "number",
+      "title": "Desktop cell width (px)",
+      "description": "CSS pixels per character cell across, which size the picture and its pointer layer alike; raise it if the outline falls short of the picture, lower it if it runs past",
+      "default": 7.2,
+      "min": 4,
+      "max": 14
+    },
+    "cellHeightPx": {
+      "type": "number",
+      "title": "Desktop cell height (px)",
+      "description": "CSS pixels per character cell down; tune it the same way",
+      "default": 17,
+      "min": 8,
+      "max": 36
     },
     "fieldBackground": {
       "type": "string",

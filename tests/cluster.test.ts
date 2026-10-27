@@ -139,9 +139,11 @@ describe('clustering several topics in one folder', () => {
     expect(m.byId.a1?.topicId).toBe('topic:auth-refactor')
     expect(m.byId.a2?.topicId).toBe('topic:auth-refactor')
     expect(m.byId.c2?.topicId).toBe('topic:auth-refactor')
-    // c3 shares words with c2, c4 with c3 and c1 a file with c4: the chain follows.
+    // c4 and c3 share words with c2 and each other, so they follow while the topic is small; by the time c1 arrives
+    // (one file shared with one of five members) the topic needs two links, so c1 stays out instead of chaining in.
+    expect(m.byId.c4?.topicId).toBe('topic:auth-refactor')
     expect(m.byId.c3?.topicId).toBe('topic:auth-refactor')
-    expect(m.byId.c1?.topicId).toBe('topic:auth-refactor')
+    expect(m.byId.c1?.topicId).toBe(UNSORTED_ID)
     expect(m.byId.p1?.topicId).toBe('auto:p2')
     expect(m.topicById['topic:auth-refactor']?.name).toBe('Auth refactor')
     expect(m.topicById['topic:auth-refactor']?.isExplicit).toBe(true)
@@ -264,5 +266,56 @@ describe('chain order and ages', () => {
     expect(ageOf(NOW - 2 * 3600_000, NOW)).toBe('2h')
     expect(ageOf(NOW - 3 * DAY_MS, NOW)).toBe('3d')
     expect(ageOf(NOW - 90 * DAY_MS, NOW)).toBe('3mo')
+  })
+})
+
+describe('a big folder', () => {
+  test('135 sessions that all share common words and noise files still split into their themes; large stubs stay Unsorted', async () => {
+    const themes = ['checkout', 'auth', 'orders', 'billing', 'search', 'deploy', 'docs', 'analytics']
+    const kinds = ['flow', 'tests', 'api', 'page']
+    const sessions: SessionSummary[] = []
+    counter = 1000
+    for (let i = 0; i < 125; i += 1) {
+      const theme = themes[i % themes.length] ?? 'misc'
+      const kind = kinds[i % kinds.length] ?? 'flow'
+      sessions.push(
+        session({
+          id: `b${i}`,
+          title: `Fix the ${theme} ${kind} in the project`,
+          firstPrompt: `please fix the ${theme} ${kind} bug in the project api`,
+          daysAgo: i * 0.2,
+          filesTouched: [`src/${theme}/${theme}.ts`, 'CLAUDE.md', '.claude/plans/plan.md', 'README.md'],
+        }),
+      )
+    }
+    for (let i = 0; i < 10; i += 1) sessions.push({ ...session({ id: `big${i}`, title: '(large transcript)', daysAgo: i }), large: true })
+    const m = buildModel(sessions, EMPTY_STORE, { ...SETTINGS, rangeDays: ALL_TIME_DAYS }, NOW)
+    const topics = m.topics.filter(t => t.id !== UNSORTED_ID)
+    expect(topics.length).toBe(8)
+    expect(Math.max(...topics.map(t => t.sessions.length))).toBeLessThanOrEqual(16)
+    for (const theme of themes) {
+      const ids = new Set(sessions.filter(s => !s.large && s.title.includes(` ${theme} `)).map(s => m.byId[s.id]?.topicId))
+      expect(`${theme}: ${ids.size} topic(s)`).toBe(`${theme}: 1 topic(s)`)
+    }
+    for (const s of sessions.filter(s => s.large)) expect(m.byId[s.id]?.topicId).toBe(UNSORTED_ID)
+    expect(m.topicById[UNSORTED_ID]?.sessions.length).toBe(10)
+    // Nothing links through the words every session shares, or the files every session edits.
+    expect(m.links.length).toBe(0)
+    expect(m.topics.find(t => t.sessions.some(s => s.id === 'b0'))?.name).toContain('Checkout')
+  })
+
+  test('one hub session that shares a word with everyone does not fuse the themes', async () => {
+    const sessions: SessionSummary[] = []
+    counter = 2000
+    for (let i = 0; i < 30; i += 1) {
+      const theme = i < 15 ? 'checkout' : 'billing'
+      sessions.push(session({ id: `h${i}`, title: `${theme} work item ${i}`, firstPrompt: `${theme} ${i % 2 ? 'tests' : 'flow'}`, daysAgo: i, filesTouched: [`src/${theme}.ts`] }))
+    }
+    // The hub shares a word and a file with every session of both themes.
+    sessions.push(session({ id: 'hub', title: 'checkout and billing refactor', daysAgo: 0.5, filesTouched: ['src/checkout.ts', 'src/billing.ts'] }))
+    const m = buildModel(sessions, EMPTY_STORE, { ...SETTINGS, rangeDays: ALL_TIME_DAYS }, NOW)
+    expect(m.byId.h0?.topicId).not.toBe(m.byId.h20?.topicId)
+    expect(m.byId.h0?.topicId).toBe(m.byId.h14?.topicId)
+    expect(m.byId.h15?.topicId).toBe(m.byId.h29?.topicId)
   })
 })

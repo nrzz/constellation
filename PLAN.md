@@ -11,7 +11,7 @@ the band, the commands, handoff injection, auto notes, the terminal's
 text-mode map Client, and the features added beyond the brief (topic goals,
 rename, recolour, merge, a "since your last look" digest, a status line,
 Draft next prompt, `/map export`, a model-spend counter, letter hotkeys).
-`claude plugin validate --strict`, `claude plugin test` (94 tests) and `tsc`
+`claude plugin validate --strict`, `claude plugin test` (109 tests) and `tsc`
 pass. The generated field was compared with the prototype by eye through
 the preview page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
 
@@ -428,7 +428,7 @@ facts". Work like this:
    `ui.message` hook. The Desktop keeps the Svg plus buttons: whether an
    absolutely placed Client can sit over the Svg there could not be tried in
    the cloud.
-7. Tests: 94 across scan, cluster, layout, the mod through the engine on
+7. Tests: 109 across scan, cluster, layout, the mod through the engine on
    desktop and terminal, the Client, and an edge-case suite (empty folders,
    hostile and huge transcripts, bounded scans, every openOnStart, a refusing
    store, model failures, dismissed dialogs, key and hotkey uniqueness in every
@@ -467,6 +467,52 @@ here** on every surface (it opens the Desktop from a terminal where the app
 is installed; the toast says when it cannot), and the per-session tidy
 questions (safe over fast).
 
+Office-PC pass (2026-10-27), from nine issues seen in Claude Desktop on
+Windows 10 with Claude Code 2.1.308 and a 135-session folder:
+
+1. Clicks on the picture: the Svg passes no click on, so the pointer layer
+   (the terminal map's Client with `hits`) is on by default, sized in cells
+   from the same two numbers that size the picture in pixels
+   (`cellWidthPx`, `cellHeightPx`), hit-tests in field units with slack, and
+   knows steps, satellites, anchors and the ‹ All topics pill. An `outline`
+   mode draws the layer's edge, its size and the last pointer event, so the
+   two can be matched on a machine. Found on the way: the Client's handlers
+   were registered once and closed over the first render's nodes, so after
+   a focus they still hit-tested the map; they now read the latest render.
+   The buttons under the map remain the certain fallback.
+2. The pane opens at start for a Desktop or VS Code surface, or an entry
+   point of `claude-desktop`/`claude-vscode`, although `isInteractive` is
+   false there; a Desktop window attaching later opens it too.
+3. The interactive Svg keeps a browser's 300×150 without a size: it now gets
+   `width`/`height` from the pane's columns and the cell width.
+4. Pills overlapped because the box ignored the count label and repulsion
+   could fail: topics are now packed into rows (hash order, jitter inside the
+   slack) with the count in the box and room for satellites, and the field
+   grows taller when the rows need it. Tested against 25 topics.
+5. One blob: union-find chained everything through common words, files
+   under `.claude/` and the stubs' placeholder title. Now: noise files are
+   dropped at parse time, words and files shared by more than 60 % of the
+   folder count for nothing, large stubs cluster nothing, and a session joins
+   a cluster only when it relates to enough of its members (average linkage).
+   Topic links use the same filtered files.
+6. Titles come from `custom-title` and `ai-title` rows (then `summary`, then
+   the first prompt); the scan cache moved to `scan2:<slug>` so old summaries
+   are re-read, and the old key is cleared.
+7. The gear on Settings, the sizing above, and the inline row's picture sized
+   to the transcript.
+8. `classic.SessionStart` can be kept from the mod: `session.end` on `clear`
+   and `resume`, a three-second session-id watch, and a check at the top of
+   every command, prompt, turn, press and Client post start the mod over for
+   the session the engine runs.
+9. The engine resolves fs paths before the test stubs see them (`C:\home\…`
+   with backslashes on Windows): the stubs compare normalised paths.
+
+Still to confirm on the office PC, in this order: whether the outline's
+reading changes when the pointer moves over the picture (if it never does,
+the Desktop sends a Client no pointer events and `pictureClicks: off` is the
+honest setting); the cell width and height that make the outline sit on the
+picture; and the look of the 135-session map with the new clustering.
+
 Lessons for the next build: a test's `$` has only the event nouns (no
 `$.fs`), so fixtures reach the scanner through `fs.*` stubs and the
 `transcripts.ts` mirror; the kit's `ui.focus` hands the hook `{ requestId,
@@ -475,17 +521,16 @@ by `e.surface`; a Client's props must hold no `undefined`.
 
 ## Next steps (local Desktop session)
 
-1. Pull `main`, then `claude --plugin-dir D:\Projects\constellation` or copy
-   the repo into `~/.claude/dev-mods/<session-id>/constellation`. Open `/map`
-   on the Desktop and in a terminal; compare with `design/TopicMap.dc.html`
-   and the preview page; fix what differs; commit `fix: …`.
-2. Try the Desktop hit layer: turn on `desktopHits` in the pane's settings.
-   It lays the text-mode map's Client, drawing nothing, in a
-   `Box position="absolute"` over the `Svg` (30 rows; `HIT_ROWS` in
-   register.tsx). If it covers the picture and clicks trace, pick and drag,
-   make it the default and drop the topic button row on the Desktop; if the
-   Desktop places it elsewhere, tune `HIT_ROWS` or leave it off and say so
-   in the README.
+1. Install this `main` over the local copy, open `/map` on the Desktop and
+   in a terminal; compare with `design/TopicMap.dc.html` and the preview
+   page; fix what differs; commit `fix: …`.
+2. Match the pointer layer to the picture: settings, Advanced, **Clicks on
+   the picture: Outline**; move the pointer over the picture and read the
+   orange line. No change from "no pointer event yet" means the Desktop
+   sends a Client no pointer events: set it to Off and say so in the README.
+   Otherwise tune the cell width and height until the frame sits on the
+   picture, set it back to On, and make those the defaults in
+   `hooks/state.ts` and `plugin.json`.
 3. Watch the first real folder: large transcripts, the auto topic names, the
    join suggestions; tune the stopword list and the scoring if needed.
 4. Release: tag v0.1.0, confirm the marketplace install on a clean machine.

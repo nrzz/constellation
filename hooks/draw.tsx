@@ -10,8 +10,8 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, latestOf, orderChain } from './cluster'
 import type { Link, Model, SessionView, Topic } from './cluster'
-import { ANCHOR_Y, FIELD_H, FIELD_W, FOCUS_PILL, anchorPositions, chainPositions, satellitePosition, starPath } from './layout'
-import type { PlacedTopic, Point } from './layout'
+import { BASE, FOCUS_PILL, anchorPositions, chainPositions, pillWidth, satellitePosition, starPath } from './layout'
+import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
 
@@ -30,6 +30,8 @@ export const SVG_CAP = 131072
 export type View = {
   model: Model
   placed: Record<string, PlacedTopic>
+  /** The map's field size: the base 860×520, or taller when the topics need the room. Focus mode always draws the base. */
+  field: FieldSize
   ui: UiState
   me: MeState
   settings: MapSettings
@@ -164,16 +166,14 @@ export function themeCss(background: MapSettings['fieldBackground']): string {
   )
 }
 
-function pillWidth(name: string, count: string): number {
-  return 46 + Math.min(name.length, 28) * 7.4 + count.length * 6.8
-}
-
 /** The whole field as an SVG document, under the 131072-character cap. */
 export function svgOf(view: View, options: SvgOptions = {}): string {
   const withTooltips = options.withTooltips ?? true
   const maxSessions = options.maxSessions ?? 60
   const { model, ui, placed, now } = view
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
+  const size = focus ? BASE : view.field
+  const anchorY = BASE.h - 50
   const query = ui.query.trim()
   const parts: string[] = []
   const css: string[] = [
@@ -193,22 +193,22 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   model.topics.forEach((t, i) => indexOf.set(t.id, i))
 
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${FIELD_W}" height="${FIELD_H}" viewBox="0 0 ${FIELD_W} ${FIELD_H}" role="img">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}" role="img">`,
     `<defs><pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse"><path d="M60 0H0V60" fill="none" style="stroke:var(--grid)" stroke-width="1"/></pattern>`,
     `<radialGradient id="glow" cx="24%" cy="20%" r="62%"><stop offset="0" stop-color="${ACCENT}" stop-opacity="0.11"/><stop offset="1" stop-color="${ACCENT}" stop-opacity="0"/></radialGradient>`,
     `<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1L9 5L1 9z" fill="${focus ? focus.color : ACCENT}"/></marker>`,
-    `<clipPath id="field"><rect width="${FIELD_W}" height="${FIELD_H}" rx="16"/></clipPath>`,
+    `<clipPath id="field"><rect width="${size.w}" height="${size.h}" rx="16"/></clipPath>`,
   )
   const styleAt = parts.length
   parts.push('')
   parts.push(`</defs>`)
   parts.push(`<g clip-path="url(#field)">`)
   // Transparent by default: the field sits on the pane's own surface; `night` paints the prototype's solid ground.
-  if (view.settings.fieldBackground === 'night') parts.push(`<rect width="${FIELD_W}" height="${FIELD_H}" fill="${BG}"/>`)
-  parts.push(`<rect width="${FIELD_W}" height="${FIELD_H}" fill="url(#glow)"/>`)
-  parts.push(`<rect width="${FIELD_W}" height="${FIELD_H}" fill="url(#grid)"/>`)
-  parts.push(`<path d="${starPath(70, 137.5, 11)}" style="stroke:var(--star)" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.8"/>`)
-  parts.push(`<path d="${starPath(18, 211.7, 53)}" style="stroke:var(--star2)" stroke-width="2.4" stroke-linecap="round" fill="none" opacity="0.8"/>`)
+  if (view.settings.fieldBackground === 'night') parts.push(`<rect width="${size.w}" height="${size.h}" fill="${BG}"/>`)
+  parts.push(`<rect width="${size.w}" height="${size.h}" fill="url(#glow)"/>`)
+  parts.push(`<rect width="${size.w}" height="${size.h}" fill="url(#grid)"/>`)
+  parts.push(`<path d="${starPath(Math.round((70 * size.h) / BASE.h), 137.5, 11, size)}" style="stroke:var(--star)" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.8"/>`)
+  parts.push(`<path d="${starPath(Math.round((18 * size.h) / BASE.h), 211.7, 53, size)}" style="stroke:var(--star2)" stroke-width="2.4" stroke-linecap="round" fill="none" opacity="0.8"/>`)
 
   if (!focus) {
     const traced = ui.hover && model.topicById[ui.hover] ? ui.hover : null
@@ -247,13 +247,13 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const sessions = t.sessions.slice(0, maxSessions)
       const half = t.isMajor ? pillWidth(t.name, countLabel) / 2 : undefined
       sessions.forEach((s, k) => {
-        const sp = satellitePosition(p, t.id, k, t.isMajor, half)
+        const sp = satellitePosition(p, t.id, k, t.isMajor, half, size)
         if (s.isInRange) {
           g.push(`<line class="ln" x1="${p.x}" y1="${p.y}" x2="${sp.x.toFixed(1)}" y2="${sp.y.toFixed(1)}" ${isTraced ? `stroke="${t.color}"` : 'style="stroke:var(--ln)"'} stroke-width="${isTraced ? 1.2 : 1}" opacity="${isTraced ? 0.75 : traced ? 0.35 : 0.8}"/>`)
         }
       })
       sessions.forEach((s, k) => {
-        const sp = satellitePosition(p, t.id, k, t.isMajor, half)
+        const sp = satellitePosition(p, t.id, k, t.isMajor, half, size)
         const isSel = ui.selected === s.id
         const isMatch = matches(query, s)
         let r = isTraced ? 5 : t.isMajor ? 3.5 : 2.5
@@ -284,20 +284,19 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
           `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${p.y + 4}" font-size="11" font-weight="500" fill="${t.color}" text-anchor="end">${esc(countLabel)}</text>`,
         )
       } else {
-        const onRight = p.x > 700
-        const lx = onRight ? p.x - 16 : p.x + 16
+        // The label hangs right of the dot; the placement reserved that room.
         g.push(
           `<circle class="glow" cx="${p.x}" cy="${p.y}" r="11" fill="${rgba(t.color, 0.22)}"${isTraced || isDrop ? ' opacity="1"' : ''}/>`,
           `<circle class="hit" cx="${p.x}" cy="${p.y}" r="5.5" style="fill:var(--pill)" stroke="${t.color}" stroke-width="1.5"${isDrop ? ' stroke-dasharray="3 2"' : ''}/>`,
-          `<text class="mono lbl" x="${lx}" y="${p.y + 4}" font-size="11.5" style="fill:var(${isTraced ? '--tx' : '--mu'})" text-anchor="${onRight ? 'end' : 'start'}">${esc(clip(t.name, 24))} <tspan fill="${t.color}">${esc(countLabel)}</tspan></text>`,
+          `<text class="mono lbl" x="${p.x + 16}" y="${p.y + 4}" font-size="11.5" style="fill:var(${isTraced ? '--tx' : '--mu'})">${esc(clip(t.name, 24))} <tspan fill="${t.color}">${esc(countLabel)}</tspan></text>`,
         )
       }
       g.push('</g>')
       parts.push(g.join(''))
     }
     if (model.topics.length === 0) {
-      parts.push(`<text x="430" y="250" font-size="15" font-weight="500" style="fill:var(--tx)" text-anchor="middle">No sessions on this map yet</text>`)
-      parts.push(`<text x="430" y="276" font-size="12" style="fill:var(--mu)" text-anchor="middle">Sessions in this folder appear here once they have run; /topic names this one.</text>`)
+      parts.push(`<text x="${size.w / 2}" y="${size.h / 2 - 10}" font-size="15" font-weight="500" style="fill:var(--tx)" text-anchor="middle">No sessions on this map yet</text>`)
+      parts.push(`<text x="${size.w / 2}" y="${size.h / 2 + 16}" font-size="12" style="fill:var(--mu)" text-anchor="middle">Sessions in this folder appear here once they have run; /topic names this one.</text>`)
     }
   } else {
     const steps = chainOf(view, focus)
@@ -377,9 +376,9 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         const label = `${clip(rt.name, 20)}  ${clip(r.via, 18)}`
         const aw = 40 + label.length * 6.4
         parts.push(
-          `<g class="hit" opacity="0.9"><rect x="${(ap.x - aw / 2).toFixed(1)}" y="${ANCHOR_Y - 16}" width="${aw.toFixed(1)}" height="32" rx="16" style="fill:var(--glass)" stroke="${rt.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
-          `<circle cx="${(ap.x - aw / 2 + 15).toFixed(1)}" cy="${ANCHOR_Y}" r="3.5" fill="${rt.color}"/>`,
-          `<text x="${(ap.x - aw / 2 + 25).toFixed(1)}" y="${ANCHOR_Y + 4}" font-size="12" style="fill:var(--lb)">${esc(clip(rt.name, 20))} <tspan class="mono" font-size="10.5" style="fill:var(--mu)">${esc(clip(r.via, 18))}</tspan></text></g>`,
+          `<g class="hit" opacity="0.9"><rect x="${(ap.x - aw / 2).toFixed(1)}" y="${anchorY - 16}" width="${aw.toFixed(1)}" height="32" rx="16" style="fill:var(--glass)" stroke="${rt.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
+          `<circle cx="${(ap.x - aw / 2 + 15).toFixed(1)}" cy="${anchorY}" r="3.5" fill="${rt.color}"/>`,
+          `<text x="${(ap.x - aw / 2 + 25).toFixed(1)}" y="${anchorY + 4}" font-size="12" style="fill:var(--lb)">${esc(clip(rt.name, 20))} <tspan class="mono" font-size="10.5" style="fill:var(--mu)">${esc(clip(r.via, 18))}</tspan></text></g>`,
         )
       })
     }
@@ -391,10 +390,10 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   const hint = hintOf(view)
   const hw = 24 + hint.length * 6.3
   parts.push(
-    `<rect x="${(FIELD_W / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/>`,
-    `<text x="${FIELD_W / 2}" y="33" font-size="12" style="fill:var(--lb)" text-anchor="middle">${esc(hint)}</text>`,
+    `<rect x="${(size.w / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/>`,
+    `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--lb)" text-anchor="middle">${esc(hint)}</text>`,
   )
-  const ly = FIELD_H - 16
+  const ly = size.h - 16
   parts.push(
     `<g font-size="11" style="fill:var(--mu)">`,
     `<circle cx="20" cy="${ly - 4}" r="4" fill="${ACCENT}"/><text x="29" y="${ly}">active</text>`,
@@ -403,7 +402,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     `<text x="186" y="${ly}" fill="${ACCENT}">★</text><text x="199" y="${ly}">pinned</text>`,
     `</g>`,
   )
-  parts.push(`<rect x="0.5" y="0.5" width="${FIELD_W - 1}" height="${FIELD_H - 1}" rx="16" fill="none" style="stroke:var(--line)"/>`)
+  parts.push(`<rect x="0.5" y="0.5" width="${size.w - 1}" height="${size.h - 1}" rx="16" fill="none" style="stroke:var(--line)"/>`)
   parts.push('</g></svg>')
   parts[styleAt] = `<style>${css.join('')}</style>`
   const svg = parts.join('')
@@ -417,7 +416,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     ]
     const next = ladder.find(step => step.withTooltips !== withTooltips || (step.maxSessions ?? 60) < maxSessions)
     if (next) return svgOf(view, next)
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${FIELD_W}" height="${FIELD_H}" viewBox="0 0 ${FIELD_W} ${FIELD_H}"><style>${themeCss(view.settings.fieldBackground)}</style><rect width="${FIELD_W}" height="${FIELD_H}" rx="16" fill="none" style="stroke:var(--line)"/><text x="430" y="260" font-size="13" style="fill:var(--mu)" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}"><style>${themeCss(view.settings.fieldBackground)}</style><rect width="${size.w}" height="${size.h}" rx="16" fill="none" style="stroke:var(--line)"/><text x="${size.w / 2}" y="${size.h / 2}" font-size="13" style="fill:var(--mu)" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`
   }
   return svg
 }
@@ -537,7 +536,7 @@ export function drawHeader(T: Table, view: View, act: Actions): RenderElement {
         {Select ? <Select key="range" options={RANGE_OPTIONS} value={String(view.settings.rangeDays)} onSelect={v => act.setRange(Number(v))} /> : null}
         <Button key="view:map" label="Map" hotkey="m" variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
         <Button key="view:list" label="List" hotkey="l" variant={ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />
-        <Button key="settings" label={ui.showSettings ? 'Done' : 'Settings'} hotkey="s" onPress={() => act.toggleSettings()} />
+        <Button key="settings" label={ui.showSettings ? '⚙ Done' : '⚙ Settings'} hotkey="s" onPress={() => act.toggleSettings()} />
         <Button key="help" label={ui.showHelp ? 'Close help' : 'Help'} hotkey="h" onPress={() => act.toggleHelp()} />
         {view.me.topicId ? (
           <Button key="mine" hotkey="y" plain onPress={() => act.myTopic()}>
@@ -819,7 +818,9 @@ const SETTING_GROUPS: { title: string; rows: SettingRow[]; isAdvanced?: true }[]
       { key: 'majorRule', label: 'Major topic rule', help: 'what gets a labelled pill', options: [{ value: 'either', label: 'Either' }, { value: 'count', label: 'Count' }, { value: 'recent', label: 'Recent' }] },
       { key: 'majorMinSessions', label: 'Count threshold', help: 'sessions to count as major', options: [{ value: 2, label: '2' }, { value: 3, label: '3' }, { value: 5, label: '5' }] },
       { key: 'recentDays', label: 'Recent days', help: 'activity that keeps a topic major', options: [{ value: 3, label: '3d' }, { value: 7, label: '7d' }, { value: 14, label: '14d' }, { value: 30, label: '30d' }] },
-      { key: 'desktopHits', label: 'Desktop hit layer', help: 'experimental: clicks on the picture itself', options: [{ value: false, label: 'Off' }, { value: true, label: 'On' }] },
+      { key: 'pictureClicks', label: 'Clicks on the picture', help: 'the Desktop’s pointer layer; outline shows where it sits', options: [{ value: 'on', label: 'On' }, { value: 'outline', label: 'Outline' }, { value: 'off', label: 'Off' }] },
+      { key: 'cellWidthPx', label: 'Cell width (px)', help: 'raise it if the outline falls short of the picture, lower it if it runs past', options: [{ value: 6.5, label: '6.5' }, { value: 7.2, label: '7.2' }, { value: 8, label: '8' }, { value: 9, label: '9' }] },
+      { key: 'cellHeightPx', label: 'Cell height (px)', help: 'the same, down', options: [{ value: 15, label: '15' }, { value: 17, label: '17' }, { value: 19, label: '19' }, { value: 22, label: '22' }] },
     ],
   },
 ]
@@ -853,7 +854,7 @@ export function drawSettings(T: Table, view: View, act: Actions): RenderElement 
         {group.isAdvanced ? <Button key="set:advanced" label={isFolded ? 'Show ▸' : 'Hide ▾'} plain dimColor onPress={() => act.toggleAdvanced()} /> : null}
         {isFolded ? (
           <Text dimColor size="footnote">
-            what earns a labelled pill, and the experimental Desktop hit layer
+            what earns a labelled pill, and the Desktop’s pointer layer with its cell size
           </Text>
         ) : null}
       </Box>,
@@ -1133,6 +1134,21 @@ export function drawCard(T: Table, view: View, act: Actions): RenderElement {
 }
 
 /**
+ * The picture's pixel size from the pane's width in cells, and the pointer
+ * layer's size in cells to match it. An interactive Svg keeps a browser's
+ * 300×150 unless told its size, and the Desktop never says how many pixels a
+ * cell is, so both come from the cell size settings; the outline mode shows
+ * whether they agree with the picture.
+ */
+export function pictureSize(columns: number, settings: MapSettings, size: FieldSize): { w: number; h: number; cols: number; rows: number } {
+  const cellW = settings.cellWidthPx > 0 ? settings.cellWidthPx : 7.2
+  const cellH = settings.cellHeightPx > 0 ? settings.cellHeightPx : 17
+  const w = Math.max(320, Math.min(size.w, Math.floor(Math.max(20, columns) * cellW)))
+  const h = Math.round((w * size.h) / size.w)
+  return { w, h, cols: Math.max(10, Math.round(w / cellW)), rows: Math.max(4, Math.round(h / cellH)) }
+}
+
+/**
  * The pane: header, the field, its controls, the card and the toast. The field
  * is the Svg where the surface has one, or what the entry point hands in: the
  * terminal's text-mode map, or the Desktop's Svg with the hit layer over it.
@@ -1164,9 +1180,10 @@ export function drawPane(T: Table, view: View, act: Actions, field?: RenderEleme
  * conversation. The row is as wide as the transcript, scrolls with the chat,
  * and redraws while it is on screen; the pane stays the live sidebar.
  */
-export function drawInlineRow(T: Table, view: View, act: Actions): RenderElement {
+export function drawInlineRow(T: Table, view: View, act: Actions, columns = 100): RenderElement {
   const { Box, Text, Svg } = T
   const { model, me } = view
+  const picture = pictureSize(columns, view.settings, view.ui.focusTopic ? BASE : view.field)
   return (
     <Box flexDirection="column" gap="xs">
       <Box flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
@@ -1176,7 +1193,7 @@ export function drawInlineRow(T: Table, view: View, act: Actions): RenderElement
         <Text dimColor size="footnote">{`${me.folder || 'folder'} · ${statsOf(model)} · /map opens the live pane`}</Text>
       </Box>
       {drawRecent(T, view, act)}
-      {Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null}
+      {Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive width={picture.w} height={picture.h} /> : null}
       {Svg ? drawControls(T, view, act) : drawList(T, view, act)}
       {drawCard(T, view, act)}
     </Box>
@@ -1212,9 +1229,11 @@ export function drawBand(T: Table, view: View, act: Actions): RenderElement | nu
 /** One mark on the terminal's text-mode map (client/map.js). */
 export type FieldNode = {
   id: string
-  kind: 'topic' | 'session' | 'step' | 'you'
+  kind: 'topic' | 'session' | 'step' | 'you' | 'back'
   x: number
   y: number
+  /** A pill's width, or a label's, in field units: what the pointer layer takes as the node's extent. */
+  w?: number
   label: string
   label2?: string
   title?: string
@@ -1234,6 +1253,9 @@ export type FieldProps = {
   nodes: FieldNode[]
   links: { x1: number; y1: number; x2: number; y2: number }[]
   legend: string
+  /** The field the positions are in, so the Client scales them to its region. */
+  fieldW: number
+  fieldH: number
 }
 
 /** A node with its undefined keys dropped: a Client's props hold no undefined. */
@@ -1250,6 +1272,7 @@ export const FIELD_CHARS = 90000
 export function fieldOf(view: View): FieldProps {
   const { model, ui, placed } = view
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
+  const size = focus ? BASE : view.field
   const nodes: FieldNode[] = []
   const links: FieldProps['links'] = []
   const legend = '● active  ○ idle  ◌ shipped  ◆ you'
@@ -1262,10 +1285,11 @@ export function fieldOf(view: View): FieldProps {
       if (!p) continue
       const isDim = (traced !== null && traced !== t.id) || !topicMatches(ui.query, t)
       const countLabel = ui.query.trim() ? `${t.sessions.filter(s => matches(ui.query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
-      nodes.push(node({ id: t.id, kind: 'topic', x: p.x, y: p.y, label: `${clip(t.name, 24)} ${countLabel}`, color: t.color, isMajor: t.isMajor, isDim, isSelected: false, title: t.name }))
+      const w = t.isMajor ? pillWidth(t.name, countLabel) : 16 + (clip(t.name, 24).length + countLabel.length + 1) * 6.9
+      nodes.push(node({ id: t.id, kind: 'topic', x: p.x, y: p.y, w: Math.round(w), label: `${clip(t.name, 24)} ${countLabel}`, color: t.color, isMajor: t.isMajor, isDim, isSelected: false, title: t.name }))
       const half = t.isMajor ? pillWidth(t.name, countLabel) / 2 : undefined
       t.sessions.slice(0, perTopic).forEach((s, k) => {
-        const sp = satellitePosition(p, t.id, k, t.isMajor, half)
+        const sp = satellitePosition(p, t.id, k, t.isMajor, half, size)
         nodes.push(node({ id: s.id, kind: 'session', x: Math.round(sp.x), y: Math.round(sp.y), label: '', title: clip(s.title, 24), color: t.color, isDim: isDim || !s.isInRange || !matches(ui.query, s), isSelected: ui.selected === s.id, isArchived: s.status === 'archived', isActive: s.status === 'active', topicId: t.id }))
       })
     }
@@ -1277,7 +1301,10 @@ export function fieldOf(view: View): FieldProps {
   } else {
     const steps = chainOf(view, focus)
     const positions = chainPositions(steps.length)
-    nodes.push(node({ id: focus.id, kind: 'topic', x: FOCUS_PILL.x, y: FOCUS_PILL.y, label: `${clip(focus.name, 24)} ${steps.filter(s => !s.isYou).length} of ${focus.sessions.length}`, color: focus.color, isMajor: true, title: focus.name }))
+    const focusCount = `${steps.filter(s => !s.isYou).length} of ${focus.sessions.length}`
+    nodes.push(node({ id: focus.id, kind: 'topic', x: FOCUS_PILL.x, y: FOCUS_PILL.y, w: Math.round(pillWidth(focus.name, focusCount)), label: `${clip(focus.name, 24)} ${focusCount}`, color: focus.color, isMajor: true, title: focus.name }))
+    // The "‹ All topics" pill at the top left: a press on it backs out.
+    nodes.push(node({ id: 'back', kind: 'back', x: 62, y: 27, w: 96, label: '‹ All topics', color: ACCENT }))
     steps.forEach((step, i) => {
       const pt = positions[i]
       if (!pt) return
@@ -1304,11 +1331,11 @@ export function fieldOf(view: View): FieldProps {
       rel.forEach((r, i) => {
         const rt = model.topicById[r.id]
         const ap = apos[i]
-        if (rt && ap) nodes.push(node({ id: rt.id, kind: 'topic', x: ap.x, y: ap.y, label: `${clip(rt.name, 14)} · ${clip(r.via, 10)}`, color: rt.color, isMajor: false, isDim: true, title: rt.name }))
+        if (rt && ap) nodes.push(node({ id: rt.id, kind: 'topic', x: ap.x, y: ap.y, w: 40 + (clip(rt.name, 20).length + clip(r.via, 18).length + 2) * 6.4, label: `${clip(rt.name, 14)} · ${clip(r.via, 10)}`, color: rt.color, isMajor: false, isDim: true, title: rt.name }))
       })
     }
   }
-  const field: FieldProps = { mode: focus ? 'focus' : 'map', hint: hintOf(view), nodes, links, legend }
+  const field: FieldProps = { mode: focus ? 'focus' : 'map', hint: hintOf(view), nodes, links, legend, fieldW: size.w, fieldH: size.h }
   if (JSON.stringify(field).length > FIELD_CHARS) field.nodes = nodes.filter(n => n.kind !== 'session')
   return field
 }

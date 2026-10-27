@@ -5,6 +5,7 @@ import type { FsEntry, On } from 'claude-code'
 import { backedOut } from '../hooks/actions'
 import { INITIAL_UI } from '../hooks/state'
 import { transcripts } from './fixtures/transcripts'
+import { pathOf } from './helpers'
 
 const CWD = 'D:\\Projects\\web-app'
 const SLUG = 'D--Projects-web-app'
@@ -94,13 +95,13 @@ function stubEngine(on: On, options: { store?: Record<string, unknown>; now?: nu
   on('ui.log', () => ({ value: undefined }))
   on('ui.focus', () => ({}))
   on('tool.list', () => ({ value: [] }))
-  on('fs.list', (_, e) => ({ value: e.path === `${ROOT}/${SLUG}` ? entries() : [] }))
+  on('fs.list', (_, e) => ({ value: pathOf(e.path) === `${ROOT}/${SLUG}` ? entries() : [] }))
   on('fs.read', (_, e) => {
-    const id = (e.path.split('/').pop() ?? '').replace(/\.jsonl$/, '')
+    const id = (pathOf(e.path).split('/').pop() ?? '').replace(/\.jsonl$/, '')
     return { value: transcripts[FILES[id]?.key ?? ''] ?? '' }
   })
   on('fs.write', (_, e) => {
-    stubs.written[e.path] = e.text
+    stubs.written[pathOf(e.path)] = e.text
     return { value: undefined }
   })
   on('prompt.fill', (_, e) => {

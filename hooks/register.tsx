@@ -11,8 +11,8 @@ import type { EngineInterface, PluginOptions, Register, ResolveInput } from 'cla
 import {
   actionsFor,
   backedOut,
-  bootstrap,
   describeTopics,
+  ensureSession,
   exportMarkdown,
   joinOrCreate,
   listSteps,
@@ -20,26 +20,26 @@ import {
   openMapAt,
   openMapFind,
   openMapPane,
+  openOnAttach,
   parkNote,
   periodicRescan,
   pickUpStep,
   rescan,
   scheduleNote,
   scheduleRescan,
+  startSession,
   suggestFor,
   viewOf,
 } from './actions'
-import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, svgOf } from './draw'
+import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, pictureSize, svgOf } from './draw'
 import type { Table } from './draw'
+import { BASE } from './layout'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
 // The atoms are declared where they are read, as `claude plugin validate` asks.
-const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-1' })
+const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-2' })
 const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-3' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
-
-/** Rows the Desktop hit layer takes: about the Svg's 520 px at the code font's line height; tune once seen locally. */
-const HIT_ROWS = 30
 
 const COMMANDS = [
   { name: 'map', description: 'Open or close the Constellation topic map; "here" prints it in the chat, a topic name opens on it', argumentHint: '[here|<topic>|find <text>|settings|export [path]|close|help]' },
@@ -72,38 +72,52 @@ function tableOf<E extends ResolveInput>($: EngineInterface, e: E): Table {
   return { Box: T.Box, Text: T.Text, Button: T.Button, Input: T.Input, Select: T.Select, Svg: T.Svg }
 }
 
-async function start($: EngineInterface, options: PluginOptions, cwd: string, isInteractive: boolean): Promise<void> {
+/**
+ * Whether a surface can show the pane at start: a person at a REPL, a
+ * Desktop or VS Code window (whose sessions the engine starts headless, with
+ * `isInteractive` false), or that window's entry point in the environment.
+ */
+async function canOpenPane($: EngineInterface, e: { surface: string | null; isInteractive: boolean }): Promise<boolean> {
+  if (e.isInteractive || e.surface === 'desktop' || e.surface === 'vscode') return true
   try {
-    await bootstrap($, options, cwd)
-  } catch (error) {
-    $.ui.log(`constellation: start failed: ${String(error)}`, { to: 'debug' })
-  }
-  const settings = await read($, settingsAtom)
-  if (settings.openOnStart === 'pane' && isInteractive) {
-    try {
-      await openMapPane($)
-    } catch (error) {
-      $.ui.log(`constellation: pane not opened: ${String(error)}`, { to: 'debug' })
-    }
+    const entry = (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) ?? ''
+    return entry === 'claude-desktop' || entry === 'claude-vscode'
+  } catch {
+    return false
   }
 }
 
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await registerCommands($)
-    await start($, options, e.cwd, e.isInteractive)
+    await startSession($, options, e.cwd, await canOpenPane($, e))
     $.clock.every(120_000, () => void periodicRescan($))
+    // The session can change under the process (/clear, a resume) without a hook this mod can count on: a cheap watch.
+    $.clock.every(3000, () => void ensureSession($))
     return next(e)
   })
 
   on('classic.SessionStart', async ($, e, next) => {
     if (e.source === 'clear' || e.source === 'resume' || e.source === 'fork') {
-      await start($, options, e.cwd, true)
+      await startSession($, options, e.cwd, true)
     }
     return next(e)
   })
 
+  // A Desktop or VS Code window joins after the start: the pane opens now when the settings ask.
+  on('session.attach', async ($, e, next) => {
+    await openOnAttach($, e.surface)
+    return next(e)
+  })
+
+  // /clear and a resume move the process to a new session id and reset the state; this hook runs even where classic.SessionStart is kept from the mod.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear' || e.reason === 'resume') $.clock.after(400, () => void ensureSession($))
+    return next(e)
+  })
+
   on('command.run', { command: 'map' }, async ($, e) => {
+    await ensureSession($)
     const args = e.args.trim()
     const [word = '', ...rest] = args.split(/\s+/)
     const arg = word.toLowerCase()
@@ -134,12 +148,14 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'topic' }, async ($, e) => {
+    await ensureSession($)
     const arg = e.args.trim()
     if (!arg) return { text: await describeTopics($) }
     return { text: await joinOrCreate($, arg) }
   })
 
   on('command.run', { command: 'park' }, async ($, e) => {
+    await ensureSession($)
     const text = e.args.trim()
     if (!text) return { text: 'Usage: /park <note>. The note is saved as this session’s handoff note for the next session on its topic.' }
     await parkNote($, text, 'manual', { quiet: true })
@@ -147,6 +163,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'pickup' }, async ($, e) => {
+    await ensureSession($)
     const arg = e.args.trim().toLowerCase()
     if (arg === 'list' || arg === '?') return { text: await listSteps($) }
     return { text: await pickUpStep($, e.args) }
@@ -154,6 +171,7 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta) return next(e)
+    await ensureSession($)
     const me = await read($, meAtom)
     const settings = await read($, settingsAtom)
     const context = [...(e.context ?? [])]
@@ -168,6 +186,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    await ensureSession($)
     if (e.agentId === undefined && !e.isAborted && e.reason === 'answer') {
       const settings = await read($, settingsAtom)
       if (settings.handoffNotes === 'auto') scheduleNote($)
@@ -186,23 +205,29 @@ export const register: Register = (on, options) => {
       const field = <Client key="map" module="../client/map.js" props={fieldOf(view)} height={rows} />
       return drawPane(tableOf($, e), view, actionsFor($), field)
     }
-    if (e.surface === 'desktop' && view.settings.desktopHits) {
-      // Experimental: the same Client, drawing nothing, laid over the Svg to take pointer hits on the picture.
+    // The picture is sized from the pane's width, since an interactive Svg keeps a browser's 300×150 otherwise.
+    const picture = pictureSize(e.props.bodyColumns, view.settings, view.ui.focusTopic ? BASE : view.field)
+    if (e.surface === 'desktop' && view.settings.pictureClicks !== 'off') {
+      // The Svg never passes a click on; the same Client as the terminal's map, drawing nothing (or its outline), lies over it
+      // at the same size in cells, and reports hovers and picks on the picture.
       const { Box, Client, Svg } = $.ui.resolve({ ...e, surface: 'desktop' as const })
       const field = (
-        <Box flexDirection="column" key="field">
-          <Svg source={svgOf(view)} alt={altOf(view)} />
-          <Box position="absolute" top={0} left={0} width="100%" height={HIT_ROWS}>
-            <Client key="map" module="../client/map.js" props={{ ...fieldOf(view), hits: true }} width="100%" height={HIT_ROWS} />
+        <Box key="field" flexDirection="column" alignSelf="flex-start" width={picture.cols} height={picture.rows}>
+          <Svg source={svgOf(view)} alt={altOf(view)} isInteractive width={picture.w} height={picture.h} />
+          <Box position="absolute" top={0} left={0} width={picture.cols} height={picture.rows}>
+            <Client key="map" module="../client/map.js" props={{ ...fieldOf(view), hits: true, outline: view.settings.pictureClicks === 'outline' }} width={picture.cols} height={picture.rows} />
           </Box>
         </Box>
       )
       return drawPane(tableOf($, e), view, actionsFor($), field)
     }
-    return drawPane(tableOf($, e), view, actionsFor($))
+    const T = tableOf($, e)
+    const field = T.Svg ? <T.Svg source={svgOf(view)} alt={altOf(view)} isInteractive width={picture.w} height={picture.h} /> : undefined
+    return drawPane(T, view, actionsFor($), field)
   })
 
   on('ui.message', { element: 'map' }, async ($, e, next) => {
+    await ensureSession($)
     await onClientMessage($, e.data)
     return next(e)
   })
@@ -211,7 +236,7 @@ export const register: Register = (on, options) => {
     const word = e.props.args.trim().split(/\s+/)[0]?.toLowerCase()
     if (word !== 'here') return next(e)
     const view = await viewOf($, e.surface)
-    return drawInlineRow(tableOf($, e), view, actionsFor($))
+    return drawInlineRow(tableOf($, e), view, actionsFor($), e.viewport?.columns ?? 100)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -232,6 +257,7 @@ export const register: Register = (on, options) => {
 
   on('ui.close', { id: PANE }, async ($, e, next) => {
     if (e.origin.kind !== 'person') return next(e)
+    await ensureSession($)
     const ui = await read($, uiAtom)
     const backed = backedOut(ui)
     if (!backed) return next(e)
