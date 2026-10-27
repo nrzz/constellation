@@ -329,8 +329,15 @@ facts". Work like this:
 7. The mod itself must never use the network or Node globals; only the dev
    tooling (npx typescript) may.
 
-## Environment facts (an earlier machine: user `nares`, the installer app, the repo at D:\Projects\constellation; verified 2026-10-27. For the owner's Windows 10 machine, where work continues, see docs/HANDOVER.md section 7)
+## Environment facts (the second machine: user `nares`, Windows 11 Home, the repo at D:\Projects\constellation; verified 2026-10-28. For the owner's Windows 10 machine see docs/HANDOVER.md)
 
+- Claude Desktop from its installer (not the Store app), so its Claude Code
+  lives under `%APPDATA%\Claude\claude-code\<version>\<build>\claude.exe`
+  (2.1.304 and 2.1.308 there; use the newest). No `claude` on PATH at all.
+- Windows PowerShell 5.1 only (no `pwsh`); Git Bash's `sh` and `dash` are
+  there, which is where `tests/e2e/installers.sh` runs (no WSL distro, so no
+  `tui.sh` or terminal pictures here). Node and `npx` on PATH; Playwright
+  global (`NODE_PATH="$(npm root -g)"`), with Edge (`channel: 'msedge'`).
 - Claude Code CLI for validate/test (not on PATH):
   `C:\Users\nares\AppData\Roaming\Claude\claude-code\2.1.308\c17a819afb40\claude.exe`
   → `claude plugin validate --strict D:\Projects\constellation`,
@@ -745,6 +752,52 @@ Results: 146 unit tests; `tests/e2e/tui.sh` 67 checks;
 (`installers.ps1` waits on a Windows run: PowerShell could not be fetched
 into the cloud container).
 
+## Done on Windows (2026-10-27/28, the re-test and the live pane)
+
+On the second machine (Environment facts above), the build at 4c378de was
+re-tested end to end (record: `analysis-4c378de/REPORT.md` in the main
+checkout, gitignored; summary in docs/HANDOVER.md). Fixed, each with a test
+that failed first:
+
+- S-1, a Desktop paste was not a prompt (9690493): `<pasted_content>` tags
+  go and the text stays, a paste counts as a turn, join scoring skips the
+  tags, the scan cache moves to `scan3:`.
+- S-2, a scheduled task's run showed "0 turns" (1f8bd3f): its trigger row
+  counts as a turn; its boilerplate is still no first prompt.
+- The installers (b02e1c0): `install.ps1` no longer reports success when no
+  `claude` ran (a stale `$LASTEXITCODE`), counts only programs on PATH, lists
+  the Desktop's folders literally, reads UTF-8 output whatever the code page;
+  `install.sh` survives no HOME; a macOS bundled Desktop binary is found
+  (12af2d5). installers.ps1 56 checks, installers.sh 78 (sh, dash, bash).
+- Non-Latin topic names (62312f3): a topic named in any script has its own
+  id and name key.
+- The live pane (the owner's call on 27 October, after seeing the reference
+  skills graph): `pictureMode` (`live` default, `clicks`). Live draws the
+  field Svg with `isInteractive: true` and no Client layer: CSS hover traces
+  a topic and swaps the hint for its caption, stars twinkle, satellites sway,
+  topics float, an idle cycle traces each major topic with a soft 0.4 fade
+  stepped by `--k` and eased by each part's own transition (`@property` was
+  dropped: its `syntax:'<number>'` cut the sheet in Chromium), running topics
+  wear a ring and glow and running sessions a core and a ripple, all stopped
+  by reduced motion. Clicks keeps the image and the layer. Satellite markup
+  was slimmed (one translated group each) so the 40-topic map keeps its
+  satellites under the 131072-character cap.
+- Every cell surface restyled to one standard (L4a, L4b): chips tinted in a
+  topic's colour, no solid primary slabs, hairline translucent cards, meta dim
+  and mono, sentence case; the accent (amber) only for you, live and the
+  selection, so the palette's first colour became lime; problem toasts in
+  coral.
+- The review (five reviewers, five refuters, 43 findings) became items R1
+  onward (docs/HANDOVER.md has the table): the click layer holds only what the picture drew, a dot's own cell
+  picks it, only the left button picks, picture/layer parity in the unit
+  tests and the Desktop harness, narrow panes clicked whole-cell, topic names
+  unique by name key on rename and `/topic`, one session drawn once when two
+  files carry its id, ages never "now ago", the legend's active mark drawn
+  as a running satellite, the band-to-band link clear of step labels.
+
+Results at the end of the lanes: plugin test 255, desktop.mjs 265 checks,
+installers.ps1 56, installers.sh 78; tui.sh not run (no WSL distro).
+
 ## Release checklist
 
 1. `/plugin install constellation --marketplace nrzz/constellation` in any
@@ -754,8 +807,8 @@ into the cloud container).
 2. On a real Desktop window, look at the layer over the picture once: the
    wire, the module, the Desktop's sizing and every click are checked by
    `tests/e2e/desktop.mjs`; only the Desktop's own layout of the layer is
-   not. Settings, Advanced, **Clicks on the picture: Outline** draws its
-   edge, which should meet the picture's bottom (else **Layer height**); the
+   not. Settings, Advanced, **Picture: Clicks** and then **Clicks on the
+   picture: Outline** draws its edge, which should meet the picture's bottom (else **Layer height**); the
    buttons under the field do the same work either way. On Windows, also
    `tests/e2e/installers.ps1`.
 3. Watch the first real folder: large transcripts, the auto topic names, the
