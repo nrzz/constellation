@@ -11,7 +11,7 @@ the band, the commands, handoff injection, auto notes, the terminal's
 text-mode map Client, and the features added beyond the brief (topic goals,
 rename, recolour, merge, a "since your last look" digest, a status line,
 Draft next prompt, `/map export`, a model-spend counter, letter hotkeys).
-`claude plugin validate --strict`, `claude plugin test` (112 tests) and `tsc`
+`claude plugin validate --strict`, `claude plugin test` (123 tests) and `tsc`
 pass. The generated field was compared with the prototype by eye through
 the preview page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
 
@@ -455,7 +455,7 @@ declarations it embeds as a zstd frame), to settle how a Desktop Client works:
    `ui.message` hook. The Desktop keeps the Svg plus buttons: whether an
    absolutely placed Client can sit over the Svg there could not be tried in
    the cloud.
-7. Tests: 112 across scan, cluster, layout, the mod through the engine on
+7. Tests: 123 across scan, cluster, layout, the mod through the engine on
    desktop and terminal, the Client, and an edge-case suite (empty folders,
    hostile and huge transcripts, bounded scans, every openOnStart, a refusing
    store, model failures, dismissed dialogs, key and hotkey uniqueness in every

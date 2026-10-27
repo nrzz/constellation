@@ -19,7 +19,7 @@ Desktop sidebar and nothing is lost between them.
   model was asked.
 
 Status: built in Claude Code 2.1.310. `claude plugin validate --strict`,
-`claude plugin test` (112 tests, including an edge-case suite), `tsc` and an end-to-end run of the real Claude Code TUI
+`claude plugin test` (123 tests, including an edge-case suite), `tsc` and an end-to-end run of the real Claude Code TUI
 (`tests/e2e/tui.sh`) pass. The rendered field was checked
 against the approved prototype
 ([preview](https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u),
