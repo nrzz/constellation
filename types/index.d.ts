@@ -60,7 +60,9 @@ export type MapSettings = {
   useModelForTitles: boolean
   openOnStart: 'band' | 'pane' | 'none'
   fieldBackground: 'transparent' | 'night'
-  /** The Desktop's pointer layer over the picture: on, drawn with its outline, or off. */
+  /** The Desktop's picture: live (an interactive frame: hover traces, motion) or clicks (an image under the pointer layer). */
+  pictureMode: 'live' | 'clicks'
+  /** With pictureMode clicks, the Desktop's pointer layer over the picture: on, drawn with its outline, or off. */
   pictureClicks: 'on' | 'outline' | 'off'
   /** Fine-tunes the layer's height over the picture, -3 to 3: each step is 0.02 of a cell's width-to-height ratio (0.39 at 0). */
   layerHeight: number

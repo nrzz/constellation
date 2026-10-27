@@ -515,6 +515,14 @@ async function openAdvanced(desk) {
   }
   if (!buttonOf(desk.tree, 'set:layerHeight:0')) throw new Error('no Layer height row in the settings')
 }
+/** Sets Picture: Clicks from the settings card, as a person would: these runs test the click picture (the image and its layer). */
+async function useClicks(desk) {
+  await desk.pane()
+  await openAdvanced(desk)
+  await desk.pressAndDraw('set:pictureMode:clicks')
+  check(buttonOf(desk.tree, 'set:pictureMode:clicks')?.props.variant === 'primary', 'Picture: Clicks is saved from the settings card')
+  await desk.pressAndDraw('settings:done')
+}
 /** The layer reaches the picture's bottom: its rows and the picture's height in rows differ by less than one. */
 function checkCovers(desk, label) {
   const picture = desk.pictureHeightPx() / desk.cell.h
@@ -575,6 +583,7 @@ async function fixtureFolderChecks() {
     check(Boolean(chip), '…with a join button for the folder’s topic')
 
     // The pane: the picture as an image, the pointer layer over it, the buttons under it.
+    await useClicks(desk)
     const r = await desk.pane()
     const svg = svgOfTree(r.tree)
     check(Boolean(svg), 'the pane draws the picture (an Svg)')
@@ -668,8 +677,7 @@ async function fixtureFolderChecks() {
     desk.mountLikeDesktop(cols)
 
     // The settings, pressed as buttons: outline, off, and back on.
-    await desk.pressAndDraw('settings')
-    await desk.pressAndDraw('set:advanced')
+    await openAdvanced(desk)
     await desk.pressAndDraw('set:pictureClicks:outline')
     check(desk.props()?.outline === true, 'Clicks on the picture: Outline reaches the layer')
     desk.mountLikeDesktop(cols)
@@ -755,6 +763,7 @@ async function bigFolderChecks() {
   try {
     await engine.request({ subtype: 'initialize' }, 90_000)
     await desk.attach()
+    await useClicks(desk)
     // The scan reads a big folder in passes of 40 files; the picture fills in as they land. Wait for all of them.
     const t0 = Date.now()
     let r = await desk.pane()
@@ -854,6 +863,7 @@ async function emptyFolderChecks() {
   try {
     await engine.request({ subtype: 'initialize' }, 90_000)
     await desk.attach()
+    await useClicks(desk)
     const r = await desk.pane()
     check(Boolean(svgOfTree(r.tree)) && /no topics yet/i.test(svgOfTree(r.tree).props.alt), 'the pane draws an empty picture, said so in its alt text', svgOfTree(r.tree)?.props.alt)
     await desk.loadModule()
@@ -908,7 +918,7 @@ async function openOnStartChecks() {
         const r = await desk.pane()
         check(!clientOf(r.tree) && Boolean(svgOfTree(r.tree)), 'VS Code draws the picture alone, with no pointer layer')
         check(findAll(r.tree, n => n.type === 'Button' && /^t:/.test(n.props?.key ?? '')).length > 0, '…and the topic buttons under it')
-        check(/Tab onto a topic to trace it/.test(svgOfTree(r.tree).props.source), '…and a hint that says the buttons pick')
+        check(/Hover a topic to trace it · its button below focuses it/.test(svgOfTree(r.tree).props.source), '…and the live picture’s hint: hover traces, the buttons pick')
       }
     } catch (error) {
       check(false, `the ${surface} start run`, String(error?.stack ?? error))

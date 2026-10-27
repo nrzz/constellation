@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   useModelForTitles: false,
   openOnStart: 'band',
   fieldBackground: 'transparent',
+  pictureMode: 'live',
   pictureClicks: 'on',
   layerHeight: 0,
 }
@@ -75,6 +76,7 @@ const CHOICES: { [K in keyof MapSettings]: readonly MapSettings[K][] | 'number' 
   useModelForTitles: 'boolean',
   openOnStart: ['band', 'pane', 'none'],
   fieldBackground: ['transparent', 'night'],
+  pictureMode: ['live', 'clicks'],
   pictureClicks: ['on', 'outline', 'off'],
   layerHeight: 'number',
 }

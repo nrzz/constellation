@@ -156,7 +156,7 @@ test('a headless start with openOnStart pane opens nothing, through classic.Sess
   expect((await run($, 'topic', '')).text).toContain('This session has no topic yet')
 })
 
-test('the pointer layer hit-tests a related anchor as the centred pill it is drawn as, and a focus ring on "+ New topic" dims nothing', async ($, on) => {
+test('the pointer layer hit-tests a related anchor as the centred pill it is drawn as, and a focus ring on "+ New topic" dims nothing', { options: { pictureMode: 'clicks' } }, async ($, on) => {
   const alpha = '88888888-aaaa-4bbb-8ccc-000000000008'
   const beta = '99999999-aaaa-4bbb-8ccc-000000000009'
   const edit = (id: string, uuid: string, at: string, file: string) => assistantRow(id, uuid, at, [{ type: 'text', text: 'Done.' }, { type: 'tool_use', id: `t-${uuid}`, name: 'Edit', input: { file_path: `D:\\Projects\\web-app\\src\\${file}` } }])

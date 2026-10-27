@@ -181,6 +181,8 @@ export function pointerHint(view: Pick<View, 'surface' | 'placement' | 'settings
     return hasMouse ? 'Click or Tab to a topic · Enter focuses' : 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen'
   }
   if (view.surface === 'mobile') return 'Tap a topic under the map to focus it'
+  // The live picture: hover traces in the frame's CSS; a click there carries no position, so its buttons pick.
+  if ((view.surface === 'desktop' || view.surface === 'vscode') && view.settings.pictureMode !== 'clicks') return 'Hover a topic to trace it · its button below focuses it'
   if (view.surface === 'desktop' && view.settings.pictureClicks !== 'off') return 'Hover or focus a topic to trace it · Enter or click to focus'
   return 'Tab onto a topic to trace it · Enter or its button under the map focuses'
 }
@@ -930,7 +932,8 @@ const SETTING_GROUPS: { title: string; rows: SettingRow[]; isAdvanced?: true }[]
       { key: 'majorRule', label: 'Major topic rule', help: 'what gets a labelled pill', options: [{ value: 'either', label: 'Either' }, { value: 'count', label: 'Count' }, { value: 'recent', label: 'Recent' }] },
       { key: 'majorMinSessions', label: 'Count threshold', help: 'sessions to count as major', options: [{ value: 2, label: '2' }, { value: 3, label: '3' }, { value: 5, label: '5' }] },
       { key: 'recentDays', label: 'Recent days', help: 'activity that keeps a topic major', options: [{ value: 3, label: '3d' }, { value: 7, label: '7d' }, { value: 14, label: '14d' }, { value: 30, label: '30d' }] },
-      { key: 'pictureClicks', label: 'Clicks on the picture', help: 'the Desktop’s pointer layer over the picture; outline draws its edge', options: [{ value: 'on', label: 'On' }, { value: 'outline', label: 'Outline' }, { value: 'off', label: 'Off' }] },
+      { key: 'pictureMode', label: 'Picture', help: 'live: hover traces and the map moves; clicks: a pointer layer over a still picture', options: [{ value: 'live', label: 'Live' }, { value: 'clicks', label: 'Clicks' }] },
+      { key: 'pictureClicks', label: 'Clicks on the picture', help: 'with Picture on Clicks, the pointer layer over it; outline draws its edge', options: [{ value: 'on', label: 'On' }, { value: 'outline', label: 'Outline' }, { value: 'off', label: 'Off' }] },
       { key: 'layerHeight', label: 'Layer height', help: 'with Outline on, its edge should end at the picture’s bottom', options: [-3, -2, -1, 0, 1, 2, 3].map(v => ({ value: v, label: v === 0 ? '0' : v > 0 ? `+${v}` : `−${-v}` })) },
     ],
   },

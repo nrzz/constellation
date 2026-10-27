@@ -129,9 +129,19 @@
       ],
       "default": "band"
     },
+    "pictureMode": {
+      "type": "string",
+      "title": "Picture (Desktop)",
+      "description": "live draws the map in a sandboxed frame where hovering a topic traces it and the map moves, and the buttons under it pick; clicks draws it as an image with an invisible pointer layer over it, so clicks on the picture pick and move",
+      "options": [
+        "live",
+        "clicks"
+      ],
+      "default": "live"
+    },
     "pictureClicks": {
       "type": "string",
-      "title": "Clicks on the picture (Desktop)",
+      "title": "Clicks on the picture (Desktop, Clicks picture)",
       "description": "on lays an invisible pointer layer over the map so clicks on the picture pick and move; outline draws that layer's edge and its readings; off keeps only the buttons under the map, which do the same work",
       "options": [
         "on",
@@ -142,7 +152,7 @@
     },
     "layerHeight": {
       "type": "number",
-      "title": "Layer height (Desktop)",
+      "title": "Layer height (Desktop, Clicks picture)",
       "description": "Fine-tunes how tall the pointer layer draws over the picture, from -3 (shorter) to 3 (taller); 0 fits Claude Desktop's own font. With Clicks on the picture set to Outline, its edge should end at the picture's bottom",
       "min": -3,
       "max": 3,

@@ -247,7 +247,7 @@ test('settings come in MAP, SESSION and ADVANCED groups, without row numbers; th
   await ui.unmount()
 })
 
-test('the terminal map’s hint: click and Tab on a docked pane; Tab, Enter and /tui fullscreen on an inline one, where the terminal reports no mouse', async ($, on) => {
+test('the terminal map’s hint: click and Tab on a docked pane; Tab, Enter and /tui fullscreen on an inline one, where the terminal reports no mouse', { options: { pictureMode: 'clicks' } }, async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
   const docked = await $.ui.mount(paneOn('terminal'))
@@ -267,7 +267,8 @@ test('the terminal map’s hint: click and Tab on a docked pane; Tab, Enter and 
 })
 
 test('the resting hint on each surface says how picking works there, in the picture and the Client alike', async () => {
-  const settings = { ...DEFAULT_SETTINGS }
+  // The click picture's hints (live has its own, tests/live.test.tsx).
+  const settings = { ...DEFAULT_SETTINGS, pictureMode: 'clicks' as const }
   expect(pointerHint({ surface: 'terminal', placement: 'dock', settings })).toBe('Click or Tab to a topic · Enter focuses')
   expect(pointerHint({ surface: 'terminal', placement: 'inline', settings })).toBe('Tab to a topic · Enter focuses · the mouse works in /tui fullscreen')
   expect(pointerHint({ surface: 'desktop', placement: 'dock', settings })).toBe('Hover or focus a topic to trace it · Enter or click to focus')

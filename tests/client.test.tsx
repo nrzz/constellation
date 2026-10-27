@@ -332,7 +332,7 @@ test('the Desktop layer: it draws the picture’s own height from its width, map
   expect(nodeAtPoint([near, minor], { x: 600, y: 285 }, { w: 8.9, h: 22.8 })?.id).toBe('m')
 })
 
-test('the Desktop pointer layer is on by default: a picture sized from the pane, a Client of the same size over it that draws nothing, traces on hover and picks on a click; a step and the back pill pick too', async ($, on) => {
+test('the Desktop pointer layer is on by default: a picture sized from the pane, a Client of the same size over it that draws nothing, traces on hover and picks on a click; a step and the back pill pick too', { options: { pictureMode: 'clicks' } }, async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
@@ -390,7 +390,7 @@ test('the Desktop pointer layer is on by default: a picture sized from the pane,
   await ui.unmount()
 })
 
-test('the outline mode draws the layer’s edge and readings over the picture; off keeps only the picture and the buttons', { options: { pictureClicks: 'outline' } }, async ($, on) => {
+test('the outline mode draws the layer’s edge and readings over the picture; off keeps only the picture and the buttons', { options: { pictureMode: 'clicks', pictureClicks: 'outline' } }, async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
@@ -412,7 +412,7 @@ test('the outline mode draws the layer’s edge and readings over the picture; o
   await ui.unmount()
 })
 
-test('VS Code and mobile draw the picture alone, as an image, with the buttons under it; a wide pane changes nothing', async ($, on) => {
+test('VS Code and mobile draw the picture alone, as an image, with the buttons under it; a wide pane changes nothing', { options: { pictureMode: 'clicks' } }, async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   for (const surface of ['vscode', 'mobile'] as const) {
