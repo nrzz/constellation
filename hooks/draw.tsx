@@ -537,6 +537,15 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       parts.push(g.join(''))
     }
     if (model.topics.length === 0) {
+      // An unformed constellation over the title: four faint stars a dashed hairline has yet to join.
+      const cx = size.w / 2
+      const cy = size.h / 2 - 62
+      const stars: [number, number, number][] = [[-54, 10, 2.5], [-18, -12, 3.5], [20, 6, 2.5], [56, -10, 3]]
+      parts.push(
+        `<g class="empty"><path d="M${stars.map(([x, y]) => `${cx + x} ${cy + y}`).join('L')}" fill="none" style="stroke:var(--ln)" stroke-width="1" stroke-dasharray="3 5"/>`,
+        ...stars.map(([x, y, r], k) => `<circle class="tw" cx="${cx + x}" cy="${cy + y}" r="${r}" style="fill:var(--star2);animation-duration:${4 + k * 1.3}s"/>`),
+        '</g>',
+      )
       parts.push(`<text x="${size.w / 2}" y="${size.h / 2 - 10}" font-size="15" font-weight="500" style="fill:var(--tx)" text-anchor="middle">No sessions on this map yet</text>`)
       parts.push(`<text x="${size.w / 2}" y="${size.h / 2 + 16}" font-size="12" style="fill:var(--mu)" text-anchor="middle">Sessions in this folder appear here once they have run; /topic names this one.</text>`)
     }
@@ -671,15 +680,19 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     )
   }
 
+  // An empty map has nothing to hover and nothing to tell apart: its title alone, no hint and no legend.
+  const isEmpty = !focus && model.topics.length === 0
   const hint = hintFitted(view, size)
   const hw = 24 + hint.length * 6.3
-  parts.push(
-    `<g class="hint"><rect x="${(size.w / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/>`,
-    `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--lb)" text-anchor="middle">${esc(hint)}</text></g>`,
-    ...caps,
-  )
+  if (!isEmpty) {
+    parts.push(
+      `<g class="hint"><rect x="${(size.w / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/>`,
+      `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--lb)" text-anchor="middle">${esc(hint)}</text></g>`,
+    )
+  }
+  parts.push(...caps)
   const ly = size.h - 16
-  parts.push(
+  if (!isEmpty) parts.push(
     `<g font-size="11" style="fill:var(--mu)">`,
     `<circle cx="20" cy="${ly - 4}" r="4" fill="${ACCENT}"/><text x="29" y="${ly}">active</text>`,
     `<circle cx="78" cy="${ly - 4}" r="4" fill="none" style="stroke:var(--mu)" stroke-width="1.5"/><text x="87" y="${ly}">idle</text>`,
@@ -1068,7 +1081,16 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
   const framed = view.surface !== 'terminal'
   return (
     <Box flexDirection="column" gap="xs">
-      {topics.length === 0 ? <Text dimColor>{query ? 'Nothing matches the search.' : 'No sessions on this map yet. Run a session in this folder, or name this one with /topic <name>.'}</Text> : null}
+      {topics.length === 0
+        ? card(
+            T,
+            query.trim()
+              ? [<Text key="e:title" weight="medium">{`Nothing matches “${clip(query.trim(), 40)}”`}</Text>, <Text key="e:line" dimColor size="footnote">Search looks through titles, first prompts, notes, files and branches.</Text>]
+              : [<Text key="e:title" weight="medium">No sessions on this map yet</Text>, <Text key="e:line" dimColor size="footnote">{'Sessions in this folder appear here once they have run; /topic <name> names this one.'}</Text>],
+            HAIRLINE,
+            { key: 'cd:empty' },
+          )
+        : null}
       {topics.map(t => {
         const isOpen = ui.focusTopic === t.id
         const steps = isOpen ? chainOf(view, t).filter(s => s.isYou || (s.session && matches(query, s.session))) : []
@@ -1453,7 +1475,11 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
       ) : null}
     </Box>,
     !isUnsorted ? <Text dimColor>{topic.goal ? `Goal: ${clip(topic.goal, 200)}` : 'No goal yet. A goal travels with every handoff on this topic.'}</Text> : null,
-    <Text>{latest ? `Latest: ${clip(latest.title, 60)} (${ageOf(latest.lastAt, now)} ago). ${clip(noteText(latest), 220)}` : isUnsorted ? 'Sessions nothing else claimed. Select one and Move to topic to file it.' : 'No sessions yet.'}</Text>,
+    latest ? (
+      <Text>{`Latest: ${clip(latest.title, 60)} (${ageOf(latest.lastAt, now)} ago). ${clip(noteText(latest), 220)}`}</Text>
+    ) : (
+      <Text dimColor>{isUnsorted ? 'Sessions nothing else claimed. Select one and Move to topic to file it.' : 'No sessions yet. Each session that joins this topic becomes the next step of its chain.'}</Text>
+    ),
     ui.editing === 'rename' && Input && !isUnsorted ? (
       <Box flexDirection="row" gap="xs" alignItems="center">
         <Input key="rename" value={topic.name} placeholder="Topic name" submitLabel="rename" onSubmit={name => act.rename(topic.id, name)} autoFocus />
@@ -1466,15 +1492,15 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
         {outline(T, view, 'ob:goal:cancel', [<Button key="goal:cancel" label="Cancel" plain={framed || undefined} onPress={() => act.edit(null)} />])}
       </Box>
     ) : null,
-    <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
+    rel.length === 0 ? (
+      <Text dimColor size="footnote">
+        No related topics yet; a topic whose sessions touch the same files links here.
+      </Text>
+    ) : null,
+    rel.length === 0 ? null : <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
       <Text dimColor size="footnote">
         related
       </Text>
-      {rel.length === 0 ? (
-        <Text dimColor size="footnote">
-          none
-        </Text>
-      ) : null}
       {rel.map(r => {
         const rt = model.topicById[r.id]
         return rt

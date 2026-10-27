@@ -8,8 +8,9 @@
 //   list      the List view, the first topic open with a step selected
 //   settings  the settings view, the advanced rows unfolded
 //   states    the band asking for a note and naming a new topic, a toast with Undo and a refused one
+//   empty     an empty folder's field and List view, a search that matches nothing, a topic with no sessions yet
 //
-//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus|cards|list|settings|states]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
+//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus|cards|list|settings|states|empty]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
 //
 // The Desktop draws a Button's children as one flat label in the button's own colours (a `primary` one a
 // light slab, a default one a grey chip, a `plain` one as text), a hotkey as a small key cap after the
@@ -108,12 +109,18 @@ function html(n) {
     const cls = p.plain ? 'btn plain' : p.variant === 'primary' ? 'btn primary' : 'btn'
     return `<span class="${cls}"${p.dimColor ? ' style="opacity:.6"' : ''}>${label}${key}</span>`
   }
+  if (n.type === 'Raw') return n.html
   return kids
 }
 
 const column = (...kids) => h('Box', { flexDirection: 'column', gap: 'xs' }, ...kids)
 const field = label => h('Box', { paddingY: 'lg' }, h('Text', { dimColor: true }, label))
 const focused = { ...view, model: { ...model, links: [{ a: 't1', b: 't2', via: 'draw.tsx' }] }, ui: { ...ui, focusTopic: 't1', selected: 't1-2' } }
+const emptyModel = { topics: [], sessions: [], links: [], byId: {}, topicById: {} }
+const emptyView = { ...view, model: emptyModel, me: { ...view.me, topicId: null }, field: { w: 640, h: 300 }, placed: [] }
+const fresh = { ...topics[0], id: 't9', name: 'Fresh start', sessions: [] }
+// The field's own theme follows the page's colour scheme: pin it to the panel's.
+const picture = (v, theme) => ({ type: 'Raw', props: {}, children: [], html: `<img style="width:640px;height:300px" src="data:image/svg+xml;utf8,${encodeURIComponent(draw.svgOf(v).replace('@media (prefers-color-scheme:light)', theme === 'light' ? '@media all' : '@media not all'))}">` })
 const SCENES = {
   chooser: [['band', () => draw.drawChooser(T, view, act, 'band')], ['pane chooser', () => draw.drawChooser(T, view, act, 'pane')]],
   map: [
@@ -134,10 +141,16 @@ const SCENES = {
     ['toast', () => draw.drawToast(T, { ...view, ui: { ...ui, toast: { text: 'Archived “Gates on the branch”.', hasUndo: true } } }, act)],
     ['toast: refused', () => draw.drawToast(T, { ...view, ui: { ...ui, toast: { text: 'Could not draft here: a dialog is open.', hasUndo: false, isProblem: true } } }, act)],
   ],
+  empty: [
+    ['field: an empty folder', theme => picture(emptyView, theme)],
+    ['list: an empty folder', () => draw.drawList(T, { ...emptyView, ui: { ...ui, view: 'list' } }, act)],
+    ['list: no match', () => draw.drawList(T, { ...view, ui: { ...ui, view: 'list', query: 'zzqx' } }, act)],
+    ['topic card: no sessions yet', () => draw.drawTopicCard(T, { ...view, model: { ...model, topics: [...topics, fresh], topicById: { ...model.topicById, t9: fresh } }, ui: { ...ui, focusTopic: 't9' } }, act, fresh)],
+  ],
 }
 const panels = []
 for (const [label, build] of SCENES[WHICH]) {
-  for (const theme of ['dark', 'light']) panels.push(`<div class="panel ${theme}"><div class="tag">${label} · ${theme}</div>${html(build())}</div>`)
+  for (const theme of ['dark', 'light']) panels.push(`<div class="panel ${theme}"><div class="tag">${label} · ${theme}</div>${html(build(theme))}</div>`)
 }
 const page = `<!doctype html><meta charset="utf-8"><style>
 body{margin:0;background:#888;font:14px 'Segoe UI',system-ui,sans-serif}
@@ -158,7 +171,7 @@ fs.writeFileSync(htmlFile, page)
 
 const browsers = [path.join(process.env['ProgramFiles(x86)'] ?? '', 'Microsoft/Edge/Application/msedge.exe'), path.join(process.env.ProgramFiles ?? '', 'Google/Chrome/Application/chrome.exe'), 'chromium', 'google-chrome']
 const bin = browsers.find(b => !b.includes(path.sep) || fs.existsSync(b))
-const shot = spawnSync(bin, ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--user-data-dir=${path.join(tmp, 'profile')}`, '--force-device-scale-factor=2', '--window-size=1000,900', `--screenshot=${OUT}`, pathToFileURL(htmlFile).href], { encoding: 'utf8' })
+const shot = spawnSync(bin, ['--headless=new', '--disable-gpu', '--hide-scrollbars', `--user-data-dir=${path.join(tmp, 'profile')}`, '--force-device-scale-factor=2', `--window-size=1000,${WHICH === 'empty' ? 1500 : 900}`, `--screenshot=${OUT}`, pathToFileURL(htmlFile).href], { encoding: 'utf8' })
 if (!fs.existsSync(OUT)) {
   console.error('no picture:', shot.stderr)
   process.exit(1)
