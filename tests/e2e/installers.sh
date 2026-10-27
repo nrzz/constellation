@@ -91,6 +91,19 @@ for shell in sh dash bash; do
   check "$shell: an old claude on PATH (2.1.283) falls back to the Desktop app's 2.1.308 (macOS)" "$([ $CODE = 0 ] && [ "$RAN" = "$HOME_DIR/$MAC/2.1.308/c17a819afb40/claude plugin install constellation --marketplace nrzz/constellation" ] && echo 0 || echo 1)" "$CODE: $RAN"
   check "$shell: …and says why" "$(echo "$OUT" | grep -q "Claude Code 2.1.283 is on PATH; mods need 2.1.287 or later. Using the Claude Desktop app's own 2.1.308" && echo 0 || echo 1)" "$OUT"
 
+  # The Desktop puts a Mac build whose manifest has a bundle inside it: <version>/<build>/claude.app/Contents/MacOS/claude.
+  fresh
+  stub "$BIN/claude" 2.1.283
+  stub "$HOME_DIR/$MAC/2.1.308/c17a819afb40/claude.app/Contents/MacOS/claude" 2.1.308
+  run "$shell"
+  check "$shell: an old claude on PATH falls back to the Desktop app's macOS bundle (claude.app/Contents/MacOS/claude)" "$([ $CODE = 0 ] && [ "$RAN" = "$HOME_DIR/$MAC/2.1.308/c17a819afb40/claude.app/Contents/MacOS/claude plugin install constellation --marketplace nrzz/constellation" ] && echo 0 || echo 1)" "$CODE: $RAN"
+
+  fresh
+  stub "$HOME_DIR/$MAC/2.1.304/aaaa/claude" 2.1.304
+  stub "$HOME_DIR/$MAC/2.1.311/bbbb/claude.app/Contents/MacOS/claude" 2.1.311
+  run "$shell"
+  check "$shell: no claude on PATH, a flat 2.1.304 and a bundled 2.1.311: the bundle, being newer, installs" "$([ $CODE = 0 ] && echo "$RAN" | grep -q '/2.1.311/bbbb/claude.app/Contents/MacOS/claude plugin install' && echo 0 || echo 1)" "$CODE: $RAN"
+
   fresh
   stub "$HOME_DIR/.config/Claude/claude-code/2.1.304/aaaa/claude" 2.1.304
   stub "$HOME_DIR/.config/Claude/claude-code/2.1.311/bbbb/claude" 2.1.311
