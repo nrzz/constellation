@@ -32,7 +32,33 @@ const PLUGIN = 'constellation'
 const PANE = 'constellation'
 const SVG_MAX_BYTES = 128 * 1024 // the engine's bound on an Svg's source
 const SVG_MAX_PX = 4096 // and on its size
-const CELL_ASPECT = 0.47 // a code font's advance over its line height: how many rows a picture of a given width covers
+/** A cell of Claude Desktop's panes, measured on Windows (3.6556, 96 DPI): 300 px of picture is 39 columns, six rows are 119 px. */
+const DESKTOP_CELL = { w: 7.7, h: 19.8 }
+
+/**
+ * How to start `claude`. On Windows an .exe starts directly: through a shell, a kill or an exit wait would reach
+ * cmd.exe, not claude.exe, which then still holds its folder when the run cleans up (EPERM). A .cmd shim needs the
+ * shell, and gets one quoted command line (no argument array, which Node deprecates with a shell).
+ */
+function resolveClaude() {
+  if (!IS_WIN) return { file: CLAUDE, shell: false }
+  let file = CLAUDE
+  if (!/[\\/]/.test(file)) {
+    const found = spawnSync('where', [file], { encoding: 'utf8' }).stdout?.split(/\r?\n/).map(l => l.trim()).filter(Boolean) ?? []
+    file = found.find(f => /\.exe$/i.test(f)) ?? found[0] ?? file
+  }
+  return { file, shell: !/\.exe$/i.test(file) }
+}
+const CLAUDE_RUN = resolveClaude()
+const quote = a => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a)
+/** Spawns `claude` with arguments, the shell only where a shim needs one. */
+function spawnClaude(args, options, sync = false) {
+  if (CLAUDE_RUN.shell) {
+    const line = [CLAUDE_RUN.file, ...args].map(quote).join(' ')
+    return sync ? spawnSync(line, { ...options, shell: true }) : spawn(line, { ...options, shell: true })
+  }
+  return sync ? spawnSync(CLAUDE_RUN.file, args, options) : spawn(CLAUDE_RUN.file, args, options)
+}
 
 let passed = 0
 let failed = 0
@@ -159,7 +185,7 @@ function engineEnv(cfg) {
 }
 
 function install(cfg) {
-  const r = spawnSync(CLAUDE, ['plugin', 'install', PLUGIN, '--marketplace', REPO], { env: engineEnv(cfg), encoding: 'utf8', shell: IS_WIN })
+  const r = spawnClaude(['plugin', 'install', PLUGIN, '--marketplace', REPO], { env: engineEnv(cfg), encoding: 'utf8' }, true)
   if (r.status !== 0 || !/Successfully installed plugin/.test(`${r.stdout}${r.stderr}`)) {
     console.log(`FAIL: the one-line install from the checkout\n${r.stdout}${r.stderr}`)
     process.exit(1)
@@ -171,8 +197,8 @@ class Engine {
     if (process.env.E2E_INSTALL) install(cfg)
     // --verbose: the engine asks for it with stream-json output under --print.
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
-    if (!process.env.E2E_INSTALL) args.push('--plugin-dir', IS_WIN ? `"${REPO}"` : REPO)
-    this.child = spawn(CLAUDE, args, { cwd, env: engineEnv(cfg), stdio: ['pipe', 'pipe', 'pipe'], shell: IS_WIN })
+    if (!process.env.E2E_INSTALL) args.push('--plugin-dir', REPO)
+    this.child = spawnClaude(args, { cwd, env: engineEnv(cfg), stdio: ['pipe', 'pipe', 'pipe'] })
     this.pending = new Map()
     this.events = []
     this.n = 0
@@ -241,16 +267,20 @@ class Engine {
       await this.request({ subtype: 'ui_detach', client_id: 'harness' }, 5000)
     } catch {}
     this.child.stdin.end()
-    this.child.kill('SIGTERM')
+    if (IS_WIN) {
+      // The whole tree: a shell's child too, so nothing keeps the run's folders open.
+      spawnSync('taskkill', ['/pid', String(this.child.pid), '/T', '/F'], { stdio: 'ignore' })
+    } else this.child.kill('SIGTERM')
     await Promise.race([this.exited, sleep(4000)])
-    if (this.child.exitCode === null) this.child.kill('SIGKILL')
+    if (this.child.exitCode === null && !IS_WIN) this.child.kill('SIGKILL')
+    await Promise.race([this.exited, sleep(2000)])
   }
 }
 
 // ---------------------------------------------------------------- the Desktop's side
 
 const VIEWPORT = { columns: 120, rows: 40, isFullscreen: false }
-const paneProps = (placement = 'dock') => ({ title: 'Constellation', isFocused: true, bodyColumns: VIEWPORT.columns, placement, scroll: { offset: 0, bodyRows: VIEWPORT.rows }, view: {} })
+const paneProps = (placement = 'dock', columns = VIEWPORT.columns) => ({ title: 'Constellation', isFocused: true, bodyColumns: columns, placement, scroll: { offset: 0, bodyRows: VIEWPORT.rows }, view: {} })
 const bandProps = () => ({ hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: VIEWPORT.columns, scroll: { offset: 0, bodyRows: 10 }, view: {} })
 
 function walk(tree, fn, parent) {
@@ -315,6 +345,8 @@ class Desktop {
     this.posts = []
     this.faults = []
     this.redraws = 0
+    // The pane's body width in cells, as the Desktop reports it: the hooks narrow the field to fit it.
+    this.bodyColumns = VIEWPORT.columns
     this.id = `map-${++frame.seq}`
     frame.windows.set(this.id, this)
   }
@@ -325,7 +357,7 @@ class Desktop {
     return this.engine.request({ subtype: 'ui_attach', surface: this.surface, client_id: 'harness', viewport: VIEWPORT })
   }
   async pane(placement) {
-    const r = await this.engine.request({ subtype: 'ui_render', surface: this.surface, client_id: 'harness', component: 'Pane', instance_id: PANE, props: paneProps(placement), viewport: VIEWPORT })
+    const r = await this.engine.request({ subtype: 'ui_render', surface: this.surface, client_id: 'harness', component: 'Pane', instance_id: PANE, props: paneProps(placement, this.bodyColumns), viewport: VIEWPORT })
     this.tree = r.tree
     this.hash = r.client_modules?.[PLUGIN]
     return r
@@ -342,14 +374,12 @@ class Desktop {
     this.pressedFrom = from
     return r
   }
-  /** Presses, then draws the pane again once the engine says it changed. */
+  /** Presses, then draws the pane again once the drawing has changed (see redrawAfter). */
   async pressAndDraw(key, tree) {
+    const before = JSON.stringify(this.tree)
     await this.press(key, tree)
-    await this.redrawAfter(this.pressedFrom)
-    if (this.mounted && clientOf(this.tree)) {
-      this.driver.setProps(this.id, this.props())
-      this.draw()
-    }
+    await this.redrawAfter(this.pressedFrom, before)
+    this.refit()
   }
   /** Loads the Client module as the Desktop frame does: the served runtime installed with a host, then the entry imported. */
   async loadModule() {
@@ -358,16 +388,40 @@ class Desktop {
     await installFrame(m)
     return m
   }
-  /** Mounts the map Client of the last drawing in a region of `columns` × `rows` cells. */
-  mount(columns, rows) {
+  /**
+   * Mounts the map Client of the last drawing as the Desktop lays it over the picture: as wide as the picture
+   * (`columns` cells of `cell.w` px), and as tall as what it draws (`sizing: 'content'`, the Desktop's way, starting
+   * at one row), or as tall as its box (`sizing: 'box'`, a host that sizes by CSS). Returns the drawn tree.
+   */
+  mountLikeDesktop(columns, { cell = DESKTOP_CELL, sizing = 'content' } = {}) {
     if (this.mounted) this.driver.unmount(this.id)
-    const props = clientOf(this.tree).props.props
-    this.driver.mount(this.id, frame.entry[frame.component], props)
-    this.driver.resize(this.id, columns, rows)
-    this.mounted = true
+    this.cell = cell
+    this.sizing = sizing
     this.columns = columns
-    this.rows = rows
-    return this.draw()
+    this.rows = 1
+    this.driver.mount(this.id, frame.entry[frame.component], this.props())
+    this.mounted = true
+    this.driver.resize(this.id, columns, this.rows)
+    return this.refit()
+  }
+  /** The picture's height in px: the image takes the layer's width at the field's proportions. */
+  pictureHeightPx() {
+    const p = this.props()
+    return (this.columns * this.cell.w * p.fieldH) / p.fieldW
+  }
+  /** After new props: the host sizes the layer again (to what it draws, or to its box) until it settles. */
+  refit() {
+    if (!this.mounted || !clientOf(this.tree)) return undefined
+    this.driver.setProps(this.id, this.props())
+    let tree = this.draw()
+    for (let i = 0; i < 4; i += 1) {
+      const want = this.sizing === 'box' ? Math.max(1, Math.floor(this.pictureHeightPx() / this.cell.h)) : tree?.props?.height
+      if (typeof want !== 'number' || want === this.rows) break
+      this.rows = want
+      this.driver.resize(this.id, this.columns, this.rows)
+      tree = this.draw()
+    }
+    return tree
   }
   draw() {
     this.driver.stage(this.id, 'render')
@@ -377,42 +431,61 @@ class Desktop {
   props() {
     return clientOf(this.tree)?.props.props
   }
-  /** The cell over a point of the picture, in its field units (`fine` too, as a pointer with sub-cell positions gives). */
+  /**
+   * The cell a point of the picture lies in, as the Desktop measures it: the picture is `columns × cell.w` px wide at
+   * the field's proportions, and a cell is `cell.w × cell.h` px. `undefined` where the point lies below the layer:
+   * the Desktop delivers no event there. `fine` adds sub-cell positions, as a pointer that has them gives.
+   */
   cellOf(x, y, fine = false) {
     const p = this.props()
-    const fx = (x / p.fieldW) * this.columns
-    const fy = (y / p.fieldH) * this.rows
+    const pxPerUnit = (this.columns * this.cell.w) / p.fieldW
+    const fx = (x * pxPerUnit) / this.cell.w
+    const fy = (y * pxPerUnit) / this.cell.h
+    if (Math.floor(fy) >= this.rows || Math.floor(fx) >= this.columns) return undefined
     return fine ? { x: Math.floor(fx), y: Math.floor(fy), fine: { x: fx, y: fy } } : { x: Math.floor(fx), y: Math.floor(fy) }
   }
   pointer(ev) {
     this.driver.stage(this.id, 'pointer', ev)
     globalThis.__surface__.run()
   }
-  /** Sends the module's posts as the Desktop does, then draws the pane again and hands the Client its next props. */
-  /** As the Desktop does: after a press or a post, draw again once the engine says the drawing changed (`ui_invalidate`). */
-  async redrawAfter(from) {
-    await this.engine.waitFor(e => e.type === 'system' && e.subtype === 'ui_invalidate' && (e.instances ?? []).some(i => i.instance_id === PANE || i.instance_id === 'band'), 3000, from)
-    return this.pane()
+  /**
+   * As the Desktop does: draw again when the engine says the drawing changed (`ui_invalidate`). A press's state lands
+   * after its answer, and an invalidation left from the action before can come first: so it draws on each one until
+   * the tree differs from `before` (or three seconds pass, for a press that changes nothing).
+   */
+  async redrawAfter(from, before) {
+    const isInvalidate = e => e.type === 'system' && e.subtype === 'ui_invalidate' && (e.instances ?? []).some(i => i.instance_id === PANE || i.instance_id === 'band')
+    const end = Date.now() + 3000
+    let r
+    for (;;) {
+      await this.engine.waitFor(isInvalidate, Math.max(0, end - Date.now()), from)
+      from = this.engine.events.length
+      r = await this.pane()
+      if (before === undefined || JSON.stringify(r.tree) !== before || Date.now() >= end) return r
+      await sleep(100)
+    }
   }
+  /** Sends the module's posts as the Desktop does, then draws the pane again and hands the Client its next props. */
   async flush() {
     const sent = this.posts.splice(0)
+    const before = JSON.stringify(this.tree)
     const from = this.engine.events.length
     for (const data of sent) {
       const r = await this.engine.request({ subtype: 'ui_message', plugin: PLUGIN, component: 'Pane', instance_id: PANE, client: 'map', module: 'client/map.js', data })
       if (process.env.E2E_DEBUG) console.log(`     post ${JSON.stringify(data)} -> ${JSON.stringify(r)}`)
       if (!r.handled) throw new Error(`ui_message not handled: ${JSON.stringify(data)}`)
     }
-    if (sent.length) await this.redrawAfter(from)
+    // A hover posts and may change nothing worth waiting for; a pick or a drop does change the drawing.
+    const changes = sent.some(d => d.type !== 'hover')
+    if (sent.length) await this.redrawAfter(from, changes ? before : undefined)
     else await this.pane()
     if (process.env.E2E_DEBUG) console.log(`     then mode ${this.props()?.mode}, hint ${this.props()?.hint}`)
-    if (this.mounted && clientOf(this.tree)) {
-      this.driver.setProps(this.id, this.props())
-      this.draw()
-    }
+    this.refit()
     return sent
   }
   async click(x, y, fine) {
     const c = this.cellOf(x, y, fine)
+    if (!c) return [{ type: 'outside the layer' }]
     this.pointer({ type: 'move', ...c })
     this.pointer({ type: 'down', ...c, button: 'left' })
     this.pointer({ type: 'up', ...c, button: 'left' })
@@ -421,6 +494,7 @@ class Desktop {
   async drag(from, to) {
     const a = this.cellOf(from.x, from.y)
     const b = this.cellOf(to.x, to.y)
+    if (!a || !b) return [{ type: 'outside the layer' }]
     this.pointer({ type: 'down', ...a, button: 'left' })
     this.pointer({ type: 'move', ...b, button: 'left' })
     this.pointer({ type: 'up', ...b, button: 'left' })
@@ -433,7 +507,48 @@ function pointOn(n) {
   if (n.kind === 'topic' && !(n.isMajor || n.isAnchor)) return { x: n.x + Math.min(40, (n.w || 60) / 2), y: n.y }
   return { x: n.x, y: n.y }
 }
-const rowsFor = (columns, p) => Math.max(8, Math.round(columns * (p.fieldH / p.fieldW) * CELL_ASPECT))
+/** Opens the settings card's Advanced fold, wherever the pane is. */
+async function openAdvanced(desk) {
+  if (!buttonOf(desk.tree, 'set:layerHeight:0')) {
+    if (!buttonOf(desk.tree, 'set:advanced')) await desk.pressAndDraw('settings')
+    if (!buttonOf(desk.tree, 'set:layerHeight:0')) await desk.pressAndDraw('set:advanced')
+  }
+  if (!buttonOf(desk.tree, 'set:layerHeight:0')) throw new Error('no Layer height row in the settings')
+}
+/** The layer reaches the picture's bottom: its rows and the picture's height in rows differ by less than one. */
+function checkCovers(desk, label) {
+  const picture = desk.pictureHeightPx() / desk.cell.h
+  check(Math.abs(desk.rows - picture) < 1, label, { layer: desk.rows, picture: Number(picture.toFixed(2)), columns: desk.columns, sizing: desk.sizing })
+}
+/**
+ * Every node on the picture, clicked at its own point, picks itself: at the pointer's sub-cell position, and at the
+ * centre of its cell where a cell is small enough to land on the node (a wide layer, or a topic's pill). A node the
+ * layer does not reach fails.
+ */
+function checkEveryNode(desk, label) {
+  const missed = []
+  const p = desk.props()
+  const cellW = p.fieldW / desk.columns
+  const cellH = p.fieldH / (desk.pictureHeightPx() / desk.cell.h)
+  for (const n of p.nodes) {
+    const at = pointOn(n)
+    const fine = desk.cellOf(at.x, at.y, true)
+    if (!fine) {
+      missed.push(`${n.kind} ${n.label ?? n.id}: below the layer`)
+      continue
+    }
+    const tries = [['fine', fine]]
+    const isPill = n.kind === 'back' || (n.kind === 'topic' && (n.isMajor || n.isAnchor))
+    if (isPill || Math.hypot(cellW, cellH) / 2 <= 16) tries.push(['cell', { x: fine.x, y: fine.y }])
+    for (const [how, c] of tries) {
+      desk.pointer({ type: 'down', ...c, button: 'left' })
+      desk.pointer({ type: 'up', ...c, button: 'left' })
+      const got = desk.posts.splice(0).filter(d => d.type === 'pick')
+      if (!got.some(d => d.id === n.id)) missed.push(`${n.kind} ${n.label || n.id} at ${Math.round(at.x)},${Math.round(at.y)} (${how} ${c.x},${c.y}, a cell ${cellW.toFixed(1)}×${cellH.toFixed(1)}): ${JSON.stringify(got)}`)
+    }
+  }
+  check(missed.length === 0, `${label} (${p.nodes.length} nodes)`, missed.slice(0, 8))
+}
 const svgOfTree = tree => find(tree, n => n.type === 'Svg')
 function saveShot(name, svg) {
   if (!SHOTS || !svg) return
@@ -479,11 +594,10 @@ async function fixtureFolderChecks() {
     const m = await desk.loadModule()
     check(m.runtime === 'claude:surface-runtime' && m.modules.some(x => x.module === 'client/map.js'), 'the engine serves client/map.js with the surface runtime', { runtime: m.runtime, modules: m.modules })
     check(m.hash === desk.hash, '…and its hash matches the one the drawing names', { served: m.hash, drawn: desk.hash })
-    const p = desk.props()
-    const cols = 120
-    const rows = rowsFor(cols, p)
-    const drawn = desk.mount(cols, rows)
-    check(drawn?.type === 'Box' && !(drawn.children ?? []).length, `the layer draws nothing over the picture (${cols}×${rows} cells)`, drawn)
+    const cols = 116
+    const drawn = desk.mountLikeDesktop(cols)
+    check(drawn?.type === 'Box' && !(drawn.children ?? []).length, `the layer draws nothing over the picture (${cols}×${desk.rows} cells)`, drawn)
+    checkCovers(desk, 'the Desktop sizes the layer to what it draws, and it draws the picture’s height')
     check(desk.driver.hasListener(desk.id, 'pointer') === true, 'the layer listens to the pointer')
     check(desk.driver.hasListener(desk.id, 'key') === false, '…and not to the keys, so a click never holds the keyboard')
 
@@ -545,26 +659,24 @@ async function fixtureFolderChecks() {
     desk.driver.setProps(desk.id, desk.props())
     desk.draw()
 
-    // Any layer size: the same point picks the same topic.
-    for (const [w, h] of [[60, rowsFor(60, desk.props())], [200, rowsFor(200, desk.props())], [97, 23]]) {
-      desk.mount(w, h)
-      const node = desk.props().nodes.find(n => n.id === checkout.id)
-      const cc = desk.cellOf(pointOn(node).x, pointOn(node).y)
-      desk.pointer({ type: 'down', ...cc, button: 'left' })
-      desk.pointer({ type: 'up', ...cc, button: 'left' })
-      const got = desk.posts.splice(0)
-      check(got.some(d => d.type === 'pick' && d.id === checkout.id), `a layer of ${w}×${h} cells maps the click to the same topic`, got)
+    // Any layer size, sized by what it draws or by its box: every node is picked by a click at its own point.
+    for (const [w, sizing] of [[60, 'content'], [200, 'content'], [97, 'content'], [97, 'box'], [150, 'box']]) {
+      desk.mountLikeDesktop(w, { sizing })
+      checkCovers(desk, `a layer ${w} cells wide, sized by ${sizing === 'box' ? 'its box' : 'what it draws'}, covers the picture`)
+      checkEveryNode(desk, `…and a click on each node picks it`)
     }
-    desk.mount(cols, rows)
+    desk.mountLikeDesktop(cols)
 
     // The settings, pressed as buttons: outline, off, and back on.
     await desk.pressAndDraw('settings')
     await desk.pressAndDraw('set:advanced')
     await desk.pressAndDraw('set:pictureClicks:outline')
     check(desk.props()?.outline === true, 'Clicks on the picture: Outline reaches the layer')
-    desk.mount(cols, rows)
+    desk.mountLikeDesktop(cols)
     let t = desk.draw()
-    check(new RegExp(`layer ${cols}×${rows} cells · field ${desk.props().fieldW}×${desk.props().fieldH}`).test(JSON.stringify(t)), '…which draws its edge and its size in cells', JSON.stringify(t).slice(0, 200))
+    check(new RegExp(`layer ${cols}×${desk.rows} · field ${desk.props().fieldW}×${desk.props().fieldH} · cell 0\\.39`).test(JSON.stringify(t)), '…which draws its edge, its size in cells and the cell it assumes', JSON.stringify(t).slice(0, 200))
+    check(t?.props?.height === desk.rows && desk.rows === Math.floor(desk.pictureHeightPx() / DESKTOP_CELL.h), '…as tall as the picture, its edge on the picture’s bottom', { drawn: t?.props?.height, picture: desk.pictureHeightPx() / DESKTOP_CELL.h })
+    check(/this edge should meet the picture’s bottom; if not, Settings › Advanced › Layer height/.test(JSON.stringify(t)), '…and says what to do when it does not')
     desk.pointer({ type: 'move', x: 7, y: 3 })
     t = desk.draw()
     check(/move at 7,3/.test(JSON.stringify(t)), '…and the last pointer event')
@@ -581,6 +693,34 @@ async function fixtureFolderChecks() {
     await desk.pressAndDraw('back')
     const inline = await desk.pane('inline')
     check(clientOf(inline.tree)?.props.props.hint === 'Hover or focus a topic to trace it · Enter or click to focus', 'a Desktop pane seated inline keeps the pointer hint', clientOf(inline.tree)?.props.props.hint)
+
+    // A narrow pane (44 cells, about 300 px): the field narrows so its text stays legible, and the layer over it still
+    // reaches its bottom and picks every node.
+    desk.bodyColumns = 44
+    await desk.pane()
+    check(desk.props().fieldW === 520, 'a pane 44 cells wide draws a field 520 units wide, not 860, so its text stays legible', desk.props().fieldW)
+    desk.mountLikeDesktop(39)
+    checkCovers(desk, '…its layer, 39 cells wide, covers the picture')
+    checkEveryNode(desk, '…and a click on each node picks it')
+    desk.bodyColumns = VIEWPORT.columns
+    await desk.pane()
+    check(desk.props().fieldW === 860, 'a wide pane draws the full 860 again', desk.props().fieldW)
+
+    // A host whose code font is wider (8.5 × 19.8 px a cell): the layer, drawn for the Desktop's 7.7 px, falls short of
+    // the picture; Layer height +2 brings its edge to the picture's bottom, and every node picks again.
+    const wide = { w: 8.5, h: 19.8 }
+    desk.mountLikeDesktop(cols, { cell: wide })
+    const short = desk.pictureHeightPx() / wide.h - desk.rows
+    check(short >= 1, 'with a wider font the layer falls a row or more short of the picture', `${short.toFixed(2)} rows short`)
+    await openAdvanced(desk)
+    await desk.pressAndDraw('set:layerHeight:2')
+    check(Math.abs(desk.props().cellAspect - (7.7 / 19.8 + 0.04)) < 1e-9, 'Layer height +2 reaches the layer as a taller cell', desk.props().cellAspect)
+    checkCovers(desk, '…and the layer covers the picture again')
+    checkEveryNode(desk, '…and a click on each node picks it')
+    await desk.pressAndDraw('set:layerHeight:0')
+    check(Math.abs(desk.props().cellAspect - 7.7 / 19.8) < 1e-9, 'Layer height 0 is the Desktop’s own cell again', desk.props().cellAspect)
+    desk.mountLikeDesktop(cols)
+    checkCovers(desk, '…and its layer covers the picture')
 
     // The handoff loop's first step from the Desktop: join by the band's button; the status line follows.
     const band2 = await desk.band()
@@ -682,11 +822,19 @@ async function bigFolderChecks() {
     if (buttonOf(desk.tree, 'back')) await desk.pressAndDraw('back')
     await desk.loadModule()
     if (process.env.E2E_DEBUG) console.log('     state before the big click:', desk.props() && { mode: desk.props().mode, kinds: desk.props().nodes.map(n => n.kind).join(',') }, textOf(desk.tree).slice(0, 300))
-    desk.mount(140, rowsFor(140, desk.props()))
-    const topic = desk.props().nodes.find(n => n.kind === 'topic' && n.id !== 'unsorted')
+    desk.mountLikeDesktop(140)
+    checkCovers(desk, `the layer over the big map (${desk.props().fieldW}×${desk.props().fieldH}) covers the picture`)
+    checkEveryNode(desk, '…and a click on each node of the big map picks it')
+    // The lowest topic: on a layer six rows tall (8a99ba1 on the Desktop) it lay out of reach.
+    const topic = desk.props().nodes.filter(n => n.kind === 'topic').sort((a, b) => b.y - a.y)[0]
+    const { fieldH } = desk.props()
+    const sixRows = (6 * fieldH) / (desk.pictureHeightPx() / desk.cell.h)
+    check(topic.y > sixRows, `the lowest topic lies below what a six-row layer reached`, `${Math.round(topic.y)} > ${Math.round(sixRows)}`)
     const sent = await desk.click(pointOn(topic).x, pointOn(topic).y)
-    check(sent.some(d => d.type === 'pick' && d.id === topic.id), 'a click on a topic in the big map picks it', sent)
+    check(sent.some(d => d.type === 'pick' && d.id === topic.id), `a click on the lowest topic of the big map (${topic.label}, at ${Math.round(topic.y)} of ${fieldH}) picks it`, sent)
     check(desk.props().mode === 'focus', '…and focuses it')
+    checkCovers(desk, '…the layer over its chain covers the picture')
+    checkEveryNode(desk, '…and a click on each step, anchor and the back pill picks it')
     saveShot('desktop-big-focus.svg', svgOfTree(desk.tree))
     check(desk.faults.length === 0, 'the module never faulted', desk.faults)
   } catch (error) {
@@ -709,7 +857,7 @@ async function emptyFolderChecks() {
     const r = await desk.pane()
     check(Boolean(svgOfTree(r.tree)) && /no topics yet/i.test(svgOfTree(r.tree).props.alt), 'the pane draws an empty picture, said so in its alt text', svgOfTree(r.tree)?.props.alt)
     await desk.loadModule()
-    desk.mount(120, rowsFor(120, desk.props()))
+    desk.mountLikeDesktop(120)
     const sent = await desk.click(430, 260)
     check(!sent.some(d => d.type === 'pick'), 'a click on the empty picture picks nothing', sent)
     check(desk.faults.length === 0, 'the module never faulted', desk.faults)
@@ -785,8 +933,19 @@ async function openOnStartChecks() {
 
 // ----------------------------------------------------------------
 
+/** Removes the run's folders; Windows may hold one a moment after its process ends, so it retries, and only warns. */
+function cleanUp() {
+  for (const t of temps) {
+    try {
+      fs.rmSync(t, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    } catch (error) {
+      console.log(`     (left ${t}: ${error.code ?? error.message})`)
+    }
+  }
+}
+
 // The pieces tests/e2e/shots.mjs reuses to draw the README's pictures.
-export { seed, fixtureFolder, bigFolder, Engine, Desktop, svgOfTree, clientOf, buttonOf, find, findAll, textOf, pointOn, rowsFor, temps, sleep }
+export { seed, fixtureFolder, bigFolder, Engine, Desktop, svgOfTree, clientOf, buttonOf, find, findAll, textOf, pointOn, temps, sleep }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   // E2E_ONLY=1,3 runs those scenarios alone.
@@ -797,6 +956,6 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
   if (wanted(3)) await emptyFolderChecks()
   if (wanted(4)) await openOnStartChecks()
   console.log(`== ${passed} passed, ${failed} failed`)
-  if (!failed && !process.env.E2E_KEEP) for (const t of temps) fs.rmSync(t, { recursive: true, force: true })
+  if (!failed && !process.env.E2E_KEEP) cleanUp()
   process.exit(failed ? 1 : 0)
 }

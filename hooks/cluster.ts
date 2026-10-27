@@ -141,8 +141,8 @@ function titleCase(token: string): string {
   return token.charAt(0).toUpperCase() + token.slice(1)
 }
 
-/** A name from the most frequent significant words of the sessions' titles: two words, Title Case. */
-export function autoName(sessions: readonly SessionSummary[]): string {
+/** The significant words of the sessions' titles and first prompts, most frequent first: each in its most common form, Title Case, with its stem. */
+export function rankedWords(sessions: readonly SessionSummary[]): { word: string; stem: string; n: number }[] {
   const freq = new Map<string, { n: number; first: number; forms: Map<string, number> }>()
   let order = 0
   for (const s of sessions) {
@@ -157,11 +157,64 @@ export function autoName(sessions: readonly SessionSummary[]): string {
       order += 1
     }
   }
-  const ranked = [...freq.values()].sort((a, b) => b.n - a.n || a.first - b.first)
   const commonForm = (forms: Map<string, number>) => [...forms.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''
-  const words = ranked.slice(0, 2).map(({ forms }) => titleCase(commonForm(forms)))
+  return [...freq.entries()]
+    .sort((a, b) => b[1].n - a[1].n || a[1].first - b[1].first)
+    .map(([stem, { n, forms }]) => ({ word: titleCase(commonForm(forms)), stem, n }))
+}
+
+/** A name from the most frequent significant words of the sessions' titles: two words, Title Case. */
+export function autoName(sessions: readonly SessionSummary[]): string {
+  const words = rankedWords(sessions).slice(0, 2).map(w => w.word)
   if (words.length === 0) return sessions[0]?.title.slice(0, 40) || 'Topic'
   return words.join(' ')
+}
+
+/** Two names that read as one: the same words, in any order and case ("Cashfree Continuation", "continuation cashfree"). */
+export function nameKey(name: string): string {
+  return name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).sort().join(' ')
+}
+
+/**
+ * Makes the auto topics' names unique, so a name names one topic for
+ * `/topic <name>` and `/map <name>` and on the map. Where two topics read as one
+ * name, the one with the most sessions keeps it (a topic the person named is
+ * never renamed); each other one takes its own next most frequent word that the
+ * others in the clash do not lead with ("Cashfree Handover Refund"), or, when
+ * it has none, a number ("Cashfree Handover 2").
+ */
+export function uniqueNames(topics: { id: string; name: string; isExplicit: boolean; sessions: readonly SessionSummary[] }[]): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const t of topics) out.set(t.id, t.name)
+  for (let round = 0; round < 3; round += 1) {
+    const groups = new Map<string, typeof topics>()
+    for (const t of topics) {
+      const key = nameKey(out.get(t.id) ?? t.name)
+      groups.set(key, [...(groups.get(key) ?? []), t])
+    }
+    let changed = false
+    for (const group of groups.values()) {
+      if (group.length < 2) continue
+      // The person's names first, then the biggest topic: they keep the name.
+      const ordered = [...group].sort((a, b) => Number(b.isExplicit) - Number(a.isExplicit) || b.sessions.length - a.sessions.length || a.id.localeCompare(b.id))
+      const taken = new Set(group.map(t => nameKey(out.get(t.id) ?? t.name)))
+      const leads = new Map(group.map(t => [t.id, new Set(rankedWords(t.sessions).slice(0, 3).map(w => w.stem))]))
+      ordered.slice(1).forEach((t, i) => {
+        if (t.isExplicit) return
+        const current = out.get(t.id) ?? t.name
+        const used = new Set(nameKey(current).split(' ').map(stemOf))
+        const others = new Set(ordered.filter(o => o.id !== t.id).flatMap(o => [...(leads.get(o.id) ?? [])]))
+        const extra = rankedWords(t.sessions).find(w => !used.has(w.stem) && !others.has(w.stem)) ?? rankedWords(t.sessions).find(w => !used.has(w.stem))
+        let next = extra ? `${current} ${extra.word}` : `${current} ${i + 2}`
+        if (taken.has(nameKey(next))) next = `${current} ${i + 2}`
+        taken.add(nameKey(next))
+        out.set(t.id, next)
+        changed = true
+      })
+    }
+    if (!changed) break
+  }
+  return out
 }
 
 /** A word, a file or a branch that more than this many sessions share says nothing about a topic: the project's own name, "bug", its README. A topic may still hold most of a small folder. */
@@ -431,6 +484,8 @@ export function buildModel(
       firstAt: Number.isFinite(firstAt) ? firstAt : now,
     })
   }
+  const names = uniqueNames(topics.filter(t => t.id !== UNSORTED_ID))
+  for (const t of topics) t.name = names.get(t.id) ?? t.name
   const ranked = [...topics].filter(t => t.id !== UNSORTED_ID).sort((a, b) => a.firstAt - b.firstAt || a.id.localeCompare(b.id))
   ranked.forEach((t, i) => {
     const stored = store.topics[t.id]?.color

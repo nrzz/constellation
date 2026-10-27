@@ -1260,17 +1260,30 @@ let reclaimTimer: Timer | undefined
  */
 function reclaimKeys($: EngineInterface): void {
   reclaimTimer?.cancel()
-  const ask = (): void => {
+  const ask = async (): Promise<void> => {
     if (paneHadKeys()) return
-    showPane($).catch(error => $.ui.log(`constellation: keys not taken back: ${String(error)}`, { to: 'debug' }))
+    try {
+      // Only a pane still open takes the keyboard back: asking would reopen one a second Escape just closed.
+      const panes = await $.ui.panes()
+      if (!panes.some(p => p.id === PANE && p.isPlaced)) return
+      await showPane($)
+    } catch (error) {
+      $.ui.log(`constellation: keys not taken back: ${String(error)}`, { to: 'debug' })
+    }
   }
   reclaimTimer = $.clock.after(60, () => {
-    ask()
+    void ask()
     reclaimTimer = $.clock.after(300, () => {
       reclaimTimer = undefined
-      ask()
+      void ask()
     })
   })
+}
+
+/** The pane is closing: a pending reclaim must not reopen it. */
+export function cancelReclaim(): void {
+  reclaimTimer?.cancel()
+  reclaimTimer = undefined
 }
 
 /** Opens the pane (focused, Escape closes it) on the map or the focused chain, never on a card left open (unless the settings are asked for); rescans; writes the "since your last look" digest. */

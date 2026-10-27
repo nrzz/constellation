@@ -3,6 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { EMPTY_STORE, buildModel } from '../hooks/cluster'
 import { fieldOf, svgOf } from '../hooks/draw'
 import { placementOf } from '../hooks/actions'
+import { DESKTOP_CELL, fieldWidthFor, pillWidth } from '../hooks/layout'
 import { READS_PER_PASS } from '../hooks/scan'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, resolveSettings, settingValue } from '../hooks/state'
 import type { SessionSummary } from '../types'
@@ -580,4 +581,98 @@ test('the field is transparent and theme-aware by default; the night setting pai
   expect(svg).toContain('fill="#0B0E13"')
   expect(svg).not.toContain('prefers-color-scheme')
   await ui.unmount()
+})
+
+/** A folder whose focused topic shares a file with each of `n` other topics, all named at length. */
+function linkedFolder(n: number) {
+  const sessions: SessionSummary[] = []
+  const store = { ...EMPTY_STORE, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string> }
+  const add = (id: string, topicId: string, files: string[], hours: number) => {
+    const lastAt = NOW - hours * 3600_000
+    sessions.push({ id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: `Session ${id}`, startedAt: lastAt - 3600_000, lastAt, turns: 3, filesTouched: files, lastAssistantText: '', size: 1, mtimeMs: lastAt })
+    store.assign[id] = topicId
+  }
+  store.topics['topic:hub'] = { name: 'Hub topic', createdAt: 0 }
+  add('hub-1', 'topic:hub', Array.from({ length: n }, (_, i) => `src/shared/a-rather-long-module-name-${i}.ts`), 1)
+  add('hub-2', 'topic:hub', [], 2)
+  for (let i = 0; i < n; i += 1) {
+    store.topics[`topic:r${i}`] = { name: `Related topic number ${i} with a long name`, createdAt: i + 1 }
+    add(`r${i}-1`, `topic:r${i}`, [`src/shared/a-rather-long-module-name-${i}.ts`], 3 + i)
+  }
+  const model = buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
+  return model
+}
+
+test('related anchors fit the field: as many as its width holds, none overlapping, none off the edge, the picture and the layer alike', async () => {
+  for (const [n, columns, shown] of [[2, undefined, 2], [4, undefined, 4], [8, undefined, 5], [8, 44, 3]] as const) {
+    const model = linkedFolder(n)
+    const placement = placementOf(model, null, fieldWidthFor(columns))
+    const view = { model, placed: placement.placed, field: placement.size, ui: { ...INITIAL_UI, focusTopic: 'topic:hub' }, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
+    const anchors = fieldOf(view).nodes.filter(a => a.isAnchor)
+    expect(`${n} related at ${columns ?? 'full'} width: ${anchors.length} shown`).toBe(`${n} related at ${columns ?? 'full'} width: ${shown} shown`)
+    const w = placement.size.w
+    const boxes = anchors.map(a => ({ left: a.x - (a.w ?? 0) / 2, right: a.x + (a.w ?? 0) / 2 })).sort((a, b) => a.left - b.left)
+    for (const b of boxes) {
+      expect(b.left).toBeGreaterThanOrEqual(0)
+      expect(b.right).toBeLessThanOrEqual(w)
+    }
+    for (let i = 1; i < boxes.length; i += 1) expect((boxes[i]?.left ?? 0) - (boxes[i - 1]?.right ?? 0)).toBeGreaterThanOrEqual(8)
+    // The picture draws the same pills, at the same places.
+    const svg = svgOf(view)
+    for (const a of anchors) expect(svg).toContain(`x="${(a.x - (a.w ?? 0) / 2).toFixed(1)}"`)
+  }
+})
+
+test('a narrow pane lays the field out narrower so its text stays legible; a wide one, the terminal and the transcript row keep 860', async () => {
+  expect(fieldWidthFor(undefined)).toBe(860)
+  expect(fieldWidthFor(44)).toBe(520)
+  expect(fieldWidthFor(60)).toBe(620)
+  expect(fieldWidthFor(83)).toBe(860)
+  expect(fieldWidthFor(200)).toBe(860)
+  // The Windows report's pane: about 300 px of picture for a 520-unit field draws 13-unit names at 7.5 px, not 4.5.
+  const pictureW = 44 * DESKTOP_CELL.w - 40
+  expect((13 * pictureW) / fieldWidthFor(44)).toBeGreaterThan(7)
+  expect((13 * pictureW) / 860).toBeLessThan(5)
+  const model = linkedFolder(6)
+  const narrow = placementOf(model, null, fieldWidthFor(44))
+  expect(narrow.size.w).toBe(520)
+  for (const p of Object.values(narrow.placed)) {
+    expect(p.x + p.ox - p.w / 2).toBeGreaterThanOrEqual(0)
+    expect(p.x + p.ox + p.w / 2).toBeLessThanOrEqual(520)
+  }
+  const view = { model, placed: narrow.placed, field: narrow.size, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
+  expect(svgOf(view)).toContain('viewBox="0 0 520 ')
+  // Focused, the chain, the hint and the back pill share the narrow field: the hint is cut to leave the back pill its room.
+  const focused = { ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:hub' } }
+  const svg = svgOf(focused)
+  expect(svg).toContain('viewBox="0 0 520 520"')
+  const hint = /<text x="260" y="33"[^>]*>([^<]*)<\/text>/.exec(svg)?.[1] ?? ''
+  expect(hint.length).toBeGreaterThan(0)
+  expect(24 + hint.length * 6.3).toBeLessThanOrEqual(520 - 2 * 118)
+})
+
+test('the panes: a Desktop pane 44 columns wide draws a 520-unit picture, a wide one 860, a terminal pane the full field for its text map', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const base = paneOn('desktop')
+  const narrow = await $.ui.mount({ ...base, props: { ...base.props, bodyColumns: 44 } })
+  expect(String((await narrow.find({ type: 'Svg' }))?.props.source)).toContain('viewBox="0 0 520 ')
+  await narrow.unmount()
+  const wide = await $.ui.mount({ ...base, props: { ...base.props, bodyColumns: 120 } })
+  expect(String((await wide.find({ type: 'Svg' }))?.props.source)).toContain('viewBox="0 0 860 ')
+  await wide.unmount()
+  const t = paneOn('terminal')
+  const terminal = await $.ui.mount({ ...t, props: { ...t.props, bodyColumns: 44 } })
+  expect(((await terminal.find({ type: 'Client', key: 'map' }))?.props.props as { fieldW?: number }).fieldW).toBe(860)
+  await terminal.unmount()
+})
+
+test('your own focused topic: the pointer layer’s pill is as wide as the drawn one, “· you” and all', async () => {
+  const model = linkedFolder(2)
+  const placement = placementOf(model, 'topic:hub')
+  const view = { model, placed: placement.placed, field: placement.size, ui: { ...INITIAL_UI, focusTopic: 'topic:hub' }, me: { ...INITIAL_ME, sessionId: 'me', topicId: 'topic:hub' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
+  const pill = fieldOf(view).nodes.find(n => n.id === 'topic:hub')
+  expect(pill?.label).toContain('· you')
+  expect(pill?.w).toBe(Math.round(pillWidth('Hub topic', '2 of 2 · you')))
+  expect(svgOf(view)).toContain(`width="${pillWidth('Hub topic', '2 of 2 · you').toFixed(1)}"`)
 })

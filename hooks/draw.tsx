@@ -249,8 +249,9 @@ export function anchorsOf(view: View, focus: Topic, size: FieldSize): Anchor[] {
     const name = clip(r.topic.name, Math.min(20, Math.max(4, chars - (chars >= 14 ? 8 : 0))))
     const room = chars - name.length - 2
     const file = room >= 4 ? clip(r.via, Math.min(18, room)) : ''
-    const w = 40 + (name.length + (file ? file.length + 2 : 0)) * 6.4
-    return [{ topic: r.topic, via: r.via, x: pos.x, y: pos.y, w, name, file }]
+    // Whole units, so the picture and the pointer layer draw and hit-test the very same box.
+    const w = Math.round(40 + (name.length + (file ? file.length + 2 : 0)) * 6.4)
+    return [{ topic: r.topic, via: r.via, x: Math.round(pos.x), y: pos.y, w, name, file }]
   })
 }
 
@@ -1417,7 +1418,7 @@ export function fieldOf(view: View): FieldProps {
       }))
     })
     for (const a of anchorsOf(view, focus, size)) {
-      nodes.push(node({ id: a.topic.id, kind: 'topic', x: a.x, y: a.y, w: Math.round(a.w), label: `${clip(a.topic.name, 14)} · ${clip(a.via, 10)}`, color: a.topic.color, isMajor: false, isDim: true, isAnchor: true, title: a.topic.name }))
+      nodes.push(node({ id: a.topic.id, kind: 'topic', x: a.x, y: a.y, w: a.w, label: `${clip(a.topic.name, 14)} · ${clip(a.via, 10)}`, color: a.topic.color, isMajor: false, isDim: true, isAnchor: true, title: a.topic.name }))
     }
   }
   const field: FieldProps = { mode: focus ? 'focus' : 'map', hint: view.surface === 'terminal' ? hintOf(view) : hintFitted(view, size), nodes, links, legend, fieldW: size.w, fieldH: size.h }

@@ -68,6 +68,8 @@ export function layerFor(columns0, rows0, props) {
     fieldW,
     fieldH,
     aspect,
+    /** One cell in field units: how far a whole-cell pointer's position can lie from where it was aimed. */
+    cell: { w: fieldW / columns, h: fieldH / span },
     col: x => Math.max(0, Math.min(columns - 1, Math.floor((x / fieldW) * columns))),
     row: y => Math.max(0, Math.min(drawn - 1, Math.floor((y / fieldH) * span))),
     fieldX: e => ((e.fine ? e.fine.x : e.x + 0.5) / columns) * fieldW,
@@ -211,14 +213,28 @@ function outside(p, left, top, right, bottom) {
  * The node under a point of the picture, in field units, as the picture
  * draws it: a pill's rectangle, a dot's label, the back pill, a satellite's
  * or a step's circle. A little slack around each, since the layer's cells are
- * coarser than the picture. A satellite inside a pill's glow wins over the pill.
+ * coarser than the picture. `cell`, where the pointer reports whole cells, is
+ * one cell's size in field units, and `p` the cell's centre.
  */
-export function nodeAtPoint(nodes, p) {
+export function nodeAtPoint(nodes, p, cell) {
   // Inside a topic's own drawn box (its pill, its dot and label, an anchor, the back pill) the box wins: a satellite's
-  // generous slack must not take a press on the pill's edge. Only a press on a satellite's visible dot beats it.
+  // generous slack must not take a press on the pill's edge. Only a press on a dot beats it: within 8 units of its
+  // centre, or in the very cell its centre lies in (a whole-cell pointer can come no closer than that).
   const inside = nodes.find(n => isInsideDrawn(n, p))
   if (inside) {
-    const dot = nodes.find(n => n.kind === 'session' && Math.hypot(p.x - n.x, p.y - n.y) <= 8)
+    const halfW = cell ? cell.w / 2 : 0
+    const halfH = cell ? cell.h / 2 : 0
+    let dot = null
+    let dotD = Number.POSITIVE_INFINITY
+    for (const n of nodes) {
+      if (n.kind !== 'session' && n.kind !== 'step') continue
+      const d = Math.hypot(p.x - n.x, p.y - n.y)
+      const onDot = d <= 8 || (Math.abs(p.x - n.x) <= halfW && Math.abs(p.y - n.y) <= halfH)
+      if (onDot && d < dotD) {
+        dot = n
+        dotD = d
+      }
+    }
     return dot || inside
   }
   let best = null
@@ -288,7 +304,7 @@ export default function ConstellationMap(props, surface) {
   const current = () => latest.get(surface) || { nodes, s, props }
   const hitAt = e => {
     const c = current()
-    return c.props.hits === true ? nodeAtPoint(c.nodes, { x: c.s.fieldX(e), y: c.s.fieldY(e) }) : nodeAtCell(c.nodes, c.s, e.x, e.y, c.props.mode)
+    return c.props.hits === true ? nodeAtPoint(c.nodes, { x: c.s.fieldX(e), y: c.s.fieldY(e) }, e.fine ? undefined : c.s.cell) : nodeAtCell(c.nodes, c.s, e.x, e.y, c.props.mode)
   }
 
   if (!surface.state) {

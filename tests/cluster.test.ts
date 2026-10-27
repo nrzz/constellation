@@ -17,6 +17,8 @@ import {
   tokensOf,
   topicIdFor,
   isStub,
+  nameKey,
+  uniqueNames,
 } from '../hooks/cluster'
 import type { ClusterSettings } from '../hooks/cluster'
 import type { StoreData } from '../types'
@@ -276,6 +278,42 @@ describe('chain order and ages', () => {
     expect(ageOf(NOW - 2 * 3600_000, NOW)).toBe('2h')
     expect(ageOf(NOW - 3 * DAY_MS, NOW)).toBe('3d')
     expect(ageOf(NOW - 90 * DAY_MS, NOW)).toBe('3mo')
+  })
+})
+
+describe('topic names', () => {
+  test('two auto topics led by the same two words get distinct names: the bigger keeps it, the other adds its own next word', async () => {
+    counter = 0
+    const sessions: SessionSummary[] = []
+    // Every session of the folder says "cashfree handover", so those words cluster nothing, but they lead both names.
+    for (let i = 0; i < 6; i += 1) sessions.push(session({ title: `Cashfree handover webhook retry ${i}`, firstPrompt: 'cashfree handover webhook retry', daysAgo: i, filesTouched: ['src/webhook.ts'] }))
+    for (let i = 0; i < 4; i += 1) sessions.push(session({ title: `Cashfree handover refund flow ${i}`, firstPrompt: 'cashfree handover refund flow', daysAgo: i + 0.5, filesTouched: ['src/refund.ts'] }))
+    const m = buildModel(sessions, EMPTY_STORE, SETTINGS, NOW)
+    const named = m.topics.filter(t => t.id !== UNSORTED_ID)
+    expect(named.length).toBe(2)
+    const names = named.map(t => t.name)
+    expect(new Set(names.map(nameKey)).size).toBe(2)
+    const big = named.find(t => t.sessions.length === 6)
+    const small = named.find(t => t.sessions.length === 4)
+    expect(big?.name).toBe('Cashfree Handover')
+    expect(small?.name).toBe('Cashfree Handover Refund')
+  })
+
+  test('the same words in another order are the same name; the person’s names are never changed; a clash with no word left gets a number', async () => {
+    counter = 0
+    const a = [session({ title: 'cashfree continuation payout', daysAgo: 1 }), session({ title: 'cashfree continuation payout retry', daysAgo: 2 })]
+    const b = [session({ title: 'continuation cashfree', daysAgo: 3 })]
+    const c = [session({ title: 'continuation cashfree', daysAgo: 4 })]
+    expect(nameKey('Cashfree Continuation')).toBe(nameKey('continuation cashfree'))
+    const out = uniqueNames([
+      { id: 'mine', name: 'Cashfree Continuation', isExplicit: true, sessions: b },
+      { id: 'auto:a', name: 'Cashfree Continuation', isExplicit: false, sessions: a },
+      { id: 'auto:c', name: 'Continuation Cashfree', isExplicit: false, sessions: c },
+    ])
+    expect(out.get('mine')).toBe('Cashfree Continuation')
+    expect(out.get('auto:a')).toBe('Cashfree Continuation Payout')
+    expect(out.get('auto:c')).toBe('Continuation Cashfree 3')
+    expect(new Set([...out.values()].map(nameKey)).size).toBe(3)
   })
 })
 

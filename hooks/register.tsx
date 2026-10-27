@@ -10,6 +10,7 @@ import type { EngineInterface, PluginOptions, Register, ResolveInput, Timer } fr
 
 import {
   actionsFor,
+  cancelReclaim,
   describeTopics,
   ensureSession,
   escape,
@@ -278,10 +279,16 @@ export const register: Register = (on, options) => {
     // Read first, before anything is awaited: the engine redraws the pane without the keyboard a few milliseconds
     // after raising this close, so only now does the last drawing say whether the pane held the keyboard.
     const hadKeys = paneHadKeys()
-    if (e.origin.kind !== 'person') return next(e)
+    if (e.origin.kind !== 'person') {
+      cancelReclaim()
+      return next(e)
+    }
     await ensureSession($)
     // One level back, keeping the pane (and the keyboard, when it held it); with nothing left to back out of, the pane closes.
-    if (!(await escape($, hadKeys))) return next(e)
+    if (!(await escape($, hadKeys))) {
+      cancelReclaim()
+      return next(e)
+    }
     return { value: undefined }
   })
 }

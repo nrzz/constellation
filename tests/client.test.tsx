@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry, On } from 'claude-code'
 
-import MapModule, { layerFor, layoutText, nodeAtCell, nodeAtPoint, placeText, scaleFor, textOf } from '../client/map.js'
+import MapModule, { fitText, layerFor, layoutText, nodeAtCell, nodeAtPoint, placeText, scaleFor, textOf } from '../client/map.js'
 import { transcripts } from './fixtures/transcripts'
 import { pathOf } from './helpers'
 
@@ -322,6 +322,14 @@ test('the Desktop layer: it draws the picture’s own height from its width, map
   expect(nodeAtPoint([sat, pill], { x: 302, y: 273 })?.id).toBe('s')
   // Off the pill, the satellite's slack still helps a coarse cell reach it.
   expect(nodeAtPoint([sat, pill], { x: 300, y: 258 })?.id).toBe('s')
+  // A whole-cell pointer (the Desktop's): the pill's edge cell is still the pill's, as its centre lies off the
+  // satellite's cell; but a cell that holds a dot's centre is the dot's, even where the cell's centre is on a label.
+  expect(nodeAtPoint([sat, pill], { x: 300, y: 284 }, { w: 7.4, h: 19.3 })?.id).toBe('t')
+  const minor = { id: 'm', kind: 'topic', x: 560, y: 280, w: 90, label: 'Ship Notes 2' }
+  const near = { id: 'n', kind: 'session', x: 586, y: 294, label: '', topicId: 'other' }
+  expect(nodeAtPoint([near, minor], { x: 589.6, y: 285 }, { w: 8.9, h: 22.8 })?.id).toBe('n')
+  expect(nodeAtPoint([near, minor], { x: 589.6, y: 285 })?.id).toBe('m')
+  expect(nodeAtPoint([near, minor], { x: 600, y: 285 }, { w: 8.9, h: 22.8 })?.id).toBe('m')
 })
 
 test('the Desktop pointer layer is on by default: a picture sized from the pane, a Client of the same size over it that draws nothing, traces on hover and picks on a click; a step and the back pill pick too', async ($, on) => {
@@ -422,4 +430,18 @@ test('VS Code and mobile draw the picture alone, as an image, with the buttons u
   expect((await wide.find({ type: 'Client', key: 'map' }))?.props.width).toBe('100%')
   expect((await wide.find({ type: 'Svg' }))?.props.width).toBeUndefined()
   await wide.unmount()
+})
+
+test('in a narrow terminal pane the text map’s hint is cut to its width on row 0, never wrapped into the map', async () => {
+  const el = (type: string) => (props: Record<string, unknown>) => ({ type, props })
+  const surface = { elements: { Box: el('Box'), Text: el('Text') }, state: undefined, columns: 30, rows: 12, setState: () => undefined, every: () => () => undefined, post: () => undefined, onPointer: () => () => undefined, onKey: () => () => undefined }
+  const hint = 'Click or Tab to a topic · Enter focuses'
+  const tree = MapModule({ mode: 'map', hint, nodes: [], links: [], legend: '', fieldW: 860, fieldH: 520 }, surface) as { props: { children: { props: { top: number; left: number; children: { props: { children: string; wrap?: string } }[] } }[] } }
+  const row0 = tree.props.children[0]
+  const text = row0?.props.children[0]?.props
+  expect(row0?.props.top).toBe(0)
+  expect(text?.children.length).toBeLessThanOrEqual(28)
+  expect(text?.children.endsWith('…')).toBe(true)
+  expect(text?.wrap).toBe('truncate')
+  expect(fitText(hint, 100)).toBe(hint)
 })

@@ -12,7 +12,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { Desktop, Engine, bigFolder, clientOf, pointOn, rowsFor, seed, sleep, svgOfTree, temps } from './desktop.mjs'
+import { Desktop, Engine, bigFolder, clientOf, pointOn, seed, sleep, svgOfTree, temps } from './desktop.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const OUT = path.resolve(process.argv[2] ?? path.join(REPO, 'docs/images'))
@@ -55,7 +55,7 @@ try {
 
   // The busiest checkout topic: traced under the pointer, then focused.
   await desk.loadModule()
-  desk.mount(140, rowsFor(140, desk.props()))
+  desk.mountLikeDesktop(140)
   const nodes = desk.props().nodes
   const share = topicId => nodes.filter(n => n.kind === 'session' && n.topicId === topicId && themeOf[n.id] === 'checkout').length
   const topic = nodes.filter(n => n.kind === 'topic' && n.id !== 'unsorted').sort((a, b) => share(b.id) - share(a.id))[0]
