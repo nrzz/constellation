@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // End to end on the Desktop's wire: the real Claude Code engine, driven the way Claude Desktop drives it.
 //
-//   node tests/e2e/desktop.mjs                 # about a minute; no model turn, no sign-in needed
+//   node tests/e2e/desktop.mjs                 # about 30 s; no model turn, no sign-in needed
+//   E2E_ONLY=1,3 node tests/e2e/desktop.mjs    # those scenarios alone (1 to 5); any other value is refused
+//   E2E_KEEP=1 node tests/e2e/desktop.mjs      # keep the run's folders (a failing run always keeps them)
 //   E2E_INSTALL=1 node tests/e2e/desktop.mjs   # install the plugin from this checkout first, as tui.sh does
 //   E2E_SHOTS=<dir> node tests/e2e/desktop.mjs # also save the pictures the engine sent (the README's images)
 //
@@ -14,7 +16,7 @@
 // every piece of code a click on the Desktop does, save the Desktop's own layout and pixels.
 //
 // Five folders, each its own fresh config dir: the three fixture transcripts; a generated folder of about 140
-// sessions in a dozen themes with one transcript over 4 MiB; an empty folder; the fixtures again, to see the
+// sessions in fifteen themes with one transcript over 4 MiB; an empty folder; the fixtures again, to see the
 // pane open on its own when "On session start" is Pane; and the big folder with one session running, drawn as the
 // live picture. The first three set Picture: Clicks (they test the image and its pointer layer). Prints PASS/FAIL per check, exits 1 on any failure.
 // Needs Node 18+ and `claude` on PATH (or CLAUDE_BIN).
@@ -91,15 +93,16 @@ function seed(sessions, name = 'web-app') {
   const cwd = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cst-'))), name)
   fs.mkdirSync(cwd, { recursive: true })
   fs.writeFileSync(path.join(cwd, 'README.md'), '# demo\n')
-  const dir = path.join(cfg, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'))
-  fs.mkdirSync(dir, { recursive: true })
-  for (const s of sessions) {
-    const file = path.join(dir, `${s.id}.jsonl`)
-    fs.writeFileSync(file, s.text)
-    fs.utimesSync(file, new Date(s.mtime), new Date(s.mtime))
-  }
+  fs.mkdirSync(path.join(cfg, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-')), { recursive: true })
+  for (const s of sessions) addSession({ cfg, cwd }, s)
   temps.push(cfg, path.dirname(cwd))
   return { cfg, cwd }
+}
+/** Writes one transcript, with its time, where the engine keeps a seeded folder's sessions. */
+function addSession({ cfg, cwd }, s) {
+  const file = path.join(cfg, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${s.id}.jsonl`)
+  fs.writeFileSync(file, s.text)
+  fs.utimesSync(file, new Date(s.mtime), new Date(s.mtime))
 }
 
 const THEMES = [
@@ -205,6 +208,9 @@ class Engine {
     this.n = 0
     this.stderr = ''
     let buf = ''
+    // Whole characters: a chunk can end inside one (a big folder's answers come in 64 KiB pieces).
+    this.child.stdout.setEncoding('utf8')
+    this.child.stderr.setEncoding('utf8')
     this.child.stdout.on('data', d => {
       buf += d
       let i
@@ -270,10 +276,10 @@ class Engine {
     this.child.stdin.end()
     if (IS_WIN) {
       // The whole tree: a shell's child too, so nothing keeps the run's folders open.
-      spawnSync('taskkill', ['/pid', String(this.child.pid), '/T', '/F'], { stdio: 'ignore' })
+      spawnSync('taskkill', ['/pid', String(this.child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 10_000 })
     } else this.child.kill('SIGTERM')
     await Promise.race([this.exited, sleep(4000)])
-    if (this.child.exitCode === null && !IS_WIN) this.child.kill('SIGKILL')
+    if (this.child.exitCode === null) this.child.kill(IS_WIN ? undefined : 'SIGKILL')
     await Promise.race([this.exited, sleep(2000)])
   }
 }
@@ -377,11 +383,15 @@ class Desktop {
     this.pressedFrom = from
     return r
   }
-  /** Presses, then draws the pane again once the drawing has changed (see redrawAfter). */
-  async pressAndDraw(key, tree) {
+  /**
+   * Presses, then draws the pane again once the drawing has changed (see redrawAfter). A press expected to change
+   * the drawing that leaves it as it was fails: the checks after it would read the old drawing.
+   */
+  async pressAndDraw(key, tree, { expectChange = true } = {}) {
     const before = JSON.stringify(this.tree)
     await this.press(key, tree)
-    await this.redrawAfter(this.pressedFrom, before)
+    const { capped } = await this.redrawAfter(this.pressedFrom, before)
+    if (capped && expectChange) check(false, `pressing ${key} changes the drawing`, 'the same drawing 3 s later')
     this.refit()
   }
   /** Loads the Client module as the Desktop frame does: the served runtime installed with a host, then the entry imported. */
@@ -454,7 +464,7 @@ class Desktop {
   /**
    * As the Desktop does: draw again when the engine says the drawing changed (`ui_invalidate`). A press's state lands
    * after its answer, and an invalidation left from the action before can come first: so it draws on each one until
-   * the tree differs from `before` (or three seconds pass, for a press that changes nothing).
+   * the tree differs from `before` (or three seconds pass, for a press that changes nothing: then `capped`).
    */
   async redrawAfter(from, before) {
     const isInvalidate = e => e.type === 'system' && e.subtype === 'ui_invalidate' && (e.instances ?? []).some(i => i.instance_id === PANE || i.instance_id === 'band')
@@ -464,7 +474,8 @@ class Desktop {
       await this.engine.waitFor(isInvalidate, Math.max(0, end - Date.now()), from)
       from = this.engine.events.length
       r = await this.pane()
-      if (before === undefined || JSON.stringify(r.tree) !== before || Date.now() >= end) return r
+      if (before === undefined || JSON.stringify(r.tree) !== before) return { ...r, capped: false }
+      if (Date.now() >= end) return { ...r, capped: true }
       await sleep(100)
     }
   }
@@ -480,8 +491,10 @@ class Desktop {
     }
     // A hover posts and may change nothing worth waiting for; a pick or a drop does change the drawing.
     const changes = sent.some(d => d.type !== 'hover')
-    if (sent.length) await this.redrawAfter(from, changes ? before : undefined)
-    else await this.pane()
+    if (sent.length) {
+      const { capped } = await this.redrawAfter(from, changes ? before : undefined)
+      if (capped) check(false, `the posts ${sent.map(d => d.type).join(', ')} change the drawing`, 'the same drawing 3 s later')
+    } else await this.pane()
     if (process.env.E2E_DEBUG) console.log(`     then mode ${this.props()?.mode}, hint ${this.props()?.hint}`)
     this.refit()
     return sent
@@ -526,10 +539,10 @@ async function useClicks(desk) {
   check(chosenOf(desk.tree, 'pictureMode:clicks') !== undefined, 'Picture: Clicks is saved from the settings card')
   await desk.pressAndDraw('settings:done')
 }
-/** The layer reaches the picture's bottom: its rows and the picture's height in rows differ by less than one. */
+/** The layer reaches the picture's bottom and never past it: its rows fall short of the picture's height by less than one. */
 function checkCovers(desk, label) {
   const picture = desk.pictureHeightPx() / desk.cell.h
-  check(Math.abs(desk.rows - picture) < 1, label, { layer: desk.rows, picture: Number(picture.toFixed(2)), columns: desk.columns, sizing: desk.sizing })
+  check(desk.rows <= picture + 1e-9 && picture - desk.rows < 1, label, { layer: desk.rows, picture: Number(picture.toFixed(2)), columns: desk.columns, sizing: desk.sizing })
 }
 /**
  * Every node on the picture, clicked at its own point, picks itself: at the pointer's sub-cell position, and at the
@@ -665,8 +678,16 @@ async function fixtureFolderChecks() {
     sent = await desk.drag(desk.props().nodes.find(n => n.id === sat.id), pointOn(unsorted))
     check(sent.some(d => d.type === 'drop' && d.id === sat.id && d.targetId === 'unsorted'), 'dragging a satellite onto Unsorted posts the move', sent)
     check(desk.props().nodes.find(n => n.id === sat.id)?.topicId === 'unsorted', '…and the session is in Unsorted')
+    // Refresh rescans: a transcript written since the last scan lands on the map (older than the rest, so the
+    // checkout chain's steps stay as they are).
+    const late = { id: '55555555-aaaa-4bbb-8ccc-000000000005', mtime: Date.parse('2026-10-10T10:00:00Z') }
+    addSession({ cfg, cwd }, { ...late, text: transcript({ id: late.id, cwd, branch: 'docs/deploy', ask: 'write the deploy guide for the staging server', files: ['docs/deploy.md'], title: 'Deploy guide for staging', start: late.mtime - 600_000, done: 'The guide is in docs/deploy.md.' }) })
+    const toastFrom = engine.events.length
     await desk.pressAndDraw('refresh')
-    check(desk.props().nodes.find(n => n.id === sat.id)?.topicId === 'unsorted', '…still, after a rescan')
+    const refreshed = await engine.waitFor(e => e.type === 'system' && e.subtype === 'ui_toast' && /Refreshed:/.test(JSON.stringify(e)), 5000, toastFrom)
+    check(Boolean(refreshed), 'Refresh says what it found', refreshed)
+    check(desk.props().nodes.some(n => n.kind === 'session' && n.id === late.id), '…and a transcript written since the last scan is on the map', desk.props().nodes.filter(n => n.kind === 'session').length)
+    check(desk.props().nodes.find(n => n.id === sat.id)?.topicId === 'unsorted', '…the moved session still in Unsorted')
     check(Boolean(buttonOf(desk.tree, 'toast:undo')), '…with Undo offered')
     await desk.pressAndDraw('toast:undo')
     check(desk.props().nodes.find(n => n.id === sat.id)?.topicId === checkout.id, 'Undo puts it back in its topic')
@@ -757,12 +778,7 @@ async function bigFolderChecks() {
   console.log('== 2: a folder of about 140 sessions, one over 4 MiB')
   const pre = seed([], 'storefront')
   const { sessions, themeOf, bigId } = bigFolder(pre.cwd, Date.now())
-  const dir = path.join(pre.cfg, 'projects', pre.cwd.replace(/[^a-zA-Z0-9]/g, '-'))
-  for (const s of sessions) {
-    const file = path.join(dir, `${s.id}.jsonl`)
-    fs.writeFileSync(file, s.text)
-    fs.utimesSync(file, new Date(s.mtime), new Date(s.mtime))
-  }
+  for (const s of sessions) addSession(pre, s)
   const engine = new Engine(pre)
   const desk = new Desktop(engine)
   try {
@@ -956,12 +972,7 @@ async function livePictureChecks() {
   // One session written half a minute ago: running, as statusOf calls a session written in the last five minutes.
   const live = sessions[0]
   live.mtime = now - 30_000
-  const dir = path.join(pre.cfg, 'projects', pre.cwd.replace(/[^a-zA-Z0-9]/g, '-'))
-  for (const s of sessions) {
-    const file = path.join(dir, `${s.id}.jsonl`)
-    fs.writeFileSync(file, s.text)
-    fs.utimesSync(file, new Date(s.mtime), new Date(s.mtime))
-  }
+  for (const s of sessions) addSession(pre, s)
   const engine = new Engine(pre)
   const desk = new Desktop(engine)
   try {
@@ -1019,15 +1030,24 @@ function cleanUp() {
 export { seed, fixtureFolder, bigFolder, Engine, Desktop, svgOfTree, clientOf, buttonOf, find, findAll, textOf, pointOn, temps, sleep }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
-  // E2E_ONLY=1,3 runs those scenarios alone.
-  const only = (process.env.E2E_ONLY ?? '').split(',').filter(Boolean)
+  // E2E_ONLY=1,3 runs those scenarios alone; a value naming no scenario is refused, so a stale one never runs nothing.
+  const SCENARIOS = ['1', '2', '3', '4', '5']
+  const only = (process.env.E2E_ONLY ?? '').split(',').map(s => s.trim()).filter(Boolean)
+  const unknown = only.filter(s => !SCENARIOS.includes(s))
+  if (unknown.length) {
+    console.log(`E2E_ONLY names no scenario: ${unknown.join(',')} (they are ${SCENARIOS.join(',')})`)
+    process.exit(2)
+  }
   const wanted = n => only.length === 0 || only.includes(String(n))
   if (wanted(1)) await fixtureFolderChecks()
   if (wanted(2)) await bigFolderChecks()
   if (wanted(3)) await emptyFolderChecks()
   if (wanted(4)) await openOnStartChecks()
   if (wanted(5)) await livePictureChecks()
-  console.log(`== ${passed} passed, ${failed} failed`)
+  const ran = SCENARIOS.filter(wanted)
+  console.log(`== ${passed} passed, ${failed} failed (scenarios ${ran.join(',')}${ran.length < SCENARIOS.length ? ` of ${SCENARIOS.length}` : ''})`)
   if (!failed && !process.env.E2E_KEEP) cleanUp()
-  process.exit(failed ? 1 : 0)
+  else console.log(`   kept the run's folders:\n${temps.map(t => `     ${t}`).join('\n')}`)
+  // A run that checked nothing proves nothing.
+  process.exit(failed || passed === 0 ? 1 : 0)
 }
