@@ -77,6 +77,23 @@ export function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
 }
 
+/**
+ * A topic name cut to `max` characters that keeps its end, where a disambiguated
+ * name differs ("Authentication Mi… Rate"): the last word whole when the head keeps
+ * three characters, else the last characters after the mark ("Cash…fund").
+ */
+export function clipName(name: string, max: number): string {
+  if (name.length <= max) return name
+  const cut = name.lastIndexOf(' ')
+  const last = cut > 0 ? name.slice(cut + 1) : ''
+  if (last && last.length + 5 <= max) return `${clip(name.slice(0, cut), max - last.length - 1)} ${last}`
+  if (last && max >= 7) {
+    const tail = Math.floor((max - 1) / 2)
+    return `${name.slice(0, max - 1 - tail).trimEnd()}…${name.slice(-tail).trimStart()}`
+  }
+  return clip(name, max)
+}
+
 /** Up to two lines of about `width` characters, broken at spaces. */
 function wrap2(text: string, width: number): string[] {
   if (text.length <= width) return [text]
@@ -265,7 +282,8 @@ export function anchorsOf(view: View, focus: Topic, size: FieldSize): Anchor[] {
   return positions.flatMap((pos, i) => {
     const r = related[i]
     if (!r) return []
-    const name = clip(r.topic.name, Math.min(20, Math.max(4, chars - (chars >= 14 ? 8 : 0))))
+    // The name first (two related topics may differ only in their last word), the shared file in what is left.
+    const name = clipName(r.topic.name, Math.min(20, chars))
     const room = chars - name.length - 2
     const file = room >= 4 ? clip(r.via, Math.min(18, room)) : ''
     // Whole units, so the picture and the pointer layer draw and hit-test the very same box.
@@ -472,7 +490,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
         // Its spokes and its links to other topics in its colour; the rest fades (above), the caption takes the hint's place.
         css.push(`.t-${i}:hover .ln{stroke:${t.color}!important;opacity:.8!important}`, `.t-${i}:hover .sat{r:10px}`, `.f:has(.t-${i}:hover) .c-${i}{opacity:1}`)
         if (linked.length > 0) css.push(`.f:has(.t-${i}:hover) .x-${i}{stroke:${t.color}!important;opacity:.8!important}`)
-        capOf(`c-${i}${d ? ' cy' : ''}`, `${running > 0 ? `● live · ${running} running · ` : ''}${clip(t.name, 28)} · ${captionOf(t, now)}`, t.color, d ? `--d:${d}s` : '')
+        capOf(`c-${i}${d ? ' cy' : ''}`, `${running > 0 ? `● live · ${running} running · ` : ''}${clipName(t.name, 28)} · ${captionOf(t, now)}`, t.color, d ? `--d:${d}s` : '')
       } else {
         css.push(`.t-${i}:hover .ln{stroke:${t.color}}`, `.t-${i}:hover .sat{r:10px}`)
         for (const r of linked) {
@@ -537,7 +555,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
           `<rect class="pill hit" x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="38" rx="19" style="fill:var(${isTraced ? '--pill2' : '--pill'})" stroke="${t.color}" stroke-width="1.5"${dashed}/>`,
           ...(running > 0 ? [`<circle class="ld" cx="${(x + 17).toFixed(1)}" cy="${p.y}" r="7" fill="none" stroke="${t.color}" stroke-width="1.2" opacity="0.8"/>`] : []),
           `<circle cx="${(x + 17).toFixed(1)}" cy="${p.y}" r="4" fill="${t.color}"/>`,
-          `<text class="nm" x="${(x + 28).toFixed(1)}" y="${p.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clip(t.name, 28))}</text>`,
+          `<text class="nm" x="${(x + 28).toFixed(1)}" y="${p.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clipName(t.name, 28))}</text>`,
           `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${p.y + 4}" font-size="11" font-weight="500" fill="${t.color}" text-anchor="end">${esc(countLabel)}</text>`,
         )
       } else {
@@ -547,7 +565,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
         g.push(
           `<circle class="glow" cx="${p.x}" cy="${p.y}" r="11" fill="${rgba(t.color, 0.22)}"${isTraced || isDrop ? ' opacity="1"' : ''}/>`,
           `<circle class="hit${running > 0 ? ' ld' : ''}" cx="${p.x}" cy="${p.y}" r="5.5" ${running > 0 ? `fill="${t.color}"` : 'style="fill:var(--pill)"'} stroke="${t.color}" stroke-width="1.5"${isDrop ? ' stroke-dasharray="3 2"' : ''}/>`,
-          `<text class="mono lbl" x="${p.x + 16}" y="${p.y + 4}" font-size="11.5" style="fill:var(${isTraced ? '--tx' : '--mu'})">${esc(clip(t.name, 24))} <tspan fill="${t.color}">${esc(countLabel)}</tspan></text>`,
+          `<text class="mono lbl" x="${p.x + 16}" y="${p.y + 4}" font-size="11.5" style="fill:var(${isTraced ? '--tx' : '--mu'})">${esc(clipName(t.name, 24))} <tspan fill="${t.color}">${esc(countLabel)}</tspan></text>`,
         )
       }
       g.push('</g>')
@@ -669,7 +687,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
       `<rect x="${(x - 6).toFixed(1)}" y="${y - 6}" width="${(w + 12).toFixed(1)}" height="50" rx="25" fill="${rgba(color, 0.2)}"/>`,
       `<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="38" rx="19" style="fill:var(--pill2)" stroke="${color}" stroke-width="1.5"/>`,
       `<circle cx="${(x + 17).toFixed(1)}" cy="${FOCUS_PILL.y}" r="4" fill="${color}"/>`,
-      `<text x="${(x + 28).toFixed(1)}" y="${FOCUS_PILL.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clip(focus.name, 28))}</text>`,
+      `<text x="${(x + 28).toFixed(1)}" y="${FOCUS_PILL.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clipName(focus.name, 28))}</text>`,
       `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${FOCUS_PILL.y + 4}" font-size="11" font-weight="500" fill="${color}" text-anchor="end">${esc(countLabel)}</text>`,
     )
     if (focus.goal) {
@@ -683,7 +701,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
       const left = a.x - a.w / 2
       if (live) {
         css.push(`.f:has(.an-${k}:hover) .r-${k}{opacity:1}`)
-        capOf(`r-${k}`, `${clip(a.topic.name, 28)} · ${captionOf(a.topic, now)}`, a.topic.color)
+        capOf(`r-${k}`, `${clipName(a.topic.name, 28)} · via ${a.via} · ${captionOf(a.topic, now)}`, a.topic.color)
       }
       parts.push(
         `<g class="hit${live ? ` an an-${k}` : ''}" opacity="0.9"><rect x="${left.toFixed(1)}" y="${a.y - 16}" width="${a.w.toFixed(1)}" height="32" rx="16" style="fill:var(--glass)" stroke="${a.topic.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
@@ -1820,8 +1838,8 @@ export function fieldOf(view: View): FieldProps {
       if (!p) continue
       const isDim = (traced !== null && traced !== t.id) || !topicMatches(ui.query, t)
       const countLabel = ui.query.trim() ? `${t.sessions.filter(s => matches(ui.query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
-      const w = t.isMajor ? pillWidth(t.name, countLabel) : 16 + (clip(t.name, 24).length + countLabel.length + 1) * 6.9
-      nodes.push(node({ id: t.id, kind: 'topic', x: p.x, y: p.y, w: Math.round(w), label: `${clip(t.name, 24)} ${countLabel}`, color: t.color, isMajor: t.isMajor, isDim, isSelected: false, title: t.name }))
+      const w = t.isMajor ? pillWidth(t.name, countLabel) : 16 + (clipName(t.name, 24).length + countLabel.length + 1) * 6.9
+      nodes.push(node({ id: t.id, kind: 'topic', x: p.x, y: p.y, w: Math.round(w), label: `${clipName(t.name, 24)} ${countLabel}`, color: t.color, isMajor: t.isMajor, isDim, isSelected: false, title: t.name }))
       t.sessions.slice(0, perTopic).forEach((s, k) => {
         const sp = satellitePosition(p, k, size)
         nodes.push(node({ id: s.id, kind: 'session', x: Math.round(sp.x), y: Math.round(sp.y), label: '', title: clip(s.title, 24), color: t.color, isDim: isDim || !s.isInRange || !matches(ui.query, s), isSelected: ui.selected === s.id, isArchived: s.status === 'archived', isActive: s.status === 'active', topicId: t.id }))
@@ -1837,7 +1855,7 @@ export function fieldOf(view: View): FieldProps {
     const positions = chainPositions(steps.length, size)
     // The pill as the picture draws it, "· you" and all, so its whole width takes a click.
     const pill = focusPillOf(view, focus)
-    nodes.push(node({ id: focus.id, kind: 'topic', x: size.w / 2, y: FOCUS_PILL.y, w: Math.round(pill.w), label: `${clip(focus.name, 24)} ${pill.count}`, color: focus.color, isMajor: true, title: focus.name }))
+    nodes.push(node({ id: focus.id, kind: 'topic', x: size.w / 2, y: FOCUS_PILL.y, w: Math.round(pill.w), label: `${clipName(focus.name, 24)} ${pill.count}`, color: focus.color, isMajor: true, title: focus.name }))
     // The "‹ All topics" pill at the top left: a press on it goes back to every topic.
     nodes.push(node({ id: 'back', kind: 'back', x: 62, y: 27, w: 96, label: '‹ All topics', color: ACCENT }))
     steps.forEach((step, i) => {
@@ -1861,7 +1879,7 @@ export function fieldOf(view: View): FieldProps {
       }))
     })
     for (const a of anchorsOf(view, focus, size)) {
-      nodes.push(node({ id: a.topic.id, kind: 'topic', x: a.x, y: a.y, w: a.w, label: `${clip(a.topic.name, 14)} · ${clip(a.via, 10)}`, color: a.topic.color, isMajor: false, isDim: true, isAnchor: true, title: a.topic.name }))
+      nodes.push(node({ id: a.topic.id, kind: 'topic', x: a.x, y: a.y, w: a.w, label: `${clipName(a.topic.name, 14)} · ${clip(a.via, 10)}`, color: a.topic.color, isMajor: false, isDim: true, isAnchor: true, title: a.topic.name }))
     }
   }
   const field: FieldProps = { mode: focus ? 'focus' : 'map', hint: view.surface === 'terminal' ? hintOf(view) : hintFitted(view, size), nodes, links, legend, fieldW: size.w, fieldH: size.h }
