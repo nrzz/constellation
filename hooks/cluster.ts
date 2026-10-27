@@ -10,7 +10,8 @@ import { basenameOf, isNoiseFile, unwrapPastes } from './scan'
 import type { SessionSummary } from './scan'
 import type { NoteRecord, StoreData } from '../types'
 
-export const PALETTE = ['#F2A33A', '#9B8CFF', '#5FD3A6', '#7FB8FF', '#ED93B1'] as const
+/** Topic colours; never the accent, which marks only you, live and the current selection. */
+export const PALETTE = ['#A6D85E', '#9B8CFF', '#5FD3A6', '#7FB8FF', '#ED93B1'] as const
 export const MINOR_COLOR = '#B4B2A9'
 export const ACCENT = '#F2A33A'
 export const UNSORTED_ID = 'unsorted'
@@ -492,7 +493,8 @@ export function buildModel(
   const ranked = [...topics].filter(t => t.id !== UNSORTED_ID).sort((a, b) => a.firstAt - b.firstAt || a.id.localeCompare(b.id))
   ranked.forEach((t, i) => {
     const stored = store.topics[t.id]?.color
-    t.color = t.isMajor ? (stored ?? PALETTE[i % PALETTE.length] ?? ACCENT) : MINOR_COLOR
+    // Amber was the palette's first colour until it became the accent's alone: a topic that stored it takes the new first.
+    t.color = t.isMajor ? (stored?.toUpperCase() === ACCENT ? PALETTE[0] : (stored ?? PALETTE[i % PALETTE.length] ?? MINOR_COLOR)) : MINOR_COLOR
   })
   topics.sort((a, b) => b.lastAt - a.lastAt || a.name.localeCompare(b.name))
   const byId: Record<string, SessionView> = {}

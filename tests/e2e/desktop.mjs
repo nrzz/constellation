@@ -304,6 +304,8 @@ const textOf = tree => {
   return parts.join(' ')
 }
 const buttonOf = (tree, key) => find(tree, n => n.type === 'Button' && n.props?.key === key)
+/** The settings card draws the chosen value as an accent chip around its Button (`so:<key>:<value>`). */
+const chosenOf = (tree, id) => find(tree, n => n.type === 'Box' && n.props?.key === `so:${id}`)
 const clientOf = tree => find(tree, n => n.type === 'Client' && n.props?.key === 'map')
 
 /**
@@ -521,7 +523,7 @@ async function useClicks(desk) {
   await desk.pane()
   await openAdvanced(desk)
   await desk.pressAndDraw('set:pictureMode:clicks')
-  check(buttonOf(desk.tree, 'set:pictureMode:clicks')?.props.variant === 'primary', 'Picture: Clicks is saved from the settings card')
+  check(chosenOf(desk.tree, 'pictureMode:clicks') !== undefined, 'Picture: Clicks is saved from the settings card')
   await desk.pressAndDraw('settings:done')
 }
 /** The layer reaches the picture's bottom: its rows and the picture's height in rows differ by less than one. */
@@ -901,7 +903,7 @@ async function openOnStartChecks() {
       await desk.pane()
       await desk.pressAndDraw('settings')
       await desk.pressAndDraw('set:openOnStart:pane')
-      check(buttonOf(desk.tree, 'set:openOnStart:pane')?.props.variant === 'primary', 'On session start: Pane is saved from the settings card')
+      check(chosenOf(desk.tree, 'openOnStart:pane') !== undefined, 'On session start: Pane is saved from the settings card')
     } catch (error) {
       check(false, 'the setting run', String(error?.stack ?? error))
     } finally {

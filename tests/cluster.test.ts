@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  ACCENT,
   ALL_TIME_DAYS,
   DAY_MS,
   EMPTY_STORE,
@@ -220,6 +221,14 @@ describe('major rule, colours, status and range', () => {
     expect(new Set(majors.map(t => t.color)).size).toBe(4)
     const store: StoreData = { ...EMPTY_STORE, topics: { 'auto:c4': { name: 'Checkout tests', color: '#123456', createdAt: 1 } } }
     expect(buildModel(folder(), store, SETTINGS, NOW).topicById['auto:c4']?.color).toBe('#123456')
+  })
+
+  test('the accent marks only you, live and the selection: no topic colour is the accent, and a stored accent (the old first colour) takes the new one', async () => {
+    expect(PALETTE.map(c => c.toLowerCase())).not.toContain(ACCENT.toLowerCase())
+    const m = buildModel(folder(), EMPTY_STORE, SETTINGS, NOW)
+    for (const t of m.topics) expect(t.color.toLowerCase()).not.toBe(ACCENT.toLowerCase())
+    const store: StoreData = { ...EMPTY_STORE, topics: { 'auto:c4': { name: 'Checkout tests', color: ACCENT, createdAt: 1 } } }
+    expect(buildModel(folder(), store, SETTINGS, NOW).topicById['auto:c4']?.color).toBe(PALETTE[0])
   })
 
   test('status: active within five minutes of the transcript changing, archived from the store, else idle', async () => {

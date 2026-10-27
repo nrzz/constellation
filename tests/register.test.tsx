@@ -362,7 +362,7 @@ test('a topic card renames, sets a goal that travels with the handoff, and the s
   expect(r.context?.[0]).toContain('Topic goal: Make the checkout suite deterministic on CI')
   await ui.press({ key: 'settings' })
   await ui.press({ key: 'set:numbering:newestFirst' })
-  expect((await ui.find({ type: 'Button', key: 'set:numbering:newestFirst' }))?.props.variant).toBe('primary')
+  expect((await boxesOf(ui, 'so:numbering:')).map(b => b.id)).toEqual(['newestFirst'])
   await ui.press({ key: 'settings' })
   expect((await ui.find({ type: 'Button', key: 's:you' }))?.props.hotkey).toBe('1')
   await ui.unmount()

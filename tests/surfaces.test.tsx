@@ -6,6 +6,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine, FoundElement } from 'claude-code/testing'
 
 import { ACCENT } from '../hooks/cluster'
+import { CARD_BORDER, HAIRLINE } from '../hooks/draw'
 import { CHECKOUT, CWD, IDS, alphaOf, boxesOf, kids, paneOn, rgbOf, run, stubEngine } from './helpers'
 
 const HEADER = ['view:map', 'view:list', 'settings', 'help', 'mine']
@@ -260,6 +261,122 @@ test('the joined card: Focus my topic a chip in its colour, the others outlines;
   await ui.unmount()
 })
 
+/** The List view's topic heads by id: each a Box holding its dot, a plain Button and the meta beside it. */
+async function listHeads(ui: Ui) {
+  return Object.fromEntries((await boxesOf(ui, 'lh:')).map(b => [b.id, b.box]))
+}
+
+test('the List view: each row a translucent hairline that lifts on hover, its head the dot, a plain Button with the name alone and the meta dim mono beside it; you and live in the accent', async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  await ui.press({ key: 'view:list' })
+  await noShouting(ui)
+  const rows = Object.fromEntries((await boxesOf(ui, 'lr:')).map(b => [b.id, b.box]))
+  const heads = await listHeads(ui)
+  expect(Object.keys(heads).length).toBeGreaterThan(1)
+  expect(Object.keys(rows).sort()).toEqual(Object.keys(heads).sort())
+  for (const [id, head] of Object.entries(heads)) {
+    const inside = kids(head)
+    const dot = inside.find(k => k.type === 'Text' && k.text === '●')
+    expect(dot?.props.color).toBeDefined()
+    const name = inside.find(k => k.type === 'Button')
+    expect(name?.key).toBe(`t:${id}`)
+    expect(name?.props.plain).toBe(true)
+    expect(name?.props.variant).toBeUndefined()
+    expect(name?.children.filter(c => typeof c === 'object')).toEqual([])
+    const meta = inside.find(k => k.type === 'Text' && /^(major|minor|unsorted) · \d+ sessions?/.test(k.text))
+    expect(meta?.props.mono).toBe(true)
+    expect(meta?.props.dimColor).toBe(true)
+    expect(meta?.text).not.toMatch(/you/)
+    const row = rows[id]
+    expect(rgbOf(row?.props.borderColor)).not.toBe(rgbOf(CARD_BORDER))
+    expect(alphaOf(row?.props.borderColor)).toBeLessThan(0.6)
+    expect(hover(row).borderColor).toBeDefined()
+    const live = inside.find(k => k.type === 'Text' && k.text === 'live')
+    const you = inside.find(k => k.type === 'Text' && k.text === 'you')
+    if (id === CHECKOUT) {
+      expect(live?.props.color).toBe(ACCENT)
+      expect(you?.props.color).toBe(ACCENT)
+    } else {
+      expect(live).toBeUndefined()
+      expect(you).toBeUndefined()
+    }
+  }
+  await ui.unmount()
+})
+
+test('the List view, a row open: a hairline and faint fill in its colour; each step a row with its number once, a plain Button and the age dim mono outside it; the selected step a strong chip; no primary slab', async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  await ui.press({ key: 'view:list' })
+  const color = kids((await listHeads(ui))[CHECKOUT]).find(k => k.text === '●')?.props.color
+  await ui.press({ key: `t:${CHECKOUT}` })
+  await ui.press({ key: `s:${IDS.tests}` })
+  await noShouting(ui)
+  const row = (await boxesOf(ui, 'lr:')).find(b => b.id === CHECKOUT)?.box
+  expect(rgbOf(row?.props.borderColor)).toBe(rgbOf(color))
+  expect(rgbOf(row?.props.backgroundColor)).toBe(rgbOf(color))
+  expect(alphaOf(row?.props.backgroundColor)).toBeLessThan(0.08)
+  const steps = await boxesOf(ui, 'ls:')
+  expect(steps.length).toBeGreaterThan(2)
+  steps.forEach(({ id, box }, i) => {
+    const inside = kids(box)
+    const button = inside.find(k => k.type === 'Button')
+    expect(button?.key).toBe(`s:${id}`)
+    expect(button?.props.plain).toBe(true)
+    expect(button?.props.variant).toBeUndefined()
+    expect(button?.children.filter(c => typeof c === 'object')).toEqual([])
+    expect(button?.text).not.toMatch(/^\d/)
+    const number = inside.find(k => k.type === 'Text' && k.text === String(i + 1))
+    if (button?.props.hotkey !== undefined) expect(number).toBeUndefined()
+    else expect(number?.props.mono).toBe(true)
+    expect(hover(box).backgroundColor).toBeDefined()
+  })
+  const selected = steps.find(s => s.id === IDS.tests)
+  const other = steps.find(s => s.id !== IDS.tests && s.id !== 'you')
+  expect(rgbOf(selected?.box.props.backgroundColor)).toBe(rgbOf(color))
+  expect(alphaOf(selected?.box.props.borderColor)).toBeGreaterThan(alphaOf(other?.box.props.borderColor))
+  const age = kids(other?.box).find(k => k.type === 'Text' && k.props.mono === true && /ago$|^\d+[smhd]$|^now$/.test(k.text))
+  expect(age?.props.dimColor).toBe(true)
+  const you = steps.find(s => s.id === 'you')
+  expect(kids(you?.box).find(k => k.type === 'Text' && k.text === 'you')?.props.color).toBe(ACCENT)
+  expect((await ui.findAll({ type: 'Button' })).filter(b => b.props.variant === 'primary')).toEqual([])
+  await ui.unmount()
+})
+
+test('the settings view: a sentence-case title in medium weight, sentence-case groups, a hairline card; each choice a chip, the chosen one tinted in the accent, the rest outlines; Done an outline; no primary slab', async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  await ui.press({ key: 'settings' })
+  await ui.press({ key: 'set:advanced' })
+  await noShouting(ui)
+  expect((await ui.find({ type: 'Text', text: /^Settings$/ }))?.props.weight).toBe('medium')
+  for (const title of ['Map', 'Session', 'Advanced']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${title}$`) })).toBeDefined()
+  const card = (await boxesOf(ui, 'cd:')).find(b => b.id === 'settings')?.box
+  expect(card?.props.borderColor).toBe(HAIRLINE)
+  const done = (await boxesOf(ui, 'ob:')).find(b => b.id === 'settings:done')
+  expect(kids(done?.box).find(k => k.type === 'Button')?.key).toBe('settings:done')
+  const chosen = await boxesOf(ui, 'so:')
+  const others = await boxesOf(ui, 'oo:')
+  const buttons = (await ui.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('set:') && b.key !== 'set:advanced')
+  expect(chosen.length + others.length).toBe(buttons.length)
+  expect(new Set(chosen.map(c => c.id.split(':')[0])).size).toBe(chosen.length)
+  for (const { box } of chosen) {
+    expect(rgbOf(box.props.backgroundColor)).toBe(rgbOf(ACCENT))
+    expect(alphaOf(box.props.backgroundColor)).toBeLessThan(0.3)
+    expect(kids(box).find(k => k.type === 'Button')?.props.plain).toBe(true)
+  }
+  for (const { box } of others) {
+    expect(box.props.borderStyle).toBe('round')
+    expect(rgbOf(box.props.borderColor)).not.toBe(rgbOf(ACCENT))
+    expect(hover(box).borderColor).toBeDefined()
+  }
+  await ui.press({ key: 'set:numbering:newestFirst' })
+  expect((await boxesOf(ui, 'so:')).some(b => b.id === 'numbering:newestFirst')).toBe(true)
+  expect((await ui.findAll({ type: 'Button' })).filter(b => b.props.variant === 'primary')).toEqual([])
+  await ui.unmount()
+})
+
 test('terminal: every topic and header button still shows, no chip draws a border, and the current view still stands out', async ($, hooks) => {
   stubEngine(hooks)
   const ui = await joined($, 'terminal')
@@ -283,5 +400,12 @@ test('terminal: every topic and header button still shows, no chip draws a borde
   await ui.press({ key: `s:${IDS.tests}` })
   for (const key of ['sc:pickup', 'sc:draft', 'sc:new', 'sc:pin', 'sc:move', 'sc:archive']) expect(await ui.find({ type: 'Button', key })).toBeDefined()
   expect((await ui.find({ type: 'Button', key: 'sc:pickup' }))?.props.variant).toBe('primary')
+  // Settings: every choice still a button, the chosen one reversed, no chip border.
+  await ui.press({ key: 'settings' })
+  expect((await ui.find({ type: 'Button', key: 'set:numbering:oldestFirst' }))?.props.variant).toBe('primary')
+  expect((await ui.find({ type: 'Button', key: 'set:numbering:newestFirst' }))?.props.variant).toBeUndefined()
+  const choices = [...(await boxesOf(ui, 'so:')), ...(await boxesOf(ui, 'oo:'))]
+  expect(choices.length).toBeGreaterThan(5)
+  for (const { box } of choices) expect(box.props.borderStyle).toBeUndefined()
   await ui.unmount()
 })

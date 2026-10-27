@@ -7,7 +7,7 @@ import { placementOf } from '../hooks/actions'
 import { pointerHint, svgOf } from '../hooks/draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, settingValue } from '../hooks/state'
 import type { SessionSummary } from '../types'
-import { CWD, NOW, paneOn, stubEngine } from './helpers'
+import { CWD, NOW, boxesOf, paneOn, stubEngine } from './helpers'
 
 test('live is the default: the Desktop picture is interactive and no Client layer lies over it', async ($, on) => {
   stubEngine(on)
@@ -59,7 +59,7 @@ test('pictureMode reads live or clicks and nothing else', () => {
   expect(settingValue('pictureMode', 'canvas')).toBeUndefined()
 })
 
-test('the settings view offers Picture: Live / Clicks under ADVANCED, and a press switches the picture', async ($, on) => {
+test('the settings view offers Picture: Live / Clicks under Advanced, and a press switches the picture', async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount(paneOn('desktop'))
@@ -67,9 +67,11 @@ test('the settings view offers Picture: Live / Clicks under ADVANCED, and a pres
   expect(await ui.find({ type: 'Button', key: 'set:pictureMode:clicks' })).toBeUndefined()
   await ui.press({ key: 'set:advanced' })
   expect(await ui.find({ type: 'Text', text: /^Picture/ })).toBeDefined()
-  expect((await ui.find({ type: 'Button', key: 'set:pictureMode:live' }))?.props.variant).toBe('primary')
+  // The chosen value is the accent chip around its Button.
+  const chosen = async () => (await boxesOf(ui, 'so:pictureMode:')).map(b => b.id)
+  expect(await chosen()).toEqual(['live'])
   await ui.press({ key: 'set:pictureMode:clicks' })
-  expect((await ui.find({ type: 'Button', key: 'set:pictureMode:clicks' }))?.props.variant).toBe('primary')
+  expect(await chosen()).toEqual(['clicks'])
   await ui.press({ key: 'settings:done' })
   expect(await ui.find({ type: 'Client', key: 'map' })).toBeDefined()
   expect((await ui.find({ type: 'Svg' }))?.props.isInteractive).toBeUndefined()

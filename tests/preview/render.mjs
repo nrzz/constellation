@@ -53,7 +53,7 @@ const CWD = 'D:\\Projects\\web-app'
 
 /** The prototype's data, as sessions a scan would produce plus the store a user would have built. */
 const topics = [
-  { id: 'topic:checkout-tests', name: 'Checkout tests', color: '#F2A33A', goal: 'Make the checkout suite fast and deterministic on CI', sessions: [
+  { id: 'topic:checkout-tests', name: 'Checkout tests', color: '#A6D85E', goal: 'Make the checkout suite fast and deterministic on CI', sessions: [
     { id: 's1', title: 'Fix flaky cart wait', age: 0.08, status: 'active', turns: 14, branch: 'main', note: 'Replaced the fixed 500 ms wait with findByText. Suite is green; still need to re-run on CI.', files: ['src/Cart.test.tsx', 'src/test-utils.ts'] },
     { id: 's2', title: 'Checkout total rounding', age: 1, status: 'idle', turns: 22, branch: 'fix/rounding', note: 'Totals now use integer paise. Two snapshot tests still fail on the discount line.', files: ['src/total.ts', 'src/Checkout.tsx'] },
     { id: 's3', title: 'Mock payment API', age: 3, status: 'idle', turns: 31, branch: 'test/mock-payments', note: 'MSW handlers cover success and timeout. Refund path is untested.', files: ['msw/handlers.ts', 'src/payments.ts'] },

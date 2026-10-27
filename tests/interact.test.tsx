@@ -223,12 +223,12 @@ test('a session active in the last five minutes offers Message at full strength'
   await ui.unmount()
 })
 
-test('settings come in MAP, SESSION and ADVANCED groups, without row numbers; the advanced rows stay folded until asked and fold back', async ($, on) => {
+test('settings come in Map, Session and Advanced groups, without row numbers; the advanced rows stay folded until asked and fold back', async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount(paneOn('terminal'))
   await ui.press({ key: 'settings' })
-  for (const title of ['MAP', 'SESSION', 'ADVANCED']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${title}$`) })).toBeDefined()
+  for (const title of ['Map', 'Session', 'Advanced']) expect(await ui.find({ type: 'Text', text: new RegExp(`^${title}$`) })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^01$/ })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'set:scope:folder' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'set:fieldBackground:night' })).toBeDefined()

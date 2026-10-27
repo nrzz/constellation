@@ -5,8 +5,10 @@
 //   map       the pane's header, "Jump back in" and the buttons under the map, and a merge pick
 //   focus     the header and the buttons under a focused topic's chain, a step selected
 //   cards     the joined card, the topic card and the session card
+//   list      the List view, the first topic open with a step selected
+//   settings  the settings view, the advanced rows unfolded
 //
-//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus|cards]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
+//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus|cards|list|settings]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
 //
 // The Desktop draws a Button's children as one flat label in the button's own colours (a `primary` one a
 // light slab, a default one a grey chip, a `plain` one as text), a hotkey as a small key cap after the
@@ -40,6 +42,7 @@ for (const dir of ['hooks', 'types']) {
 globalThis.h = (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) })
 globalThis.Fragment = 'Fragment'
 const draw = await import(pathToFileURL(path.join(tmp, 'hooks', 'draw.js')).href)
+const { PALETTE } = await import(pathToFileURL(path.join(tmp, 'hooks', 'cluster.js')).href)
 
 const NOW = Date.parse('2026-10-27T18:00:00.000Z')
 const MIN = 60_000
@@ -48,19 +51,19 @@ const TITLES = ['Live pane hover tracing', 'Join card redesign', 'Idle cycle sof
 const sessionOf = (id, i, ago) => ({ id: `${id}-${i}`, topicId: id, title: `${TITLES[i % TITLES.length]}${i >= TITLES.length ? ` ${i}` : ''}`, lastAt: NOW - ago - i * DAY, startedAt: NOW - ago - (10 - i) * DAY, isInRange: true, status: id === 't1' && i === 0 ? 'active' : 'idle', turns: 12, branch: 'main', lastAssistantText: 'Restyled the cards; gates green. Left: the List rows and settings.', filesTouched: ['hooks/draw.tsx', 'tests/surfaces.test.tsx'] })
 const topicOf = (id, name, color, count, ago, isMajor = true) => ({ id, name, color, isMajor, lastAt: NOW - ago, sessions: Array.from({ length: count }, (_, i) => sessionOf(id, i, ago)) })
 const topics = [
-  topicOf('t1', 'Constellation Build', '#E9A23B', 10, 3 * MIN),
+  topicOf('t1', 'Constellation Build', PALETTE[0], 10, 3 * MIN),
   topicOf('t2', 'Claudetools Tools', '#58A6FF', 11, 8 * DAY),
   topicOf('t3', 'Api Trading', '#3FB950', 2, 22 * DAY),
 ]
 if (WHICH !== 'chooser') topics.push(topicOf('t4', 'Notes', '#B58CFF', 1, 30 * DAY, false))
-if (WHICH === 'focus' || WHICH === 'cards') topics[0].sessions = topics[0].sessions.slice(0, 5)
+if (WHICH === 'focus' || WHICH === 'cards' || WHICH === 'list') topics[0].sessions = topics[0].sessions.slice(0, 5)
 const sessions = topics.flatMap(t => t.sessions).sort((a, b) => b.lastAt - a.lastAt)
 const model = { topics, sessions, links: [], byId: Object.fromEntries(sessions.map(s => [s.id, s])), topicById: Object.fromEntries(topics.map(t => [t.id, t])) }
 const ui = { view: 'map', query: '', focusTopic: null, selected: null, mergeFrom: null, moveMode: false, showSettings: false, showHelp: false }
-const settings = { rangeDays: 30, numbering: 'oldestFirst', showRelated: true }
+const settings = { rangeDays: 30, scope: 'folder', groupBasis: 'auto', fieldBackground: 'transparent', numbering: 'oldestFirst', showRelated: true, handoffNotes: 'auto', autoJoin: 'suggest', openOnStart: 'band', useModelForTitles: false, majorRule: 'either', majorMinSessions: 3, recentDays: 7, pictureMode: 'live', pictureClicks: 'on', layerHeight: 0 }
 const view = WHICH === 'chooser'
   ? { model, me: { folder: 'Projects', suggested: 't1', topicId: null, isNewTopic: false }, now: NOW, surface: 'desktop', settings: {}, ui: {} }
-  : { model, me: { folder: 'Projects', suggested: null, topicId: 't1', isNewTopic: false }, now: NOW, surface: 'desktop', settings, ui }
+  : { model, me: { folder: 'Projects', suggested: null, topicId: 't1', isNewTopic: false }, now: NOW, surface: 'desktop', settings, ui, usage: { calls: 2, inputTokens: 3400, outputTokens: 220 } }
 const act = new Proxy({}, { get: () => () => undefined })
 const T = { Box: 'Box', Text: 'Text', Button: 'Button', Input: 'Input', Select: 'Select' }
 
@@ -122,6 +125,8 @@ const SCENES = {
     ['topic card', () => draw.drawTopicCard(T, { ...focused, ui: { ...focused.ui, selected: null } }, act, topics[0])],
     ['session card', () => draw.drawSessionCard(T, focused, act, model.byId['t1-2'])],
   ],
+  list: [['list', () => column(draw.drawHeader(T, { ...focused, ui: { ...focused.ui, view: 'list' } }, act), draw.drawList(T, { ...focused, ui: { ...focused.ui, view: 'list' } }, act))]],
+  settings: [['settings', () => draw.drawSettings(T, { ...view, ui: { ...ui, showSettings: true, showAdvanced: true } }, act)]],
 }
 const panels = []
 for (const [label, build] of SCENES[WHICH]) {

@@ -83,7 +83,7 @@ reference.
 
 Visual tokens: background #0B0E13, panels #10141A, borders #1C222B (cards
 #20262F, inputs #252C37), text #E8ECF2, muted #8B95A5 (dim #6F7988, labels
-#C9D1DC), accent #F2A33A, topic palette #F2A33A #9B8CFF #5FD3A6 #7FB8FF
+#C9D1DC), accent #F2A33A, topic palette #A6D85E (lime; amber is the accent alone since 2026-10-28) #9B8CFF #5FD3A6 #7FB8FF
 #ED93B1, minor topics #B4B2A9. Field 860×520 with a 60px grid (#151A22), star
 dots (#3A4252 small, #55607A big), topic links dashed `2 5`, pills radius 999
 with 1.5px coloured border and 0 0 0 5px rgba(colour,.22) glow when traced,

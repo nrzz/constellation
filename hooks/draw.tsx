@@ -769,7 +769,7 @@ const RANGE_OPTIONS = [
   { value: String(ALL_TIME_DAYS), label: 'All time' },
 ]
 
-const COLOR_OPTIONS = PALETTE.map((hex, i) => ({ value: hex, label: ['Amber', 'Violet', 'Mint', 'Sky', 'Rose'][i] ?? hex }))
+const COLOR_OPTIONS = PALETTE.map((hex, i) => ({ value: hex, label: ['Lime', 'Violet', 'Mint', 'Sky', 'Rose'][i] ?? hex }))
 
 /** The band's chooser keeps to the nine digit hotkeys; the pane's chooser lists every topic. */
 const MAX_BAND_CHIPS = 9
@@ -1052,48 +1052,83 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
   const topics = model.topics.filter(t => topicMatches(query, t))
   // Before a join the chooser's chips hold the digits; the list's steps take them once this session has a topic.
   const stepHotkeys = view.me.topicId !== null || view.me.isNewTopic
+  const framed = view.surface !== 'terminal'
   return (
     <Box flexDirection="column" gap="xs">
       {topics.length === 0 ? <Text dimColor>{query ? 'Nothing matches the search.' : 'No sessions on this map yet. Run a session in this folder, or name this one with /topic <name>.'}</Text> : null}
       {topics.map(t => {
         const isOpen = ui.focusTopic === t.id
         const steps = isOpen ? chainOf(view, t).filter(s => s.isYou || (s.session && matches(query, s.session))) : []
+        // A shut row is a hairline that takes its topic's colour on hover; an open one wears it, as the cards do.
+        const open = tinted(t.color)
         return (
-          <Box key={`row:${t.id}`} flexDirection="column" borderStyle="round" borderColor={isOpen ? t.color : CARD_BORDER} paddingX={1}>
-            <Button key={`t:${t.id}`} plain onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(isOpen ? null : t.id))}>
-              <Text color={t.color}>●</Text> <Text weight="medium">{clip(t.name, 40)}</Text>{' '}
-              <Text dimColor mono>
-                {`${t.id === UNSORTED_ID ? 'unsorted' : t.isMajor ? 'major' : 'minor'} · ${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.sessions.length ? ` · ${ageOf(t.lastAt, now)} ago` : ''}${view.me.topicId === t.id ? ' · you' : ''} ${isOpen ? marks(view).open : marks(view).shut}`}
+          <Box
+            key={`lr:${t.id}`}
+            flexDirection="column"
+            borderStyle="round"
+            borderColor={isOpen ? open.borderColor : HAIRLINE}
+            backgroundColor={isOpen ? open.fill : undefined}
+            hover={isOpen ? undefined : { borderColor: rgba(t.color, 0.5), backgroundColor: rgba(t.color, 0.04) }}
+            paddingX={1}
+          >
+            <Box key={`lh:${t.id}`} flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
+              <Text color={t.color}>●</Text>
+              <Button key={`t:${t.id}`} label={clip(t.name, 40)} plain dimColor={!t.isMajor} onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(isOpen ? null : t.id))} />
+              <Text dimColor mono size="footnote">
+                {`${t.id === UNSORTED_ID ? 'unsorted' : t.isMajor ? 'major' : 'minor'} · ${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.sessions.length ? ` · ${ageOf(t.lastAt, now)} ago` : ''}`}
               </Text>
-            </Button>
+              {view.me.topicId === t.id ? (
+                <Text color={ACCENT} size="footnote">
+                  you
+                </Text>
+              ) : null}
+              {runningOf(view, t) > 0 ? (
+                <Text color={ACCENT} size="footnote">
+                  live
+                </Text>
+              ) : null}
+              <Text dimColor>{isOpen ? marks(view).open : marks(view).shut}</Text>
+            </Box>
             {isOpen && t.goal ? (
               <Text dimColor size="footnote">
                 {`Goal: ${clip(t.goal, 120)}`}
               </Text>
             ) : null}
-            {steps.map((s, i) => (
-              <Button
-                key={`s:${s.id}`}
-                plain
-                hotkey={hk(view, stepHotkeys && i < 9 ? String(i + 1) : undefined)}
-                variant={ui.selected === s.id ? 'primary' : undefined}
-                onPress={() => (s.isYou ? act.selectSession(null) : act.selectSession(ui.selected === s.id ? null : s.id))}
-              >
-                <Text color={t.color} mono>
-                  {String(i + 1)}
-                </Text>{' '}
-                {s.isYou ? <Text color={ACCENT}>♦ This session · you</Text> : `${statusGlyph(s.session as SessionView)} ${clip(s.session?.title ?? '', 48)}`}{' '}
-                <Text dimColor mono>
+            {steps.map((s, i) => {
+              const isSelected = ui.selected === s.id
+              const isLive = s.session?.status === 'active'
+              const hotkey = hk(view, stepHotkeys && i < 9 ? String(i + 1) : undefined)
+              return chip(T, view, `ls:${s.id}`, t.color, isSelected ? 'strong' : 'row', [
+                hotkey ? null : (
+                  <Text dimColor mono size="footnote">
+                    {String(i + 1)}
+                  </Text>
+                ),
+                s.isYou || isLive ? <Text color={ACCENT}>{s.isYou ? '♦' : '●'}</Text> : <Text dimColor>{statusGlyph(s.session as SessionView)}</Text>,
+                <Button
+                  key={`s:${s.id}`}
+                  label={s.isYou ? 'This session' : clip(s.session?.title ?? '', 48)}
+                  hotkey={hotkey}
+                  plain
+                  variant={!framed && isSelected ? 'primary' : undefined}
+                  onPress={() => (s.isYou ? act.selectSession(null) : act.selectSession(isSelected ? null : s.id))}
+                />,
+                <Text dimColor mono size="footnote">
                   {s.isYou ? 'now' : ageOf(s.session?.lastAt ?? now, now)}
-                  {s.session?.isPinned ? ` ${marks(view).pin}` : ''}
-                </Text>
-              </Button>
-            ))}
+                </Text>,
+                s.session?.isPinned ? <Text dimColor>{marks(view).pin}</Text> : null,
+                s.isYou || isLive ? (
+                  <Text color={ACCENT} size="footnote">
+                    {s.isYou ? 'you' : 'live'}
+                  </Text>
+                ) : null,
+              ])
+            })}
           </Box>
         )
       })}
-      {ui.mergeFrom !== null ? <Button key="merge:cancel" label="Cancel merge" onPress={() => act.mergeMode(null)} /> : null}
-      {ui.moveMode ? <Button key="move:cancel" label="Cancel move" onPress={() => act.moveMode(false)} /> : null}
+      {ui.mergeFrom !== null ? outline(T, view, 'xb:merge', [<Button key="merge:cancel" label="Cancel merge" plain={framed || undefined} onPress={() => act.mergeMode(null)} />]) : null}
+      {ui.moveMode ? outline(T, view, 'xb:move', [<Button key="move:cancel" label="Cancel move" plain={framed || undefined} onPress={() => act.moveMode(false)} />]) : null}
     </Box>
   )
 }
@@ -1103,7 +1138,7 @@ type SettingRow = { key: keyof MapSettings; label: string; help: string; options
 /** The settings card's rows in three groups; the last is folded until asked for. */
 const SETTING_GROUPS: { title: string; rows: SettingRow[]; isAdvanced?: true }[] = [
   {
-    title: 'MAP',
+    title: 'Map',
     rows: [
       { key: 'scope', label: 'Scope', help: 'which transcripts the map reads', options: [{ value: 'folder', label: 'This folder' }, { value: 'all', label: 'Every folder' }] },
       { key: 'groupBasis', label: 'Grouping', help: 'how unassigned sessions find a topic', options: [{ value: 'auto', label: 'Auto' }, { value: 'manual', label: 'Manual' }] },
@@ -1113,7 +1148,7 @@ const SETTING_GROUPS: { title: string; rows: SettingRow[]; isAdvanced?: true }[]
     ],
   },
   {
-    title: 'SESSION',
+    title: 'Session',
     rows: [
       { key: 'handoffNotes', label: 'Handoff notes', help: 'how a session gets its note', options: [{ value: 'manual', label: 'Manual /park' }, { value: 'auto', label: 'Auto (haiku)' }, { value: 'ask', label: 'Ask after a turn' }] },
       { key: 'autoJoin', label: 'Auto join', help: 'after the first prompt', options: [{ value: 'suggest', label: 'Suggest' }, { value: 'auto', label: 'Auto' }, { value: 'off', label: 'Off' }] },
@@ -1122,7 +1157,7 @@ const SETTING_GROUPS: { title: string; rows: SettingRow[]; isAdvanced?: true }[]
     ],
   },
   {
-    title: 'ADVANCED',
+    title: 'Advanced',
     isAdvanced: true,
     rows: [
       { key: 'majorRule', label: 'Major topic rule', help: 'what gets a labelled pill', options: [{ value: 'either', label: 'Either' }, { value: 'count', label: 'Count' }, { value: 'recent', label: 'Recent' }] },
@@ -1146,25 +1181,29 @@ export function usageLine(usage: UsageState, settings: MapSettings): string {
 
 export function drawSettings(T: Table, view: View, act: Actions): RenderElement {
   const { Box, Text, Button } = T
+  const framed = view.surface !== 'terminal'
   const rows: (RenderElement | null | false)[] = [
-    <Box flexDirection="row" justifyContent="space-between" alignItems="center">
-      <Text dimColor mono size="footnote">
-        SETTINGS · changes apply to the map above and are saved
-      </Text>
-      <Button key="settings:done" label="Done" onPress={() => act.toggleSettings()} />
+    <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="sm">
+      <Box flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
+        <Text weight="medium">Settings</Text>
+        <Text dimColor size="footnote">
+          changes apply to the map above and are saved
+        </Text>
+      </Box>
+      {outline(T, view, 'ob:settings:done', [<Button key="settings:done" label="Done" plain={framed || undefined} onPress={() => act.toggleSettings()} />])}
     </Box>,
   ]
   for (const group of SETTING_GROUPS) {
     const isFolded = group.isAdvanced === true && !view.ui.showAdvanced
     rows.push(
       <Box key={`group:${group.title}`} flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
-        <Text dimColor mono size="footnote">
+        <Text dimColor size="footnote">
           {group.title}
         </Text>
         {group.isAdvanced ? <Button key="set:advanced" label={isFolded ? `Show ${marks(view).shut}` : `Hide ${marks(view).open}`} plain dimColor onPress={() => act.toggleAdvanced()} /> : null}
         {isFolded ? (
           <Text dimColor size="footnote">
-            what earns a labelled pill, and the Desktop’s pointer layer
+            what earns a labelled pill, and the picture
           </Text>
         ) : null}
       </Box>,
@@ -1172,13 +1211,17 @@ export function drawSettings(T: Table, view: View, act: Actions): RenderElement 
     if (isFolded) continue
     for (const row of group.rows) {
       rows.push(
-        <Box key={`set:${row.key}`} flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
+        <Box key={`set:${row.key}`} flexDirection="row" gap="xs" alignItems="center" flexWrap="wrap">
           <Text>
             {row.label} <Text dimColor>{row.help}</Text>
           </Text>
           {row.options.map(o => {
+            // The chosen value is a chip in the accent (the current selection), the others outlines; the terminal
+            // draws no chips, so there the chosen one stays reversed.
             const isOn = view.settings[row.key] === o.value
-            return <Button key={`set:${row.key}:${String(o.value)}`} label={o.label} variant={isOn ? 'primary' : 'secondary'} dimColor={!isOn} onPress={() => act.setSetting(row.key, o.value)} />
+            const id = `${row.key}:${String(o.value)}`
+            const button = <Button key={`set:${id}`} label={o.label} plain={framed || undefined} variant={!framed && isOn ? 'primary' : undefined} dimColor={!isOn} onPress={() => act.setSetting(row.key, o.value)} />
+            return isOn ? chip(T, view, `so:${id}`, ACCENT, 'accent', [button]) : outline(T, view, `oo:${id}`, [button])
           })}
         </Box>,
       )
@@ -1189,11 +1232,14 @@ export function drawSettings(T: Table, view: View, act: Actions): RenderElement 
       {usageLine(view.usage, view.settings)}
     </Text>,
   )
-  return card(T, rows)
+  return card(T, rows, HAIRLINE, { key: 'cd:settings' })
 }
 
-/** A chip's fill, hairline, and both on hover: quiet (a minor or unpicked thing), normal, strong (chosen), accent (the current view). */
-const TINT = { quiet: [0.05, 0.2, 0.12, 0.5], normal: [0.1, 0.35, 0.18, 0.7], strong: [0.18, 1, 0.26, 1], accent: [0.16, 0.55, 0.22, 0.8] } as const
+/**
+ * A chip's fill, hairline, and both on hover: row (a list line, bare until hovered; its clear hairline keeps its
+ * height when it is chosen), quiet (a minor or unpicked thing), normal, strong (chosen), accent (the current view).
+ */
+const TINT = { row: [0, 0, 0.12, 0.35], quiet: [0.05, 0.2, 0.12, 0.5], normal: [0.1, 0.35, 0.18, 0.7], strong: [0.18, 1, 0.26, 1], accent: [0.16, 0.55, 0.22, 0.8] } as const
 
 /**
  * A Box tinted in `color` around a plain Button and its parts: the Desktop flattens a Button's children into
