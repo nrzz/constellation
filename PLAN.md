@@ -401,6 +401,33 @@ facts". Work like this:
   `ui.input({key, text})`, `ui.select({key, value})`, `ui.unmount()`.
   Register every stub before the first call on `$`.
 
+## Engine facts read from the 2.1.311 binary (2026-10-27)
+
+Dug out of `/opt/claude-code/bin/claude` (strings, plus the plugin API
+declarations it embeds as a zstd frame), to settle how a Desktop Client works:
+
+- A remote (Desktop) Client's pointer and key events never cross to the
+  engine: the request list has `ui_client_module`, `ui_client_press`,
+  `ui_message` and `ui_client_fault`, and no pointer subtype. The Desktop's
+  frame runs the plugin's surface module itself, with the same
+  `claude:surface-runtime` driver the terminal runs (`install(host,
+  limits)`), and what the module posts arrives as `ui_message` (origin
+  client, surface desktop), answered with the instance's next props. So
+  `client/map.js` sees the pointer in the frame, and the hooks see only its
+  posts; nothing in the engine stands between a click on the layer and a
+  pick.
+- `ui_client_press` runs the `ui.press`/`ui.input`/`ui.select` chain for a
+  Button, Input or Select a module drew inside a Client; the element's
+  closure runs in the frame.
+- The wire schema of an Svg is `{ source, alt, width?, height?,
+  isInteractive? }` with nothing defaulted; its description: "the desktop an
+  image, or a sandboxed frame when isInteractive". Pixels cross the wire for
+  an Svg only; a surface's size reaches the engine in character cells (the
+  code font's advance and line height), never in pixels.
+- The terminal's Client host hands `onPointer` region-local `x`/`y`, `fine`
+  only where Ink has a sub-cell position, and `enter`/`leave` with the last
+  position.
+
 ## Done in the cloud session (2026-10-26)
 
 1. `hooks/scan.ts` + `tests/scan.test.ts`: fixtures for a typed prompt, an

@@ -71,6 +71,9 @@ expect_absent whole "CONSTELLATION" "Esc with nothing left closes the pane"
 
 type_line "/map help" 4
 expect_text whole "/pickup list" "/map help prints the commands"
+type_line "/map here" 5
+expect_text whole "Constellation map (as of now)" "/map here prints the map"
+expect_text whole "1. Checkout Cart (2)" "…as a numbered outline in a terminal"
 
 settle 10 >/dev/null || true
 clear_input; tmux send-keys -t "$S" "1"; sleep 6
