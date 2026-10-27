@@ -579,9 +579,11 @@ async function fixtureFolderChecks() {
 
     // The band: the chooser, and a join by its button.
     const band = await desk.band()
-    check(band.hooked === true && /continuing which topic\?/.test(textOf(band.tree)), 'the band draws the chooser on the Desktop', textOf(band.tree).slice(0, 120))
+    check(band.hooked === true && /Continue a topic/.test(textOf(band.tree)), 'the band draws the chooser on the Desktop', textOf(band.tree).slice(0, 120))
     const chip = find(band.tree, n => n.type === 'Button' && /^j:/.test(n.props?.key ?? '') && /Checkout Cart/.test(textOf(n)))
     check(Boolean(chip), '…with a join button for the folder’s topic')
+    const tinted = find(band.tree, n => n.type === 'Box' && /^jc:/.test(n.props?.key ?? ''))
+    check(/^rgba\(/.test(tinted?.props?.backgroundColor ?? '') && /^rgba\(/.test(tinted?.hover?.backgroundColor ?? '') && chip?.props?.plain === true, '…as a chip tinted in its topic’s colour that lifts on hover, the name a plain button', { props: tinted?.props, hover: tinted?.hover })
 
     // The pane: the picture as an image, the pointer layer over it, the buttons under it.
     await useClicks(desk)

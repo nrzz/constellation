@@ -147,7 +147,7 @@ test('session start scans the folder; the pane shows its topics on desktop (with
     const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
     expect(keys).toContain(`t:${CHECKOUT}`)
     expect(keys).toContain('t:unsorted')
-    expect(texts).toContain('continuing which topic')
+    expect(texts).toContain('Continue a topic')
     const svg = await ui.find({ type: 'Svg' })
     if (surface === 'desktop') {
       const source = String(svg?.props.source)
@@ -167,7 +167,7 @@ test('the band offers the folder\u2019s topics; joining one puts its latest note
   const stubs = stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await band.find({ type: 'Text', text: /continuing which topic/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Continue a topic/ })).toBeDefined()
   const chip = await band.find({ type: 'Button', key: `j:${CHECKOUT}` })
   expect(chip?.props.hotkey).toBe('1')
   await band.press({ key: `j:${CHECKOUT}` })
@@ -185,7 +185,7 @@ test('the band offers the folder\u2019s topics; joining one puts its latest note
   expect(second.context ?? []).toEqual([])
 
   const quiet = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await quiet.find({ type: 'Text', text: /continuing which topic/ })).toBeUndefined()
+  expect(await quiet.find({ type: 'Text', text: /Continue a topic/ })).toBeUndefined()
   expect((await quiet.find({ type: 'Text' }))?.text).toBe('engine')
   await quiet.unmount()
 })
@@ -196,8 +196,8 @@ test('the first prompt marks the best topic as suggested; with auto-join on, a c
   const r = await submit($, 'the flaky cart wait in the checkout tests is back')
   expect(r.context ?? []).toEqual([])
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await band.find({ type: 'Text', text: /SUGGESTED/ })).toBeDefined()
-  expect((await band.find({ type: 'Button', key: `j:${CHECKOUT}` }))?.props.variant).toBe('primary')
+  expect(await band.find({ type: 'Text', text: /^suggested$/ })).toBeDefined()
+  expect((await band.find({ type: 'Button', key: `j:${CHECKOUT}` }))?.props.plain).toBe(true)
   await band.unmount()
 })
 

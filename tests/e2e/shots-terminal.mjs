@@ -99,7 +99,7 @@ async function settle() {
       await sleep(500)
       key('Enter')
     } else if (/Can Anthropic look at your session/.test(s)) key('d')
-    else if (/continuing which topic\?/.test(s)) return
+    else if (/Continue a topic/.test(s)) return
     await sleep(2000)
   }
   throw new Error('the band never came up')
@@ -235,7 +235,7 @@ try {
   {
     const text = screen()
     const lines = text.split('\n')
-    const top = lines.findIndex(l => /continuing which topic\?/.test(l)) // the band's first text row
+    const top = lines.findIndex(l => /Continue a topic/.test(l)) // the band's first text row
     let start = top
     while (start > 0 && !/╭/.test(lines[start - 1] ?? '')) start--
     let end = top

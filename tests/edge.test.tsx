@@ -96,7 +96,7 @@ test('openOnStart: band shows the chooser, pane opens the pane, none shows nothi
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   expect(stubs.opened).toBe(0)
   const band = await $.ui.mount(bandOn('terminal'))
-  expect(await band.find({ type: 'Text', text: /continuing which topic/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Continue a topic/ })).toBeDefined()
   await band.unmount()
 })
 
@@ -109,7 +109,7 @@ test('openOnStart pane: the pane opens at start and the band stays quiet', { opt
   await band.unmount()
   await submit($, 'the flaky cart wait in the checkout tests again')
   const later = await $.ui.mount(bandOn('terminal'))
-  expect(await later.find({ type: 'Text', text: /SUGGESTED/ })).toBeDefined()
+  expect(await later.find({ type: 'Text', text: /^suggested$/ })).toBeDefined()
   await later.unmount()
 })
 
@@ -122,7 +122,7 @@ test('openOnStart none: no band at start, none after a suggestion, nothing opene
   expect((await band.find({ type: 'Text' }))?.text).toBe('engine')
   await band.unmount()
   const pane = await $.ui.mount(paneOn('desktop'))
-  expect(await pane.find({ type: 'Text', text: /SUGGESTED/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^suggested$/ })).toBeDefined()
   await pane.unmount()
 })
 
@@ -310,7 +310,7 @@ test('picking up an Unsorted session queues its note without joining anything', 
   const r = await submit($, 'continue the pagination')
   expect(r.context?.[0]).toContain('Cursor pagination API')
   const band = await $.ui.mount(bandOn('terminal'))
-  expect(await band.find({ type: 'Text', text: /continuing which topic/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Continue a topic/ })).toBeDefined()
   await band.unmount()
 })
 
@@ -389,7 +389,7 @@ test('/clear starts over: a new session id, no topic, the chooser back, the stat
   await $.classic.SessionStart({ source: 'clear', cwd: CWD })
   expect(stubs.status[stubs.status.length - 1]).toBeUndefined()
   const again = await $.ui.mount(bandOn('terminal'))
-  expect(await again.find({ type: 'Text', text: /continuing which topic/ })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: /Continue a topic/ })).toBeDefined()
   await again.unmount()
   const r = await submit($, 'hello')
   expect(r.context ?? []).toEqual([])

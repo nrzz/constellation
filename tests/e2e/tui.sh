@@ -66,7 +66,7 @@ settle() {
     if grep -q "trust this folder" <<<"$screen"; then tmux send-keys -t "$S" Down; sleep 0.5; tmux send-keys -t "$S" Enter; sleep 5; continue; fi
     if grep -q "Can Anthropic look at your session" <<<"$screen"; then tmux send-keys -t "$S" d; sleep 3; continue; fi
     if grep -q "esc to interrupt" <<<"$screen"; then sleep 2; continue; fi
-    if grep -q "continuing which topic?" <<<"$screen"; then return 0; fi
+    if grep -q "Continue a topic" <<<"$screen"; then return 0; fi
     sleep 2
   done
   echo "the band never came up; screen:"; whole | tail -30; return 1
@@ -210,7 +210,7 @@ settle 10 >/dev/null || true
 clear_input
 type_line "/clear" 8
 settle 20 >/dev/null || true
-expect_text whole "continuing which topic?" "after /clear the band offers the chooser again"
+expect_text whole "Continue a topic" "after /clear the band offers the chooser again"
 type_line "/topic" 5
 expect_text whole "This session has no topic yet" "after /clear, /topic knows the new session"
 

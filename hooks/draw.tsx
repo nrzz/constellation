@@ -21,6 +21,8 @@ export const BORDER = '#1C222B'
 export const CARD_BORDER = '#20262F'
 export const TEXT = '#E8ECF2'
 export const MUTED = '#8B95A5'
+/** A translucent hairline that reads on the Desktop's dark and light themes alike. */
+export const HAIRLINE = 'rgba(139, 149, 165, 0.3)'
 export const DIM = '#6F7988'
 export const LABEL = '#C9D1DC'
 export const SANS = "'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif"
@@ -1169,41 +1171,64 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
     if (me.suggested === b.id) return 1
     return b.lastAt - a.lastAt
   })
+  const folder = me.folder || 'this folder'
   const rows: (RenderElement | null | false)[] = [
-    <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap">
-      <Text weight="medium">{`New session in ${me.folder || 'this folder'} · continuing which topic?`}</Text>
-      {where === 'pane' ? <Text dimColor mono size="footnote">{statsOf(model)}</Text> : null}
+    <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="sm">
+      <Text weight="medium">Continue a topic</Text>
+      <Text dimColor mono size="footnote">{where === 'pane' ? `${folder} · ${statsOf(model)}` : `${folder} · ${topics.length} ${topics.length === 1 ? 'topic' : 'topics'}`}</Text>
     </Box>,
   ]
   // The band keeps to the nine digits; the pane's chooser lists every topic.
   const shown = where === 'band' ? ranked.slice(0, MAX_BAND_CHIPS) : ranked
   const more = ranked.length - shown.length
+  // The Desktop flattens a Button's children into one label in the button's own colours, so each chip is a
+  // Box tinted in its topic's colour holding the dot, the name as a plain Button and the dim meta beside it.
+  // A border costs the terminal two rows a chip: there the chips go borderless.
+  const framed = view.surface !== 'terminal'
   rows.push(
     <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
       {shown.map((t, i) => {
         const latest = latestOf(t.sessions)
+        const isSuggested = me.suggested === t.id
         return (
-          <Button key={`j:${t.id}`} hotkey={hk(view, i < 9 ? String(i + 1) : undefined)} variant={me.suggested === t.id ? 'primary' : undefined} onPress={() => act.join(t.id)}>
-            <Text color={t.color}>●</Text> {clip(t.name, 26)}{' '}
-            <Text dimColor mono>{`${t.sessions.length}${latest ? ` · ${ageOf(latest.lastAt, view.now)} ago` : ''}`}</Text>
-            {me.suggested === t.id ? <Text color={ACCENT}> SUGGESTED</Text> : ''}
-          </Button>
+          <Box
+            key={`jc:${t.id}`}
+            flexDirection="row"
+            alignItems="center"
+            gap="sm"
+            paddingX={1}
+            borderStyle={framed ? 'round' : undefined}
+            borderColor={rgba(t.color, isSuggested ? 1 : 0.35)}
+            backgroundColor={rgba(t.color, isSuggested ? 0.18 : 0.1)}
+            hover={{ backgroundColor: rgba(t.color, isSuggested ? 0.26 : 0.18), borderColor: rgba(t.color, isSuggested ? 1 : 0.7) }}
+          >
+            <Text color={t.color}>●</Text>
+            <Button key={`j:${t.id}`} plain label={clip(t.name, 26)} hotkey={hk(view, i < 9 ? String(i + 1) : undefined)} onPress={() => act.join(t.id)} />
+            <Text dimColor mono size="footnote">{`${t.sessions.length}${latest ? ` · ${ageOf(latest.lastAt, view.now)}` : ''}`}</Text>
+            {isSuggested ? <Text color={t.color} size="footnote">suggested</Text> : null}
+          </Box>
         )
       })}
-      {more > 0 ? <Button key="j:more" plain onPress={() => act.openMap()}>{`+${more} more in the map`}</Button> : null}
-      <Button key="j:new" label="+ New topic" hotkey={hk(view, 'n')} onPress={() => act.newTopic()} />
-      {where === 'band' ? <Button key="j:map" label="Open map" hotkey={hk(view, 'o')} onPress={() => act.openMap()} /> : null}
-      {where === 'band' ? <Button key="j:dismiss" label="Dismiss" role="dismiss" onPress={() => act.dismissBand()} /> : null}
+      {more > 0 ? <Button key="j:more" plain dimColor onPress={() => act.openMap()}>{`+${more} more in the map`}</Button> : null}
+    </Box>,
+  )
+  rows.push(
+    <Box key="j-actions" flexDirection="row" gap="sm" flexWrap="wrap" alignItems="center">
+      <Box key="j-new" paddingX={1} borderStyle={framed ? 'round' : undefined} borderColor={rgba(MUTED, 0.45)} hover={{ borderColor: rgba(MUTED, 0.85), backgroundColor: rgba(MUTED, 0.1) }}>
+        <Button key="j:new" plain label="+ New topic" hotkey={hk(view, 'n')} onPress={() => act.newTopic()} />
+      </Box>
+      {where === 'band' ? <Button key="j:map" plain dimColor label="Open map" hotkey={hk(view, 'o')} onPress={() => act.openMap()} /> : null}
+      {where === 'band' ? <Button key="j:dismiss" plain dimColor label="Dismiss" role="dismiss" onPress={() => act.dismissBand()} /> : null}
     </Box>,
   )
   rows.push(
     <Text dimColor size="footnote">
       {where === 'pane'
-        ? 'Joining makes this session the topic’s next step and puts its goal and latest handoff note beside your next prompt. The suggestion comes from your first prompt; nothing is chosen for you unless auto-join is on.'
-        : 'Joining adds the topic’s goal and latest handoff note to your next prompt · /map opens the map'}
+        ? 'Joining makes this session the topic’s next step and adds its goal and last handoff note to your next prompt. Nothing is chosen for you unless auto-join is on.'
+        : 'Joining adds the topic’s goal and last handoff note to your next prompt.'}
     </Text>,
   )
-  return card(T, rows, rgba(ACCENT, 0.45))
+  return card(T, rows, HAIRLINE)
 }
 
 export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElement {

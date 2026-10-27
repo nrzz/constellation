@@ -57,7 +57,7 @@ test('after a /clear the mod starts over for the new session without classic.Ses
   await stubs.clock.advance(400)
   expect(stubs.status[stubs.status.length - 1]).toBeUndefined()
   const pane = await $.ui.mount(paneOn('desktop'))
-  expect(await pane.find({ type: 'Text', text: /continuing which topic/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /Continue a topic/ })).toBeDefined()
   await pane.unmount()
   expect((await run($, 'topic', '')).text).toContain('This session has no topic yet')
   // A resume the hooks never heard of: the three-second watch finds the new id.
@@ -66,7 +66,7 @@ test('after a /clear the mod starts over for the new session without classic.Ses
   stubs.sessionId = 'me-session-0004'
   await stubs.clock.advance(3000)
   const again = await $.ui.mount(paneOn('desktop'))
-  expect(await again.find({ type: 'Text', text: /continuing which topic/ })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: /Continue a topic/ })).toBeDefined()
   await again.unmount()
   // A press after a switch acts for the session the engine runs, never for the old id.
   stubs.sessionId = 'me-session-0005'
