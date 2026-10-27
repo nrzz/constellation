@@ -581,12 +581,14 @@ function checkEveryNode(desk, label) {
   }
   check(missed.length === 0, `${label} (${p.nodes.length} nodes)`, missed.slice(0, 8))
 }
+const SAT_GROUP = /<g class="[^"]*" transform="translate\(([\d.-]+) ([\d.-]+)\)"[^>]*>(?:(?!<\/g>)[\s\S])*?<circle class="sat" r=/g
 /** The points the picture's Svg source draws, by kind: each list holds the centres a layer node should sit on. */
 function drawnPoints(src) {
   const num = Number
   const all = (re, at) => [...src.matchAll(re)].map(at)
   return {
-    sat: all(/<circle class="sat" cx="([\d.-]+)" cy="([\d.-]+)"/g, m => [num(m[1]), num(m[2])]),
+    // A satellite is a group at its centre (`translate`), its circle at the group's origin.
+    sat: all(SAT_GROUP, m => [num(m[1]), num(m[2])]),
     pill: all(/<rect class="pill hit" x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="38"/g, m => [num(m[1]) + num(m[3]) / 2, num(m[2]) + 19]),
     dot: all(/<circle class="hit[^"]*" cx="([\d.-]+)" cy="([\d.-]+)" r="5.5"/g, m => [num(m[1]), num(m[2])]),
     step: all(/<circle(?: class="ring")? cx="([\d.-]+)" cy="([\d.-]+)" r="16" style="fill:/g, m => [num(m[1]), num(m[2])]),
@@ -606,7 +608,9 @@ function checkParity(desk, label) {
   const box = desk.pictureBox()
   const problems = []
   if (box.w !== p.fieldW || box.h !== p.fieldH) problems.push(`viewBox ${box.w}×${box.h} but the layer's field is ${p.fieldW}×${p.fieldH}`)
-  if (/transform=/.test(src.replace(/<marker[^>]*>/g, ''))) problems.push('the picture has a transform attribute: its contents may be displaced')
+  // Only a satellite's own group may carry one, and the satellite points below are read from it.
+  const unplaced = src.replace(/<marker[^>]*>/g, '').replace(SAT_GROUP, m => m.replace(/ transform="[^"]*"/, ''))
+  if (/transform=/.test(unplaced)) problems.push('the picture has a transform attribute: its contents may be displaced')
   const d = drawnPoints(src)
   const near = (list, x, y) => list.some(([a, b]) => Math.abs(a - x) <= 1.5 && Math.abs(b - y) <= 1.5)
   const missing = []
