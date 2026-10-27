@@ -10,7 +10,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, agoOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
-import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, crowdedLabels, focusSize, isUpperStep, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
+import { BASE, FOCUS_PILL, LINK_CLEAR, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, crowdedLabels, focusSize, isUpperStep, labelSide, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
@@ -682,10 +682,13 @@ function renderSvg(view: View, withTooltips: boolean, maxSessions: number): stri
       const title = isYou ? 'This session · you' : (s?.title ?? '')
       const crowded = crowd?.get(i)
       const isLabelled = chars > 0 || crowded !== undefined
-      const room = crowded?.title ?? chars
+      // A step the band-to-band link joins draws its label outward beside the link, in the room to the field's edge.
+      const side = labelSide(i, steps.length, size.w)
+      const edge = side === 0 ? 2 * Math.min(pt.x, size.w - pt.x) - 8 : Math.min(pt.x, size.w - pt.x) - LINK_CLEAR - 4
+      const room = Math.min(crowded?.title ?? chars, side === 0 ? Infinity : Math.floor(edge / 6.4))
       // The meta line keeps to its room on its row and to the field's edge. Where room is short it sheds its turns, then
       // "latest" (the glow says it), before a word is cut; "you" sheds its "now".
-      const metaRoom = Math.max(6, Math.min(crowded?.meta ?? metaChars, Math.floor((2 * Math.min(pt.x, size.w - pt.x) - 8) / 6.3)))
+      const metaRoom = Math.max(6, Math.min(crowded?.meta ?? metaChars, Math.floor(edge / 6.3)))
       const age = s ? agoOf(s.lastAt, now) : ''
       const latestTag = isLatest ? ['latest'] : []
       const metas = isYou
@@ -715,8 +718,10 @@ function renderSvg(view: View, withTooltips: boolean, maxSessions: number): stri
         const metaText = clip(meta, metaRoom)
         const isAbove = isUpperStep(i, size.w)
         const ty = isAbove ? pt.y - 26 - lines.length * 14 : pt.y + 32
-        g.push(`<text x="${pt.x.toFixed(1)}" y="${ty}" font-size="11.5" style="fill:${labelColor}" text-anchor="middle">${lines.map((l, k) => `<tspan x="${pt.x.toFixed(1)}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)
-        g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${ty + lines.length * 14}" font-size="10.5" style="fill:${isLatest ? color : 'var(--mu)'}" text-anchor="middle">${esc(metaText)}</text>`)
+        const lx = (pt.x + side * LINK_CLEAR).toFixed(1)
+        const anchor = side === 0 ? 'middle' : side > 0 ? 'start' : 'end'
+        g.push(`<text x="${lx}" y="${ty}" font-size="11.5" style="fill:${labelColor}" text-anchor="${anchor}">${lines.map((l, k) => `<tspan x="${lx}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)
+        g.push(`<text class="mono" x="${lx}" y="${ty + lines.length * 14}" font-size="10.5" style="fill:${isLatest ? color : 'var(--mu)'}" text-anchor="${anchor}">${esc(metaText)}</text>`)
       }
       g.push('</g>')
       parts.push(g.join(''))
