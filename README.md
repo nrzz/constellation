@@ -19,7 +19,7 @@ Desktop sidebar and nothing is lost between them.
   model was asked.
 
 Status: built in Claude Code 2.1.310. `claude plugin validate --strict`,
-`claude plugin test` (86 tests, including an edge-case suite) and `tsc` pass. The rendered field was checked
+`claude plugin test` (94 tests, including an edge-case suite) and `tsc` pass. The rendered field was checked
 against the approved prototype
 ([preview](https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u),
 [prototype](https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0));
@@ -42,10 +42,10 @@ developing: `claude --plugin-dir <path to this repo>`.
 ## How a session joins a topic
 
 1. A new session starts with no topic. A band above the prompt asks
-   "New session in `<folder>` · continuing which topic?" and lists the folder's
-   topics by recent activity, with digit hotkeys, plus **New topic**,
-   **Open map** (`o`) and **Dismiss**. (The same chooser is the card under the
-   map.)
+   "New session in `<folder>` · continuing which topic?" and lists up to nine
+   of the folder's topics by recent activity, on the digit hotkeys, plus
+   **+N more in the map** when there are more, **New topic**, **Open map**
+   (`o`) and **Dismiss**. (The pane's chooser card lists every topic.)
 2. If you type a prompt first, Constellation scores it against each topic's
    titles, goal, notes and file names and marks the best match **suggested**.
    With `autoJoin: auto`, a clear match joins at once and the note rides along
@@ -63,19 +63,29 @@ developing: `claude --plugin-dir <path to this repo>`.
 | --- | --- |
 | `/map` | Opens or closes the Constellation pane (the live sidebar) |
 | `/map here` | Prints the map, its buttons and the chooser as a row in the main chat, as of that moment |
+| `/map <topic>` | Opens the pane focused on a topic: its number in the `/topic` list, its name, or the start of its name |
+| `/map find <text>` | Opens the pane searching titles, first prompts, notes, files and branches |
 | `/map settings` | Opens the pane on its settings view |
-| `/map close` | Closes the pane |
 | `/map export [path]` | Writes the folder's topics, goals and notes as Markdown (default `constellation-map.md`) |
-| `/topic` | Says which topic this session is in and lists the folder's topics |
-| `/topic <name>` | Joins the topic of that name, creating it when new |
+| `/map close` | Closes the pane |
+| `/map help` | Prints every command and key |
+| `/topic` | Says which topic this session is in and lists the folder's topics, numbered |
+| `/topic <name or n>` | Joins the topic of that name or number; a new name creates the topic |
 | `/park <note>` | Saves a handoff note for this session |
 | `/pickup [n]` | Puts the note of step n of your topic (or its latest session) beside your next prompt |
+| `/pickup list` | Lists the steps of your topic with their notes |
 
 ## The pane
 
 **Header**: breadcrumb (folder › topic › session), search over titles, notes,
-files and branches, a time-range picker (7, 14, 30 days or all time; pinned
-sessions ignore it), Map/List, Settings.
+files and branches (with **× clear search** while it is set), a time-range
+picker (7, 14, 30 days or all time; pinned sessions ignore it), Map/List,
+Settings, Help, **◆ my topic** once this session has one, and **↻ refresh**.
+
+**Jump back in**: under the header, the three most recent sessions as chips.
+One press opens the session's card with its topic focused, so **Pick up
+here** is the next press. The row steps aside in focus mode, while searching,
+and under the settings or help cards.
 
 **Map**: the field, drawn transparent on the pane's own surface and following
 the app's light or dark scheme (`fieldBackground: night` paints the
@@ -100,11 +110,15 @@ topic's goal reads under the chain. **‹ All topics** or Escape goes back.
   composer from the note; you edit and send), **Change topic**, **Park a note**.
 - A topic traced or focused: counts, goal, latest note, related chips, and
   **Focus**, **Pick up latest**, **Join this topic**, **Archive N idle** (asks per
-  session), **Rename**, **Set goal**, **Merge into…**, a colour picker.
+  session; only when there is something to tidy), **Rename**, **Set goal**,
+  **Merge into…**, a colour picker.
 - A session selected: step number, title, status, meta with how long it ran,
-  its handoff note and files, and **Pick up here**, **Draft prompt**, **Message**
-  (to a running session), **New session from here** (a `claude://` link the
-  Desktop confirms), **Pin**, **Move to topic**, **Archive** (with Undo).
+  its handoff note and files, then **Pick up here**, **Draft prompt**, **New
+  session from here** (a `claude://` link the Desktop confirms) on one row and
+  **Pin**, **Move to topic**, **Archive** (with Undo), **Message** (dim unless
+  the session is active) on the next, with the `claude --resume <id>` line
+  that reopens the session in a terminal.
+- Help (`h`, or `/map help` as text): every command and key.
 
 **Digest**: when the pane opens it says what changed since you last looked at
 this folder. **Status line**: your topic and step, with a tick once your note
@@ -112,14 +126,19 @@ exists.
 
 **Keyboard**: Tab walks the controls and traces the topic under the ring,
 Enter focuses it. Digits 1–9 pick chain steps or chooser topics. Letters:
-`m` map, `l` list, `s` settings, `b` back, `f` focus, `u` pick up, `d` draft,
-`j` join, `r` rename, `g` goal, `e` merge, `t` message, `n` new session,
-`p` pin or park, `v` move, `x` archive, `z` undo. Escape backs out one level
-(field, selection, focus) before it closes the pane.
+`m` map, `l` list, `s` settings, `h` help, `y` my topic, `b` back, `f` focus,
+`u` pick up, `d` draft, `j` join, `r` rename, `g` goal, `e` merge,
+`t` message, `n` new topic or new session, `p` pin or park, `v` move,
+`x` archive, `z` undo, `o` open the map from the band. Escape backs out one
+level (help, field, selection, focus) before it closes the pane. The keys
+fire while the pane or the band has the focus (a click or ctrl+x tab gives
+it); a bare digit in an empty prompt also answers the band.
 
 ## Settings
 
-Set them in `/config`, or live in the pane's settings view (saved to the store).
+Set them in `/config`, or live in the pane's settings view (saved to the
+store), where they come in three groups: Map, Session, and Advanced (the
+major-topic rules and the Desktop hit layer), folded until asked for.
 
 | Setting | Values | Default | What it does |
 | --- | --- | --- | --- |
@@ -207,7 +226,10 @@ node tests/preview/page.mjs              # the comparison page, tests/out/previe
 Tests: `tests/scan.test.ts` (parsing, cache, large files), `tests/cluster.test.ts`
 (topics, links, scoring, order), `tests/layout.test.ts`, `tests/register.test.tsx`
 (the whole mod through the engine on desktop and terminal), `tests/client.test.tsx`
-(the terminal map and the Desktop hit layer) and `tests/edge.test.tsx` (empty
+(the terminal map and the Desktop hit layer), `tests/interact.test.tsx` (the
+help card, Jump back in, my topic, the search clear, Refresh, the band's cap,
+the numbered commands, the session card's rows, the settings groups) and
+`tests/edge.test.tsx` (empty
 folders, hostile and huge transcripts, bounded scans, every `openOnStart`, a
 refusing store, model failures, dismissed dialogs, key and hotkey uniqueness
 in every state, mobile and VS Code, `/clear`, resume, range and search, the

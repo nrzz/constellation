@@ -9,7 +9,7 @@ import type { EngineInterface, ModelUsage, PluginOptions, Timer } from 'claude-c
 
 import { UNSORTED_ID, ageOf, buildModel, cleanName, latestOf, orderChain, scoreJoin, topicIdFor } from './cluster'
 import type { Model, SessionView, Topic } from './cluster'
-import { clip, noteText } from './draw'
+import { clip, matches, noteText, statsOf } from './draw'
 import type { Actions, View } from './draw'
 import { placeTopics } from './layout'
 import type { PlacedTopic } from './layout'
@@ -21,7 +21,7 @@ import type { MapSettings, MeState, NoteRecord, SessionSummary, StoreData, UiSta
 const sessionsAtom = atom({ plugin: 'constellation', key: 'sessions' } as const, [] as SessionSummary[], { shape: 'sessions-1' })
 const storeAtom = atom({ plugin: 'constellation', key: 'store' } as const, EMPTY_STORE, { shape: 'store-2' })
 const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-1' })
-const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-2' })
+const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-3' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
 const scanAtom = atom({ plugin: 'constellation', key: 'scan' } as const, INITIAL_SCAN, { shape: 'scan-1' })
 const undoAtom = atom({ plugin: 'constellation', key: 'undo' } as const, null as UndoState | null, { shape: 'undo-2' })
@@ -726,11 +726,37 @@ export async function focusTopic($: EngineInterface, id: string | null): Promise
     await moveSelected($, id)
     return
   }
-  await patchUi($, { focusTopic: id, selected: null, hover: null, showSettings: false, messageMode: false, editing: null })
+  await patchUi($, { focusTopic: id, selected: null, hover: null, showSettings: false, showHelp: false, messageMode: false, editing: null })
+}
+
+/** The header's "my topic": this session's chain, from anywhere in the pane; never a merge or move target. */
+export async function focusMine($: EngineInterface): Promise<void> {
+  const me = await read($, meAtom)
+  if (!me.topicId) return
+  await patchUi($, { focusTopic: me.topicId, selected: null, hover: null, showSettings: false, showHelp: false, messageMode: false, editing: null, moveMode: false, mergeFrom: null })
+}
+
+/** A "Jump back in" chip: the session's topic focused with the session selected, so its card and a pick-up are one press away. */
+export async function jumpTo($: EngineInterface, sessionId: string): Promise<void> {
+  const snap = await snapshot($)
+  const s = snap.model.byId[sessionId]
+  if (!s) {
+    await toast($, 'That session is not on the map any more.')
+    return
+  }
+  await patchUi($, { focusTopic: s.topicId, selected: sessionId, hover: null, showSettings: false, showHelp: false, messageMode: false, editing: null, moveMode: false, mergeFrom: null })
+}
+
+/** The Refresh button: a scan now, and a word on what it found. */
+export async function refreshMap($: EngineInterface): Promise<void> {
+  await rescan($)
+  const snap = await snapshot($)
+  await toast($, `Refreshed: ${statsOf(snap.model)}.`, { quiet: true })
 }
 
 /** Esc, the back button, the close mark: one level out, or nothing left to back out of. */
 export function backedOut(ui: UiState): UiState | null {
+  if (ui.showHelp) return { ...ui, showHelp: false }
   if (ui.editing) return { ...ui, editing: null }
   if (ui.messageMode) return { ...ui, messageMode: false }
   if (ui.mergeFrom !== null) return { ...ui, mergeFrom: null }
@@ -847,15 +873,87 @@ export async function nameAutoTopics($: EngineInterface): Promise<void> {
   }
 }
 
-/** `/topic` with no name: where this session stands and what it could join. */
+/** The topics a command may name, in the order `/topic` lists them: most recent first, never Unsorted. */
+export function listedTopics(model: Model): Topic[] {
+  return model.topics.filter(t => t.id !== UNSORTED_ID)
+}
+
+/**
+ * The topic a command names: its number in the `/topic` list, its exact name
+ * (any case), or, with `prefix`, the one name that starts with the text.
+ */
+export function topicByArg(model: Model, arg: string, options: { prefix?: boolean } = {}): Topic | undefined {
+  const text = arg.trim().toLowerCase()
+  if (!text) return undefined
+  const topics = listedTopics(model)
+  const exact = topics.find(t => t.name.toLowerCase() === text || t.id === topicIdFor(arg))
+  if (exact) return exact
+  if (/^\d+$/.test(text)) {
+    const byNumber = topics[Number.parseInt(text, 10) - 1]
+    if (byNumber) return byNumber
+  }
+  if (!options.prefix) return undefined
+  const starts = topics.filter(t => t.name.toLowerCase().startsWith(text))
+  return starts.length === 1 ? starts[0] : undefined
+}
+
+/** `/topic` with no name: where this session stands and what it could join, numbered as `/topic n` takes them. */
 export async function describeTopics($: EngineInterface): Promise<string> {
   const snap = await snapshot($)
   const mine = snap.me.topicId ? snap.model.topicById[snap.me.topicId] : undefined
   const lines = [mine ? `This session is in ${mine.name}.` : 'This session has no topic yet.']
-  const topics = snap.model.topics.filter(t => t.id !== UNSORTED_ID)
-  if (topics.length) lines.push(`Topics in ${snap.me.folder}: ${topics.map(t => `${t.name} (${t.sessions.length})`).join(', ')}.`)
-  lines.push('/topic <name> joins or creates one; /map opens the map.')
+  const topics = listedTopics(snap.model)
+  if (topics.length) lines.push(`Topics in ${snap.me.folder}: ${topics.map((t, i) => `${i + 1} ${t.name} (${t.sessions.length})`).join(', ')}.`)
+  lines.push('/topic <name or number> joins or creates one; /map <topic> opens the map on it.')
   return lines.join(' ')
+}
+
+/** `/topic <name or number>`: joins the numbered topic, or the topic of that name, creating it when new. */
+export async function joinOrCreate($: EngineInterface, arg: string): Promise<string> {
+  const snap = await snapshot($)
+  const byNumber = /^\d+$/.test(arg.trim()) ? topicByArg(snap.model, arg) : undefined
+  if (byNumber) await joinTopic($, byNumber.id)
+  else await createTopic($, arg)
+  const me = await read($, meAtom)
+  const topic = me.topicId ? (await snapshot($)).model.topicById[me.topicId] : undefined
+  return topic ? `This session is in the topic ${topic.name}.` : `Could not join ${clip(arg.trim(), 40)}.`
+}
+
+/** `/map <topic>`: the pane open and focused on that topic (its number, its name, or the start of its name). */
+export async function openMapAt($: EngineInterface, arg: string): Promise<string> {
+  const snap = await snapshot($)
+  const topic = topicByArg(snap.model, arg, { prefix: true })
+  if (!topic) {
+    const names = listedTopics(snap.model).map((t, i) => `${i + 1} ${t.name}`).join(', ')
+    return `No topic matches “${clip(arg.trim(), 40)}”.${names ? ` Topics: ${names}.` : ''} /map help lists what /map takes.`
+  }
+  await patchUi($, { focusTopic: topic.id, selected: null, hover: null, query: '', showSettings: false, showHelp: false, editing: null, moveMode: false, mergeFrom: null })
+  const placed = await openMapPane($)
+  const n = topic.sessions.length
+  return placed.isPlaced ? `Constellation opened on ${topic.name} (${n} session${n === 1 ? '' : 's'}).` : `Constellation is open but not drawn: ${placed.reason ?? 'no surface'}`
+}
+
+/** `/map find <text>`: the pane open with the search set. */
+export async function openMapFind($: EngineInterface, text: string): Promise<string> {
+  const query = text.trim()
+  if (!query) return 'Usage: /map find <text>. Searches titles, first prompts, notes, files and branches.'
+  await patchUi($, { query, focusTopic: null, selected: null, hover: null, showSettings: false, showHelp: false })
+  const placed = await openMapPane($)
+  const snap = await snapshot($)
+  const n = snap.model.sessions.filter(s => matches(query, s)).length
+  return placed.isPlaced ? `Constellation opened, searching “${clip(query, 40)}”: ${n} session${n === 1 ? '' : 's'} match.` : `Constellation is open but not drawn: ${placed.reason ?? 'no surface'}`
+}
+
+/** `/pickup list`: the joined topic's chain with each step's note, numbered as `/pickup n` takes them. */
+export async function listSteps($: EngineInterface): Promise<string> {
+  const snap = await snapshot($)
+  const topic = snap.me.topicId ? snap.model.topicById[snap.me.topicId] : undefined
+  if (!topic) return 'This session has not joined a topic yet. Use /topic <name or number>, or pick one in the band or /map.'
+  const chain = orderChain(topic.sessions.filter(s => s.isInRange), snap.settings.numbering)
+  if (chain.length === 0) return `${topic.name} has no steps in the time range; widen it in /map settings.`
+  const latest = latestOf(topic.sessions)
+  const lines = chain.map((s, i) => `${i + 1}. ${s.title} · ${ageOf(s.lastAt, snap.now)} ago${latest && s.id === latest.id ? ' · latest' : ''}${noteText(s) ? ` · ${clip(noteText(s), 100)}` : ''}`)
+  return [`${topic.name}: ${chain.length} step${chain.length === 1 ? '' : 's'}. /pickup <n> puts a step’s note beside your next prompt.`, ...lines].join('\n')
 }
 
 /** `/map export [path]`: the folder's topics, goals and notes as Markdown, for a handover to a person. */
@@ -939,7 +1037,12 @@ export function actionsFor($: EngineInterface): Actions {
     selectSession: id => void patchUi($, { selected: id, messageMode: false, showSettings: false, editing: null, moveMode: id === null ? false : undefined }),
     setQuery: q => void patchUi($, { query: q }),
     setRange: days => void setSetting($, 'rangeDays', days),
-    toggleSettings: () => void update($, uiAtom, u => ({ ...u, showSettings: !u.showSettings, selected: null, editing: null })),
+    toggleSettings: () => void update($, uiAtom, u => ({ ...u, showSettings: !u.showSettings, showHelp: false, selected: null, editing: null })),
+    toggleHelp: () => void update($, uiAtom, u => ({ ...u, showHelp: !u.showHelp, showSettings: false, selected: null, editing: null, messageMode: false })),
+    toggleAdvanced: () => void update($, uiAtom, u => ({ ...u, showAdvanced: !u.showAdvanced })),
+    jumpTo: sessionId => void jumpTo($, sessionId),
+    myTopic: () => void focusMine($),
+    refresh: () => void refreshMap($),
     setSetting: (key, value) => void setSetting($, key, value),
     join: topicId => void joinTopic($, topicId),
     newTopic: () => void startNewTopic($),

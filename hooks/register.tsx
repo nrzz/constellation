@@ -12,10 +12,13 @@ import {
   actionsFor,
   backedOut,
   bootstrap,
-  createTopic,
   describeTopics,
   exportMarkdown,
+  joinOrCreate,
+  listSteps,
   onClientMessage,
+  openMapAt,
+  openMapFind,
   openMapPane,
   parkNote,
   periodicRescan,
@@ -26,23 +29,23 @@ import {
   suggestFor,
   viewOf,
 } from './actions'
-import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, svgOf } from './draw'
+import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, svgOf } from './draw'
 import type { Table } from './draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
 // The atoms are declared where they are read, as `claude plugin validate` asks.
 const settingsAtom = atom({ plugin: 'constellation', key: 'settings' } as const, DEFAULT_SETTINGS, { shape: 'settings-1' })
-const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-2' })
+const uiAtom = atom({ plugin: 'constellation', key: 'ui' } as const, INITIAL_UI, { shape: 'ui-3' })
 const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME, { shape: 'me-1' })
 
 /** Rows the Desktop hit layer takes: about the Svg's 520 px at the code font's line height; tune once seen locally. */
 const HIT_ROWS = 30
 
 const COMMANDS = [
-  { name: 'map', description: 'Open or close the Constellation topic map; "here" prints it in the chat', argumentHint: '[here|settings|close|export [path]]' },
-  { name: 'topic', description: 'Join or create a Constellation topic for this session', argumentHint: '[name]' },
+  { name: 'map', description: 'Open or close the Constellation topic map; "here" prints it in the chat, a topic name opens on it', argumentHint: '[here|<topic>|find <text>|settings|export [path]|close|help]' },
+  { name: 'topic', description: 'Join or create a Constellation topic for this session; alone, lists the topics numbered', argumentHint: '[name|n]' },
   { name: 'park', description: 'Save a handoff note for this session on the Constellation map', argumentHint: '<note>' },
-  { name: 'pickup', description: 'Add the handoff note of a step of your Constellation topic to the next prompt', argumentHint: '[n]' },
+  { name: 'pickup', description: 'Add the handoff note of a step of your Constellation topic to the next prompt; "list" shows the steps', argumentHint: '[n|list]' },
 ] as const
 
 async function registerCommands($: EngineInterface): Promise<void> {
@@ -104,8 +107,10 @@ export const register: Register = (on, options) => {
     const args = e.args.trim()
     const [word = '', ...rest] = args.split(/\s+/)
     const arg = word.toLowerCase()
+    if (arg === 'help') return { text: helpText() }
     if (arg === 'export') return { text: await exportMarkdown($, rest.join(' ')) }
-    if (arg === 'here' || arg === 'inline') {
+    if (arg === 'find') return { text: await openMapFind($, rest.join(' ')) }
+    if (arg === 'here') {
       // The CommandOutput hook below draws this row as the field; the text stands where a surface draws no tree.
       await rescan($)
       return { text: 'Constellation map (as of now). /map opens the live pane.' }
@@ -116,21 +121,22 @@ export const register: Register = (on, options) => {
       return { text: 'Constellation closed.' }
     }
     if (arg === 'settings') {
-      await update($, uiAtom, u => ({ ...u, showSettings: true, selected: null }))
+      await update($, uiAtom, u => ({ ...u, showSettings: true, showHelp: false, selected: null }))
+    } else if (args) {
+      // Anything else names a topic: its number in /topic's list, its name, or the start of one.
+      return { text: await openMapAt($, args) }
     } else if (isOpen) {
       await $.ui.close({ id: PANE })
       return { text: 'Constellation closed.' }
     }
     const placed = await openMapPane($)
-    return { text: placed.isPlaced ? 'Constellation opened. /map here prints the map in the chat.' : `Constellation is open but not drawn: ${placed.reason ?? 'no surface'}` }
+    return { text: placed.isPlaced ? 'Constellation opened. /map here prints the map in the chat; /map help lists the commands and keys.' : `Constellation is open but not drawn: ${placed.reason ?? 'no surface'}` }
   })
 
   on('command.run', { command: 'topic' }, async ($, e) => {
-    const name = e.args.trim()
-    if (!name) return { text: await describeTopics($) }
-    await createTopic($, name)
-    const me = await read($, meAtom)
-    return { text: me.topicId ? `This session is in the topic ${name}.` : `Could not join ${name}.` }
+    const arg = e.args.trim()
+    if (!arg) return { text: await describeTopics($) }
+    return { text: await joinOrCreate($, arg) }
   })
 
   on('command.run', { command: 'park' }, async ($, e) => {
@@ -140,7 +146,11 @@ export const register: Register = (on, options) => {
     return { text: `Parked: “${text}”.` }
   })
 
-  on('command.run', { command: 'pickup' }, async ($, e) => ({ text: await pickUpStep($, e.args) }))
+  on('command.run', { command: 'pickup' }, async ($, e) => {
+    const arg = e.args.trim().toLowerCase()
+    if (arg === 'list' || arg === '?') return { text: await listSteps($) }
+    return { text: await pickUpStep($, e.args) }
+  })
 
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta) return next(e)
@@ -199,7 +209,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'CommandOutput', props: { command: 'map' } }, async ($, e, next) => {
     const word = e.props.args.trim().split(/\s+/)[0]?.toLowerCase()
-    if (word !== 'here' && word !== 'inline') return next(e)
+    if (word !== 'here') return next(e)
     const view = await viewOf($, e.surface)
     return drawInlineRow(tableOf($, e), view, actionsFor($))
   })

@@ -483,6 +483,11 @@ export type Actions = {
   dismissDigest: () => void
   back: () => void
   openMap: () => void
+  jumpTo: (sessionId: string) => void
+  myTopic: () => void
+  toggleHelp: () => void
+  toggleAdvanced: () => void
+  refresh: () => void
 }
 
 const RANGE_OPTIONS = [
@@ -493,6 +498,9 @@ const RANGE_OPTIONS = [
 ]
 
 const COLOR_OPTIONS = PALETTE.map((hex, i) => ({ value: hex, label: ['Amber', 'Violet', 'Mint', 'Sky', 'Rose'][i] ?? hex }))
+
+/** The band's chooser keeps to the nine digit hotkeys; the pane's chooser lists every topic. */
+const MAX_BAND_CHIPS = 9
 
 function crumbOf(view: View): string {
   const { model, ui, me } = view
@@ -530,6 +538,14 @@ export function drawHeader(T: Table, view: View, act: Actions): RenderElement {
         <Button key="view:map" label="Map" hotkey="m" variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
         <Button key="view:list" label="List" hotkey="l" variant={ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />
         <Button key="settings" label={ui.showSettings ? 'Done' : 'Settings'} hotkey="s" onPress={() => act.toggleSettings()} />
+        <Button key="help" label={ui.showHelp ? 'Close help' : 'Help'} hotkey="h" onPress={() => act.toggleHelp()} />
+        {view.me.topicId ? (
+          <Button key="mine" hotkey="y" plain onPress={() => act.myTopic()}>
+            <Text color={ACCENT}>◆</Text> my topic
+          </Button>
+        ) : null}
+        {ui.query.trim() ? <Button key="q:clear" label="× clear search" plain dimColor onPress={() => act.setQuery('')} /> : null}
+        <Button key="refresh" label="↻ refresh" plain dimColor onPress={() => act.refresh()} />
       </Box>
       {ui.digest ? (
         <Box flexDirection="row" gap="sm" alignItems="center">
@@ -605,6 +621,116 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
   )
 }
 
+/** "Jump back in": the three most recent sessions, each one press from its card and a pick-up. */
+export function drawRecent(T: Table, view: View, act: Actions): RenderElement | null {
+  const { Box, Text, Button } = T
+  const { model, ui, now } = view
+  if (ui.focusTopic || ui.selected || ui.showSettings || ui.showHelp || ui.query.trim() || ui.moveMode || ui.mergeFrom !== null) return null
+  const recent = model.sessions.filter(s => s.isInRange && s.status !== 'archived').slice(0, 3)
+  if (recent.length === 0) return null
+  return (
+    <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
+      <Text dimColor size="footnote" mono>
+        JUMP BACK IN
+      </Text>
+      {recent.map(s => {
+        const t = model.topicById[s.topicId]
+        return (
+          <Button key={`r:${s.id}`} plain onPress={() => act.jumpTo(s.id)}>
+            <Text color={t?.color ?? ACCENT}>{statusGlyph(s)}</Text> {clip(s.title, 32)} <Text dimColor mono>{ageOf(s.lastAt, now)}</Text>
+          </Button>
+        )
+      })}
+    </Box>
+  )
+}
+
+/** Every command, for the help card and `/map help`. */
+export const HELP_COMMANDS: [string, string][] = [
+  ['/map', 'open or close the pane'],
+  ['/map here', 'print the map in the chat, as of now'],
+  ['/map <topic or n>', 'open the pane focused on a topic'],
+  ['/map find <text>', 'open the pane searching titles, notes, files and branches'],
+  ['/map settings', 'open the pane on its settings'],
+  ['/map export [path]', 'write topics, goals and notes as Markdown'],
+  ['/map close', 'close the pane'],
+  ['/topic', 'say where this session is and list the topics, numbered'],
+  ['/topic <name or n>', 'join a topic; a new name creates it'],
+  ['/park <note>', 'save this session’s handoff note'],
+  ['/pickup [n]', 'put step n’s note, or the latest, beside your next prompt'],
+  ['/pickup list', 'list the steps of your topic with their notes'],
+]
+
+/** Every key the pane answers, for the help card and `/map help`. */
+export const HELP_KEYS: [string, string][] = [
+  ['Tab · Enter', 'walk the buttons; Enter presses the one under the ring'],
+  ['1–9', 'a chooser topic, or a step of the focused topic'],
+  ['Esc', 'back one level; closes the pane when nothing is left'],
+  ['m · l', 'map · list'],
+  ['s · h', 'settings · this help'],
+  ['y', 'focus my topic'],
+  ['b', 'back to all topics'],
+  ['f', 'focus the topic shown'],
+  ['u', 'pick up: its note goes beside your next prompt'],
+  ['d', 'draft the next prompt into the composer'],
+  ['j', 'join the topic shown'],
+  ['c · p', 'change topic · park a note, on the joined card'],
+  ['r · g · e', 'rename · goal · merge, on a topic card'],
+  ['n', 'new topic in the chooser; new session from here on a session card'],
+  ['p · v · x · t', 'pin · move to topic · archive · message, on a session card'],
+  ['z', 'undo the last archive, move, rename or merge'],
+  ['o', 'open the map, from the start band'],
+]
+
+const HELP_NOTE =
+  'Hover or Tab onto a topic to trace it. In focus the numbers follow time order and the glowing step is the latest. Select a session, then Move to topic, to move it; the terminal map also takes clicks, drags and the arrow keys.'
+
+/** `/map help`: the help card's content as text. */
+export function helpText(): string {
+  return [
+    'Constellation commands:',
+    ...HELP_COMMANDS.map(([c, what]) => `  ${c.padEnd(20)} ${what}`),
+    'Keys in the pane, while it has the focus (a click or ctrl+x tab gives it):',
+    ...HELP_KEYS.map(([k, what]) => `  ${k.padEnd(20)} ${what}`),
+    HELP_NOTE,
+  ].join('\n')
+}
+
+export function drawHelp(T: Table, act: Actions): RenderElement {
+  const { Box, Text, Button } = T
+  return card(T, [
+    <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+      <Text dimColor mono size="footnote">
+        HELP · commands and keys
+      </Text>
+      <Button key="help:done" label="Done" onPress={() => act.toggleHelp()} />
+    </Box>,
+    <Text dimColor mono size="footnote">
+      COMMANDS
+    </Text>,
+    ...HELP_COMMANDS.map(([c, what]) => (
+      <Box key={`help:${c}`} flexDirection="row" gap="sm">
+        <Text mono>{c}</Text>
+        <Text dimColor>{what}</Text>
+      </Box>
+    )),
+    <Text dimColor mono size="footnote">
+      KEYS · while the pane has the focus (a click or ctrl+x tab gives it)
+    </Text>,
+    ...HELP_KEYS.map(([k, what]) => (
+      <Box key={`help:${k}`} flexDirection="row" gap="sm">
+        <Text mono color={ACCENT}>
+          {k}
+        </Text>
+        <Text dimColor>{what}</Text>
+      </Box>
+    )),
+    <Text dimColor size="footnote">
+      {HELP_NOTE}
+    </Text>,
+  ])
+}
+
 function statusGlyph(s: SessionView): string {
   return s.status === 'active' ? '●' : s.status === 'archived' ? '◌' : '○'
 }
@@ -663,20 +789,39 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
   )
 }
 
-const SETTING_ROWS: { key: keyof MapSettings; label: string; help: string; options: { value: string | number | boolean; label: string }[] }[] = [
-  { key: 'scope', label: 'Scope', help: 'which transcripts the map reads', options: [{ value: 'folder', label: 'This folder' }, { value: 'all', label: 'Every folder' }] },
-  { key: 'groupBasis', label: 'Grouping', help: 'how unassigned sessions find a topic', options: [{ value: 'auto', label: 'Auto' }, { value: 'manual', label: 'Manual' }] },
-  { key: 'majorRule', label: 'Major topic rule', help: 'what gets a labelled pill', options: [{ value: 'either', label: 'Either' }, { value: 'count', label: 'Count' }, { value: 'recent', label: 'Recent' }] },
-  { key: 'majorMinSessions', label: 'Count threshold', help: 'sessions to count as major', options: [{ value: 2, label: '2' }, { value: 3, label: '3' }, { value: 5, label: '5' }] },
-  { key: 'recentDays', label: 'Recent days', help: 'activity that keeps a topic major', options: [{ value: 3, label: '3d' }, { value: 7, label: '7d' }, { value: 14, label: '14d' }, { value: 30, label: '30d' }] },
-  { key: 'numbering', label: 'Numbering in focus', help: 'order of the chain', options: [{ value: 'oldestFirst', label: 'Oldest first' }, { value: 'newestFirst', label: 'Newest first' }] },
-  { key: 'showRelated', label: 'Related anchors', help: 'linked topics at the bottom', options: [{ value: true, label: 'Show' }, { value: false, label: 'Hide' }] },
-  { key: 'handoffNotes', label: 'Handoff notes', help: 'how a session gets its note', options: [{ value: 'manual', label: 'Manual /park' }, { value: 'auto', label: 'Auto (haiku)' }, { value: 'ask', label: 'Ask after a turn' }] },
-  { key: 'autoJoin', label: 'Auto join', help: 'after the first prompt', options: [{ value: 'suggest', label: 'Suggest' }, { value: 'auto', label: 'Auto' }, { value: 'off', label: 'Off' }] },
-  { key: 'useModelForTitles', label: 'Topic names', help: 'name auto topics with haiku', options: [{ value: false, label: 'Frequent words' }, { value: true, label: 'Model' }] },
-  { key: 'openOnStart', label: 'On session start', help: 'what shows when a session begins', options: [{ value: 'band', label: 'Band' }, { value: 'pane', label: 'Pane' }, { value: 'none', label: 'Nothing' }] },
-  { key: 'desktopHits', label: 'Desktop hit layer', help: 'experimental: clicks on the picture itself', options: [{ value: false, label: 'Off' }, { value: true, label: 'On' }] },
-  { key: 'fieldBackground', label: 'Field background', help: 'the pane’s own surface, or the solid night ground', options: [{ value: 'transparent', label: 'Transparent' }, { value: 'night', label: 'Night' }] },
+type SettingRow = { key: keyof MapSettings; label: string; help: string; options: { value: string | number | boolean; label: string }[] }
+
+/** The settings card's rows in three groups; the last is folded until asked for. */
+const SETTING_GROUPS: { title: string; rows: SettingRow[]; isAdvanced?: true }[] = [
+  {
+    title: 'MAP',
+    rows: [
+      { key: 'scope', label: 'Scope', help: 'which transcripts the map reads', options: [{ value: 'folder', label: 'This folder' }, { value: 'all', label: 'Every folder' }] },
+      { key: 'groupBasis', label: 'Grouping', help: 'how unassigned sessions find a topic', options: [{ value: 'auto', label: 'Auto' }, { value: 'manual', label: 'Manual' }] },
+      { key: 'fieldBackground', label: 'Field background', help: 'the pane’s own surface, or the solid night ground', options: [{ value: 'transparent', label: 'Transparent' }, { value: 'night', label: 'Night' }] },
+      { key: 'numbering', label: 'Numbering in focus', help: 'order of the chain', options: [{ value: 'oldestFirst', label: 'Oldest first' }, { value: 'newestFirst', label: 'Newest first' }] },
+      { key: 'showRelated', label: 'Related anchors', help: 'linked topics at the bottom', options: [{ value: true, label: 'Show' }, { value: false, label: 'Hide' }] },
+    ],
+  },
+  {
+    title: 'SESSION',
+    rows: [
+      { key: 'handoffNotes', label: 'Handoff notes', help: 'how a session gets its note', options: [{ value: 'manual', label: 'Manual /park' }, { value: 'auto', label: 'Auto (haiku)' }, { value: 'ask', label: 'Ask after a turn' }] },
+      { key: 'autoJoin', label: 'Auto join', help: 'after the first prompt', options: [{ value: 'suggest', label: 'Suggest' }, { value: 'auto', label: 'Auto' }, { value: 'off', label: 'Off' }] },
+      { key: 'openOnStart', label: 'On session start', help: 'what shows when a session begins', options: [{ value: 'band', label: 'Band' }, { value: 'pane', label: 'Pane' }, { value: 'none', label: 'Nothing' }] },
+      { key: 'useModelForTitles', label: 'Topic names', help: 'name auto topics with haiku', options: [{ value: false, label: 'Frequent words' }, { value: true, label: 'Model' }] },
+    ],
+  },
+  {
+    title: 'ADVANCED',
+    isAdvanced: true,
+    rows: [
+      { key: 'majorRule', label: 'Major topic rule', help: 'what gets a labelled pill', options: [{ value: 'either', label: 'Either' }, { value: 'count', label: 'Count' }, { value: 'recent', label: 'Recent' }] },
+      { key: 'majorMinSessions', label: 'Count threshold', help: 'sessions to count as major', options: [{ value: 2, label: '2' }, { value: 3, label: '3' }, { value: 5, label: '5' }] },
+      { key: 'recentDays', label: 'Recent days', help: 'activity that keeps a topic major', options: [{ value: 3, label: '3d' }, { value: 7, label: '7d' }, { value: 14, label: '14d' }, { value: 30, label: '30d' }] },
+      { key: 'desktopHits', label: 'Desktop hit layer', help: 'experimental: clicks on the picture itself', options: [{ value: false, label: 'Off' }, { value: true, label: 'On' }] },
+    ],
+  },
 ]
 
 function tokens(n: number): string {
@@ -690,19 +835,33 @@ export function usageLine(usage: UsageState, settings: MapSettings): string {
 
 export function drawSettings(T: Table, view: View, act: Actions): RenderElement {
   const { Box, Text, Button } = T
-  return (
-    <Box flexDirection="column" gap="xs" borderStyle="round" borderColor={CARD_BORDER} paddingX={1}>
-      <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+  const rows: (RenderElement | null | false)[] = [
+    <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+      <Text dimColor mono size="footnote">
+        SETTINGS · changes apply to the map above and are saved
+      </Text>
+      <Button key="settings:done" label="Done" onPress={() => act.toggleSettings()} />
+    </Box>,
+  ]
+  for (const group of SETTING_GROUPS) {
+    const isFolded = group.isAdvanced === true && !view.ui.showAdvanced
+    rows.push(
+      <Box key={`group:${group.title}`} flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
         <Text dimColor mono size="footnote">
-          SETTINGS · changes apply to the map above and are saved
+          {group.title}
         </Text>
-        <Button key="settings:done" label="Done" onPress={() => act.toggleSettings()} />
-      </Box>
-      {SETTING_ROWS.map((row, n) => (
-        <Box key={`set:${row.key}`} flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
-          <Text dimColor mono size="footnote">
-            {String(n + 1).padStart(2, '0')}
+        {group.isAdvanced ? <Button key="set:advanced" label={isFolded ? 'Show ▸' : 'Hide ▾'} plain dimColor onPress={() => act.toggleAdvanced()} /> : null}
+        {isFolded ? (
+          <Text dimColor size="footnote">
+            what earns a labelled pill, and the experimental Desktop hit layer
           </Text>
+        ) : null}
+      </Box>,
+    )
+    if (isFolded) continue
+    for (const row of group.rows) {
+      rows.push(
+        <Box key={`set:${row.key}`} flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
           <Text>
             {row.label} <Text dimColor>{row.help}</Text>
           </Text>
@@ -710,13 +869,16 @@ export function drawSettings(T: Table, view: View, act: Actions): RenderElement 
             const isOn = view.settings[row.key] === o.value
             return <Button key={`set:${row.key}:${String(o.value)}`} label={o.label} variant={isOn ? 'primary' : 'secondary'} dimColor={!isOn} onPress={() => act.setSetting(row.key, o.value)} />
           })}
-        </Box>
-      ))}
-      <Text dimColor size="footnote">
-        {usageLine(view.usage, view.settings)}
-      </Text>
-    </Box>
+        </Box>,
+      )
+    }
+  }
+  rows.push(
+    <Text dimColor size="footnote">
+      {usageLine(view.usage, view.settings)}
+    </Text>,
   )
+  return card(T, rows)
 }
 
 function card(T: Table, children: (RenderElement | null | false)[], borderColor = CARD_BORDER): RenderElement {
@@ -744,16 +906,12 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
       {where === 'pane' ? <Text dimColor mono size="footnote">{statsOf(model)}</Text> : null}
     </Box>,
   ]
-  if (where === 'pane') {
-    rows.push(
-      <Text dimColor size="footnote">
-        This folder holds every topic below. The suggestion comes from matching your first prompt against each topic's titles, goal, notes and files. Confirm it or pick another.
-      </Text>,
-    )
-  }
+  // The band keeps to the nine digits; the pane's chooser lists every topic.
+  const shown = where === 'band' ? ranked.slice(0, MAX_BAND_CHIPS) : ranked
+  const more = ranked.length - shown.length
   rows.push(
     <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-      {ranked.map((t, i) => {
+      {shown.map((t, i) => {
         const latest = latestOf(t.sessions)
         return (
           <Button key={`j:${t.id}`} hotkey={i < 9 ? String(i + 1) : undefined} variant={me.suggested === t.id ? 'primary' : undefined} onPress={() => act.join(t.id)}>
@@ -763,6 +921,7 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
           </Button>
         )
       })}
+      {more > 0 ? <Button key="j:more" plain onPress={() => act.openMap()}>{`+${more} more in the map`}</Button> : null}
       <Button key="j:new" label="+ New topic" hotkey="n" onPress={() => act.newTopic()} />
       {where === 'band' ? <Button key="j:map" label="Open map" hotkey="o" onPress={() => act.openMap()} /> : null}
       {where === 'band' ? <Button key="j:dismiss" label="Dismiss" role="dismiss" onPress={() => act.dismissBand()} /> : null}
@@ -771,7 +930,7 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
   rows.push(
     <Text dimColor size="footnote">
       {where === 'pane'
-        ? "Choosing a topic makes this session its next numbered step and adds that topic's goal and latest handoff note to your next prompt. Nothing is chosen for you unless auto-join is on."
+        ? 'Joining makes this session the topic’s next step and puts its goal and latest handoff note beside your next prompt. The suggestion comes from your first prompt; nothing is chosen for you unless auto-join is on.'
         : 'Joining adds the topic’s goal and latest handoff note to your next prompt · /map opens the map'}
     </Text>,
   )
@@ -817,9 +976,6 @@ export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElemen
       <Button key="c:change" label="Change topic" hotkey="c" onPress={() => act.changeTopic()} />
       {!me.askNote ? <Button key="c:park" label="Park a note" hotkey="p" onPress={() => act.parkPrompt()} /> : null}
     </Box>,
-    <Text dimColor size="footnote">
-      Hover or Tab onto a topic to trace it, Enter or click to focus. Select a session, then Move to topic, to move it.
-    </Text>,
   ])
 }
 
@@ -874,7 +1030,7 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
       <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} hotkey="f" variant="primary" onPress={() => (isFocused ? act.back() : act.focusTopic(topic.id))} />
       {latest ? <Button key="tc:pickup" label="Pick up latest" hotkey="u" onPress={() => act.pickUpLatest(topic.id)} /> : null}
       {view.me.topicId !== topic.id && !isUnsorted ? <Button key="tc:join" label="Join this topic" hotkey="j" onPress={() => act.join(topic.id)} /> : null}
-      <Button key="tc:tidy" label={tidyTargets.length ? `Archive ${tidyTargets.length} idle` : 'Nothing to tidy'} dimColor={tidyTargets.length === 0} onPress={() => act.tidy(topic.id)} />
+      {tidyTargets.length ? <Button key="tc:tidy" label={`Archive ${tidyTargets.length} idle`} onPress={() => act.tidy(topic.id)} /> : null}
     </Box>,
     !isUnsorted ? (
       <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
@@ -884,9 +1040,6 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
         {Select ? <Select key={`color:${topic.id}`} label="Colour" options={COLOR_OPTIONS} value={PALETTE.includes(topic.color as (typeof PALETTE)[number]) ? topic.color : undefined} onSelect={hex => act.setColor(topic.id, hex)} /> : null}
       </Box>
     ) : null,
-    <Text dimColor size="footnote">
-      {isFocused ? 'Numbers follow time order. The glowing number is the latest session.' : 'Focus the topic to see its sessions in order.'}
-    </Text>,
   ])
 }
 
@@ -937,12 +1090,17 @@ export function drawSessionCard(T: Table, view: View, act: Actions, s: SessionVi
     <Box flexDirection="row" gap="xs" flexWrap="wrap">
       <Button key="sc:pickup" label="Pick up here" hotkey="u" variant="primary" onPress={() => act.pickUp(s.id)} />
       <Button key="sc:draft" label="Draft prompt" hotkey="d" onPress={() => act.draft(s.id)} />
-      {Input ? <Button key="sc:message" label="Message" hotkey="t" onPress={() => act.messageMode(!ui.messageMode)} /> : null}
       <Button key="sc:new" label="New session from here" hotkey="n" onPress={() => act.newSession(s.id)} />
+    </Box>,
+    <Box flexDirection="row" gap="xs" flexWrap="wrap">
       <Button key="sc:pin" label={s.isPinned ? 'Unpin' : 'Pin'} hotkey="p" onPress={() => act.pin(s.id)} />
       <Button key="sc:move" label={ui.moveMode ? 'Cancel move' : 'Move to topic'} hotkey="v" onPress={() => act.moveMode(!ui.moveMode)} />
       <Button key="sc:archive" label={s.status === 'archived' ? 'Unarchive' : 'Archive'} hotkey="x" onPress={() => act.archive(s.id)} />
+      {Input ? <Button key="sc:message" label="Message" hotkey="t" dimColor={s.status !== 'active'} onPress={() => act.messageMode(!ui.messageMode)} /> : null}
     </Box>,
+    <Text dimColor mono size="footnote" wrap="truncate">
+      {`resume it in a terminal: claude --resume ${s.id}`}
+    </Text>,
   )
   return card(T, rows, ui.selected === s.id ? rgba(color, 0.45) : CARD_BORDER)
 }
@@ -964,6 +1122,7 @@ export function drawToast(T: Table, view: View, act: Actions): RenderElement | n
 /** The card under the field, by state: settings, a session, a topic, the chooser or the joined card. */
 export function drawCard(T: Table, view: View, act: Actions): RenderElement {
   const { model, ui, me } = view
+  if (ui.showHelp) return drawHelp(T, act)
   if (ui.showSettings) return drawSettings(T, view, act)
   const sel = ui.selected ? model.byId[ui.selected] : undefined
   if (sel) return drawSessionCard(T, view, act, sel)
@@ -986,6 +1145,7 @@ export function drawPane(T: Table, view: View, act: Actions, field?: RenderEleme
   return (
     <Box flexDirection="column" gap="xs">
       {drawHeader(T, view, act)}
+      {drawRecent(T, view, act)}
       {isMap ? (field ?? (Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null)) : null}
       {isMap ? drawControls(T, view, act) : drawList(T, view, act)}
       {!isMap && ui.view === 'map' ? (
@@ -1015,6 +1175,7 @@ export function drawInlineRow(T: Table, view: View, act: Actions): RenderElement
         </Text>
         <Text dimColor size="footnote">{`${me.folder || 'folder'} · ${statsOf(model)} · /map opens the live pane`}</Text>
       </Box>
+      {drawRecent(T, view, act)}
       {Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null}
       {Svg ? drawControls(T, view, act) : drawList(T, view, act)}
       {drawCard(T, view, act)}

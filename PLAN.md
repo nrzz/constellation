@@ -11,7 +11,7 @@ the band, the commands, handoff injection, auto notes, the terminal's
 text-mode map Client, and the features added beyond the brief (topic goals,
 rename, recolour, merge, a "since your last look" digest, a status line,
 Draft next prompt, `/map export`, a model-spend counter, letter hotkeys).
-`claude plugin validate --strict`, `claude plugin test` (86 tests) and `tsc`
+`claude plugin validate --strict`, `claude plugin test` (94 tests) and `tsc`
 pass. The generated field was compared with the prototype by eye through
 the preview page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
 
@@ -428,7 +428,7 @@ facts". Work like this:
    `ui.message` hook. The Desktop keeps the Svg plus buttons: whether an
    absolutely placed Client can sit over the Svg there could not be tried in
    the cloud.
-7. Tests: 86 across scan, cluster, layout, the mod through the engine on
+7. Tests: 94 across scan, cluster, layout, the mod through the engine on
    desktop and terminal, the Client, and an edge-case suite (empty folders,
    hostile and huge transcripts, bounded scans, every openOnStart, a refusing
    store, model failures, dismissed dialogs, key and hotkey uniqueness in every
@@ -445,6 +445,27 @@ and theme-aware by default (`fieldBackground`, CSS variables inside the Svg
 with a `prefers-color-scheme: light` override), `/map here` prints the field
 as a `CommandOutput` row in the main chat, and the start band has an
 **Open map** button.
+
+Interaction pass (2026-10-27), decided as PM after an end-to-end read of
+every press, key and command. Added, because each saves presses on a job
+people do often: a **Help** card (`h`, `/map help`) so the letter keys are
+discoverable; **Jump back in**, the three most recent sessions one press
+from their card and a pick-up; **◆ my topic** (`y`) from anywhere in the
+pane; **× clear search**; **↻ refresh**; the band capped at nine topics with
+**+N more in the map**, so a folder with twenty topics gets a short band;
+`/topic n` and a numbered `/topic` list; `/map <topic>` (number, name or
+prefix) and `/map find <text>`; `/pickup list`; the session card in two rows
+with **Message** dim unless the session is active and the `claude --resume`
+line under it; settings in Map, Session and Advanced groups, Advanced folded.
+Removed, because it cost attention without earning it: the disabled
+"Nothing to tidy" button, the instructional footnotes on the joined and
+topic cards (now in Help), the pane chooser's second paragraph, the "01…13"
+row numbers in settings (they read as hotkeys and were not), and the
+undocumented `/map inline` alias. Kept after weighing: the `/map` toggle
+(keyboard users close it the same way they opened it), **New session from
+here** on every surface (it opens the Desktop from a terminal where the app
+is installed; the toast says when it cannot), and the per-session tidy
+questions (safe over fast).
 
 Lessons for the next build: a test's `$` has only the event nouns (no
 `$.fs`), so fixtures reach the scanner through `fs.*` stubs and the

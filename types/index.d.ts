@@ -80,6 +80,10 @@ export type UiState = {
   /** The "since your last look" line, until dismissed. */
   digest: string | null
   toast: ToastState | null
+  /** The help card (commands and keys) is up. */
+  showHelp: boolean
+  /** The settings card shows its advanced rows. */
+  showAdvanced: boolean
 }
 
 /** This session's place on the map. */

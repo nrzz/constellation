@@ -40,6 +40,8 @@ export const INITIAL_UI: UiState = {
   mergeFrom: null,
   digest: null,
   toast: null,
+  showHelp: false,
+  showAdvanced: false,
 }
 
 export const INITIAL_ME: MeState = {
