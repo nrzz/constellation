@@ -129,6 +129,15 @@ describe('clustering several topics in one folder', () => {
     expect(m.links.some(l => l.a === UNSORTED_ID || l.b === UNSORTED_ID)).toBe(false)
   })
 
+  test('a session moved to Unsorted by hand stays there, and its old cluster keeps the others', async () => {
+    const m = buildModel(folder(), { ...EMPTY_STORE, assign: { c2: UNSORTED_ID } }, SETTINGS, NOW)
+    expect(m.byId.c2?.topicId).toBe(UNSORTED_ID)
+    expect(m.byId.c1?.topicId).not.toBe(UNSORTED_ID)
+    expect(m.byId.c1?.topicId).toBe(m.byId.c4?.topicId)
+    const unsorted = m.topics.find(t => t.id === UNSORTED_ID)
+    expect(unsorted?.sessions.some(s => s.id === 'c2')).toBe(true)
+  })
+
   test('an explicit assignment wins over the cluster, and unassigned sessions linked to it join it', async () => {
     const store: StoreData = {
       ...EMPTY_STORE,

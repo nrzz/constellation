@@ -34,7 +34,7 @@ import {
   viewOf,
 } from './actions'
 import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, svgOf } from './draw'
-import type { Table } from './draw'
+import type { Table, View } from './draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
 // The atoms are declared where they are read, as `claude plugin validate` asks.
@@ -203,7 +203,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const view = await viewOf($, e.surface)
+    const view: View = { ...(await viewOf($, e.surface)), placement: e.props.placement }
     if (e.surface === 'terminal') {
       // No Svg here: the text-mode map Client stands in for the field, with pointer and arrow keys.
       const { Client } = $.ui.resolve({ ...e, surface: 'terminal' as const })

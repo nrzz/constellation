@@ -245,3 +245,17 @@ test('settings come in MAP, SESSION and ADVANCED groups, without row numbers; th
   expect(await ui.find({ type: 'Button', key: 'set:majorRule:count' })).toBeUndefined()
   await ui.unmount()
 })
+
+test('the terminal map’s hint: hover and click on a docked pane; Tab, Enter and /tui fullscreen on an inline one, where the terminal reports no mouse', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const docked = await $.ui.mount(paneOn('terminal'))
+  const hintOf = async (ui: { find: (q: { type?: string; key?: string }) => Promise<{ props: Record<string, unknown> } | undefined> }) =>
+    String(((await ui.find({ type: 'Client', key: 'map' }))?.props.props as { hint?: string } | undefined)?.hint ?? '')
+  expect(await hintOf(docked)).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  await docked.unmount()
+  const base = paneOn('terminal')
+  const inline = await $.ui.mount({ ...base, props: { ...base.props, placement: 'inline' } })
+  expect(await hintOf(inline)).toBe('Tab to a topic · Enter focuses · the mouse works in /tui fullscreen')
+  await inline.unmount()
+})

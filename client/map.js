@@ -52,14 +52,42 @@ function scale(surface, props) {
   }
 }
 
-/** The node whose cell is nearest the pointer on the text map, within two cells; labels count along their length. */
-function nodeAtCell(nodes, s, x, y) {
+/** What the text map draws for a node: its glyph, with its label where one is drawn beside it (a topic's, a step's, the back pill's own). */
+export function textOf(n) {
+  if (n.kind === 'back') return String(n.label || '‹ All topics')
+  const glyph = glyphOf(n)
+  if (n.kind === 'topic') return `${glyph} ${n.label}`
+  if (n.kind === 'step' || n.kind === 'you') return `${glyph} ${n.label2 || ''}`.trim()
+  return glyph
+}
+
+/**
+ * Where a node's text sits in the region: at its cell, pulled left where it
+ * would run past the right edge (a wrapped label is unreadable), and cut with
+ * an ellipsis where it still cannot fit. The hit test counts the same cells.
+ */
+export function placeText(n, s, rowOffset = 0) {
+  let text = textOf(n)
+  let left = s.col(n.x)
+  if (left + text.length > s.columns) left = Math.max(0, s.columns - text.length)
+  if (left + text.length > s.columns) text = text.slice(0, Math.max(1, s.columns - left - 1)) + '…'
+  return { left, top: Math.min(s.rows - 2, s.row(n.y) + rowOffset), text }
+}
+
+/** In focus mode the related anchors share one row in the field; on the text map they alternate rows so their labels fit. */
+function anchorsOf(nodes, mode) {
+  return mode === 'focus' ? nodes.filter(n => n.kind === 'topic' && n.isDim) : []
+}
+
+/** The node whose drawn text is nearest the pointer on the text map, within two cells; labels count along their length. */
+export function nodeAtCell(nodes, s, x, y, mode) {
   let best = null
   let bestD = 3
+  const anchors = anchorsOf(nodes, mode)
   for (const n of nodes) {
-    const c = s.col(n.x)
-    const r = s.row(n.y)
-    const width = n.kind === 'topic' || n.kind === 'back' ? n.label.length + 2 : 1
+    const anchorIndex = anchors.indexOf(n)
+    const { left: c, top: r, text } = placeText(n, s, anchorIndex >= 0 ? anchorIndex % 2 : 0)
+    const width = Math.max(1, text.length)
     const dx = x < c ? c - x : x > c + width - 1 ? x - (c + width - 1) : 0
     const dy = Math.abs(y - r)
     const d = dx + dy * 2
@@ -141,7 +169,7 @@ export default function Map(props, surface) {
   const current = () => latest.get(surface) || { nodes, s, props, topics, steps }
   const hitAt = e => {
     const c = current()
-    return c.props.hits === true ? nodeAtPoint(c.nodes, { x: c.s.fieldX(e), y: c.s.fieldY(e) }) : nodeAtCell(c.nodes, c.s, e.x, e.y)
+    return c.props.hits === true ? nodeAtPoint(c.nodes, { x: c.s.fieldX(e), y: c.s.fieldY(e) }) : nodeAtCell(c.nodes, c.s, e.x, e.y, c.props.mode)
   }
 
   if (!surface.state) {
@@ -226,28 +254,26 @@ export default function Map(props, surface) {
   }
   // Sessions first, then steps, then topics, so a label is never overwritten by a glyph.
   const order = { session: 0, step: 1, you: 1, topic: 2, back: 3 }
-  // In focus mode the related anchors share one row in the field; here they alternate rows so their labels fit.
-  const anchors = props.mode === 'focus' ? nodes.filter(n => n.kind === 'topic' && n.isDim) : []
+  const anchors = anchorsOf(nodes, props.mode)
   for (const n of [...nodes].sort((a, b) => (order[a.kind] ?? 0) - (order[b.kind] ?? 0))) {
     const anchorIndex = anchors.indexOf(n)
     const rowOffset = anchorIndex >= 0 ? anchorIndex % 2 : 0
     const isHover = state.hover !== null && (n.id === state.hover || n.topicId === state.hover)
     const isCursor = walk[state.cursor % Math.max(1, walk.length)] && walk[state.cursor % walk.length].id === n.id
     const color = n.isArchived ? DIM : n.color || ACCENT
-    const glyph = glyphOf(n)
-    const label = n.kind === 'topic' || n.kind === 'back' ? `${glyph} ${n.label}` : n.kind === 'step' || n.kind === 'you' ? `${glyph} ${n.label2 || ''}`.trim() : glyph
+    const { left, top, text } = placeText(n, s, rowOffset)
     children.push(
       Box({
         position: 'absolute',
-        top: Math.min(s.rows - 2, s.row(n.y) + rowOffset),
-        left: s.col(n.x),
+        top,
+        left,
         children: [
           Text({
             color,
             dimColor: n.isDim && !isHover ? true : undefined,
             inverse: n.isSelected || isCursor ? true : undefined,
             weight: n.kind === 'topic' && n.isMajor ? 'semibold' : undefined,
-            children: label,
+            children: text,
           }),
         ],
       }),

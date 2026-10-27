@@ -42,6 +42,12 @@ export type View = {
   myNote?: NoteRecord
   /** Drawn as a row in the transcript (`/map here`): no site holds the focus there, so no hotkeys are offered. */
   isRow?: boolean
+  /**
+   * Where the terminal seated the pane: docked beside the transcript (the
+   * fullscreen renderer, where the terminal reports the mouse) or inline above
+   * the prompt (the classic renderer, where it does not).
+   */
+  placement?: 'dock' | 'inline'
 }
 
 /** A Button's hotkey where it can fire: in the pane or the band, never in a transcript row. */
@@ -147,6 +153,8 @@ export function hintOf(view: View): string {
   }
   const traced = ui.hover ? model.topicById[ui.hover] : undefined
   if (traced) return `${traced.name} · ${traced.sessions.length} session${traced.sessions.length === 1 ? '' : 's'} · Enter to focus`
+  // The classic terminal renderer seats the pane inline and reports no mouse: Tab and Enter do the picking there.
+  if (view.placement === 'inline') return 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen'
   return 'Hover or focus a topic to trace it · Enter or click to focus'
 }
 
@@ -525,15 +533,16 @@ export function drawHeader(T: Table, view: View, act: Actions): RenderElement {
   const { ui } = view
   return (
     <Box flexDirection="column" gap="xs">
+      {/* The title and the crumb on one row, the controls on the next: a narrow pane wraps the controls alone, in order. */}
+      <Box flexDirection="row" alignItems="center" gap="sm">
+        <Text weight="semibold" mono>
+          CONSTELLATION
+        </Text>
+        <Text dimColor size="footnote" wrap="truncate">
+          {crumbOf(view)}
+        </Text>
+      </Box>
       <Box flexDirection="row" alignItems="center" gap="sm" flexWrap="wrap">
-        <Box flexDirection="column">
-          <Text weight="semibold" mono>
-            CONSTELLATION
-          </Text>
-          <Text dimColor size="footnote" wrap="truncate">
-            {crumbOf(view)}
-          </Text>
-        </Box>
         {Input ? <Input key="q" placeholder="Search sessions, notes, files" value={ui.query} submitLabel="search" onInput={v => act.setQuery(v)} onSubmit={v => act.setQuery(v)} /> : null}
         {Select ? <Select key="range" options={RANGE_OPTIONS} value={String(view.settings.rangeDays)} onSelect={v => act.setRange(Number(v))} /> : null}
         <Button key="view:map" label="Map" hotkey={hk(view, 'm')} variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
@@ -684,7 +693,7 @@ export const HELP_KEYS: [string, string][] = [
 ]
 
 const HELP_NOTE =
-  'Hover or Tab onto a topic to trace it. In focus the numbers follow time order and the glowing step is the latest. Select a session, then Move to topic, to move it; the terminal map also takes clicks, drags and the arrow keys.'
+  'Hover or Tab onto a topic to trace it. In focus the numbers follow time order and the glowing step is the latest. Select a session, then Move to topic, to move it. The terminal map takes clicks, drags and (after a click) the arrow keys in the fullscreen renderer (/tui fullscreen, the default after the first start; CLAUDE_CODE_DISABLE_MOUSE=1 turns the mouse off); the classic inline pane has no mouse, so Tab and Enter do the same work there.'
 
 /** `/map help`: the help card's content as text. */
 export function helpText(): string {

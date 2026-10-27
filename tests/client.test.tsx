@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry, On } from 'claude-code'
 
+import { nodeAtCell, placeText, textOf } from '../client/map.js'
 import { transcripts } from './fixtures/transcripts'
 import { pathOf } from './helpers'
 
@@ -156,6 +157,79 @@ test('dragging a session onto another topic moves it, with Undo', async ($, on) 
   expect((await nodesOf(ui)).find(n => n.id === IDS.orders)?.topicId).toBe('topic:docs')
   expect(await ui.find({ type: 'Button', key: 'toast:undo' })).toBeDefined()
   await ui.unmount()
+})
+
+test('a session dropped on Unsorted stays there (it is never clustered again), and Undo puts it back', async ($, on) => {
+  const { toasts } = stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  await ui.resize({ columns: COLUMNS, rows: ROWS, in: 'map' })
+  const nodes = await nodesOf(ui)
+  const session = nodes.find(n => n.id === IDS.rounding)
+  const unsorted = nodes.find(n => n.id === 'unsorted')
+  expect(session?.topicId).toBe(CHECKOUT)
+  expect(unsorted).toBeDefined()
+  if (!session || !unsorted) return
+  await ui.pointer({ type: 'down', x: col(session.x), y: row(session.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'move', x: col(unsorted.x) + 1, y: row(unsorted.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', x: col(unsorted.x) + 1, y: row(unsorted.y), button: 'left', in: 'map' })
+  expect(toasts[toasts.length - 1]).toContain('to Unsorted')
+  expect((await nodesOf(ui)).find(n => n.id === IDS.rounding)?.topicId).toBe('unsorted')
+  // The topic it left is still there, with the other session, and no longer an auto topic that could take it back.
+  expect((await nodesOf(ui)).find(n => n.id === IDS.tests)?.topicId).toBe(CHECKOUT)
+  await ui.press({ key: 'toast:undo' })
+  expect((await nodesOf(ui)).find(n => n.id === IDS.rounding)?.topicId).toBe(CHECKOUT)
+  await ui.unmount()
+})
+
+test('in a chain a click on a step’s label, past its number, opens that session', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  await ui.resize({ columns: COLUMNS, rows: ROWS, in: 'map' })
+  const topic = (await nodesOf(ui)).find(n => n.id === CHECKOUT)
+  expect(topic).toBeDefined()
+  if (!topic) return
+  await ui.pointer({ type: 'down', x: col(topic.x) + 2, y: row(topic.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', x: col(topic.x) + 2, y: row(topic.y), button: 'left', in: 'map' })
+  const steps = (await nodesOf(ui)).filter(n => n.kind === 'step')
+  expect(steps.length).toBe(2)
+  const step = steps[0]
+  if (!step) return
+  // The label hangs right of the number: "1 Checkout total rounding". Four cells in is on the label, not the number.
+  await ui.pointer({ type: 'down', x: col(step.x) + 4, y: row(step.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', x: col(step.x) + 4, y: row(step.y), button: 'left', in: 'map' })
+  expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Checkout total rounding/ })).toBeDefined()
+  // The back pill draws its label once, not a chevron and then a label that starts with one.
+  expect(await ui.find({ in: 'map', type: 'Text', text: /^‹ All topics$/ })).toBeDefined()
+  expect(await ui.find({ in: 'map', type: 'Text', text: /^‹ ‹/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the text map’s text, where it sits, and what a cell hits', async () => {
+  const s = { columns: 40, rows: 12, col: (x: number) => Math.round((x / 860) * 39), row: (y: number) => Math.round((y / 520) * 9) + 1 }
+  const back = { id: 'back', kind: 'back', x: 62, y: 27, label: '‹ All topics' }
+  const step = { id: 's1', kind: 'step', x: 800, y: 260, label: 2, label2: 'Fix flaky cart wait' }
+  const topic = { id: 't', kind: 'topic', x: 100, y: 400, label: 'Checkout Cart' }
+  const dot = { id: 's2', kind: 'session', x: 400, y: 100, label: '' }
+  expect(textOf(back)).toBe('‹ All topics')
+  expect(textOf(step)).toBe('2 Fix flaky cart wait')
+  expect(textOf(topic)).toBe('○ Checkout Cart')
+  expect(textOf(dot)).toBe('○')
+  // A label that would run past the right edge is pulled in, whole; one wider than the region is cut with an ellipsis.
+  const placed = placeText(step, s)
+  expect(placed.left + placed.text.length).toBeLessThanOrEqual(40)
+  expect(placed.text).toBe('2 Fix flaky cart wait')
+  const wide = placeText({ ...step, label2: 'A title far longer than the forty cells this region has' }, s)
+  expect(wide.left).toBe(0)
+  expect(wide.text.endsWith('…')).toBe(true)
+  expect(wide.text.length).toBeLessThanOrEqual(40)
+  // The hit test counts the drawn cells: the end of the pulled-in label hits the step; the dot hits only near itself.
+  expect(nodeAtCell([back, step, topic, dot], s, 38, placed.top, 'focus')?.id).toBe('s1')
+  expect(nodeAtCell([back, step, topic, dot], s, s.col(topic.x) + 10, s.row(topic.y), 'map')?.id).toBe('t')
+  expect(nodeAtCell([back, step, topic, dot], s, s.col(dot.x) + 6, s.row(dot.y), 'map')).toBeNull()
+  expect(nodeAtCell([back, step, topic, dot], s, 3, s.row(back.y), 'focus')?.id).toBe('back')
 })
 
 test('the Desktop pointer layer is on by default: a picture sized from the pane, a Client of the same size over it that draws nothing, traces on hover and picks on a click; a step and the back pill pick too', async ($, on) => {

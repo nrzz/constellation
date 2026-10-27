@@ -253,8 +253,9 @@ export function isMajorTopic(sessions: readonly SessionView[], settings: Cluster
  * rest, oldest first: each joins the cluster it relates to best, when it
  * relates to at least a `LINKAGE` share of that cluster's members (so one
  * shared word never chains a folder into a blob), else it starts a cluster.
- * A cluster of one is Unsorted; a large stub is always Unsorted. Returns the
- * id per session and the auto topics' member lists.
+ * A cluster of one is Unsorted; a large stub is always Unsorted, and so is a
+ * session someone moved to Unsorted by hand. Returns the id per session and
+ * the auto topics' member lists.
  */
 export function assignTopics(
   sessions: readonly SessionSummary[],
@@ -266,6 +267,8 @@ export function assignTopics(
     const id = store.assign[s.id]
     return id && id !== UNSORTED_ID ? id : undefined
   }
+  /** A session moved to Unsorted by hand (a drag, Move to topic, a merge into Unsorted) stays there: it is never clustered again. */
+  const isPinnedUnsorted = (s: SessionSummary): boolean => store.assign[s.id] === UNSORTED_ID
   if (groupBasis === 'manual') {
     for (const s of sessions) topicOf[s.id] = explicit(s) ?? UNSORTED_ID
     return { topicOf, autoMembers: {} }
@@ -289,7 +292,7 @@ export function assignTopics(
   }
   for (const s of byStart) {
     if (explicit(s)) continue
-    if (s.large) {
+    if (s.large || isPinnedUnsorted(s)) {
       topicOf[s.id] = UNSORTED_ID
       continue
     }
