@@ -132,3 +132,69 @@ test('clicks: no hover tracing rules and no captions in the picture', () => {
   expect(svg).not.toContain('.f:has(')
   expect(svg).not.toContain('class="cap ')
 })
+
+test('live focus: each step and anchor is a group that brightens on hover, and its meta takes the hint place', () => {
+  const base = liveView()
+  const view = { ...base, ui: { ...INITIAL_UI, focusTopic: 'topic:a' } }
+  const svg = svgOf(view)
+  for (let i = 0; i < 3; i += 1) {
+    expect(svg).toContain(`class="n hit st st-${i}"`)
+    expect(svg).toContain(`.f:has(.st-${i}:hover) .q-${i}{opacity:1}`)
+  }
+  // The step's caption: its number, its title and its meta.
+  const q0 = svg.split('<g class="cap q-0"')[1]?.split('</g>')[0] ?? ''
+  expect(q0).toMatch(/1 · Session a-\d · /)
+  expect(svg).toContain('.f:has(.st:hover,.an:hover) .hint{opacity:0}')
+  expect(svg).toContain('.st:hover .ring{stroke-width:3px}')
+  // Beta shares a file with Alpha: its anchor traces too, its caption is its own.
+  expect(svg).toContain('class="hit an an-0"')
+  expect(svg).toContain('.f:has(.an-0:hover) .r-0{opacity:1}')
+  expect(svg.split('<g class="cap r-0"')[1]?.split('</g>')[0] ?? '').toContain('Left off at the caption')
+  expect(svg).not.toMatch(/\son[a-z]+=/i)
+  // Clicks: none of it.
+  const clicks = svgOf({ ...view, settings: { ...DEFAULT_SETTINGS, pictureMode: 'clicks' } })
+  expect(clicks).not.toContain(' st st-')
+  expect(clicks).not.toContain('class="cap ')
+})
+
+/** A big folder: `topics` topics of `each` sessions, every one with a parked note full of characters to escape. */
+function bigView(topics: number, each: number) {
+  const sessions: SessionSummary[] = []
+  const store = { ...EMPTY_STORE, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string>, notes: {} as Record<string, { text: string; at: number; source: 'manual' }> }
+  for (let t = 0; t < topics; t += 1) {
+    store.topics[`topic:t${t}`] = { name: `Topic number ${t} with a long name`, createdAt: t }
+    for (let k = 0; k < each; k += 1) {
+      const id = `s-${t}-${k}`
+      const lastAt = NOW - (t * 10 + k) * 3600_000
+      sessions.push({ id, cwd: CWD, slug: 'x', branch: `feat/${t}`, firstPrompt: `work ${k}`, title: `Work item ${k} for topic ${t}, with a long title to render`, startedAt: lastAt - 3600_000, lastAt, turns: k, filesTouched: [`src/t${t}/file${k}.ts`], lastAssistantText: 'done', size: 1, mtimeMs: lastAt })
+      store.assign[id] = `topic:t${t}`
+      store.notes[id] = { text: 'a <parked> note & '.repeat(9), at: lastAt, source: 'manual' }
+    }
+  }
+  const model = buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
+  const placement = placementOf(model, null)
+  return { model, placed: placement.placed, field: placement.size, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
+}
+
+const satellites = (svg: string) => (svg.match(/class="s n hit"/g) ?? []).length
+
+test('live: when the tooltips alone overflow the cap, they go first and every satellite stays', () => {
+  const view = bigView(20, 10)
+  const svg = svgOf(view)
+  expect(svg.length).toBeLessThanOrEqual(131072)
+  // Two hundred tooltips would be there had they fit; none are, yet all two hundred satellites are drawn.
+  expect(svg).not.toContain('<title>')
+  expect(satellites(svg)).toBe(200)
+  expect(svg).toContain('.f:has(.t-19:hover) .c-19{opacity:1}')
+})
+
+test('live: four hundred sessions stay under the cap, the map and a focused chain both with their hover rules', () => {
+  const view = bigView(40, 10)
+  const svg = svgOf(view)
+  expect(svg.length).toBeLessThanOrEqual(131072)
+  expect(satellites(svg)).toBeGreaterThan(0)
+  expect(svg).toContain('.f:has(.t-39:hover) .c-39{opacity:1}')
+  const focused = svgOf({ ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:t0' } })
+  expect(focused.length).toBeLessThanOrEqual(131072)
+  expect(focused).toContain('.f:has(.st-9:hover) .q-9{opacity:1}')
+})

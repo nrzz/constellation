@@ -316,6 +316,16 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     )
   }
   const caps: string[] = []
+  // A caption in the hint pill's place, shown while its owner is hovered; in focus mode it keeps clear of the back pill.
+  const capOf = (cls: string, text: string, color: string) => {
+    const room = focus ? size.w - 2 * 118 : size.w - 28
+    const cap = clip(text, Math.max(8, Math.floor((room - 24) / 6.3)))
+    const cw = 24 + cap.length * 6.3
+    caps.push(
+      `<g class="cap ${cls}"><rect x="${(size.w / 2 - cw / 2).toFixed(1)}" y="14" width="${cw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass)" stroke="${color}"/>` +
+        `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--tx)" text-anchor="middle">${esc(cap)}</text></g>`,
+    )
+  }
   const indexOf = new Map<string, number>()
   model.topics.forEach((t, i) => indexOf.set(t.id, i))
 
@@ -370,12 +380,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         // Its spokes and its links to other topics in its colour; the rest fades (above), the caption takes the hint's place.
         css.push(`.t-${i}:hover .ln{stroke:${t.color}!important;opacity:.8!important}`, `.t-${i}:hover .sat{r:10px}`, `.f:has(.t-${i}:hover) .c-${i}{opacity:1}`)
         if (linked.length > 0) css.push(`.f:has(.t-${i}:hover) .x-${i}{stroke:${t.color}!important;opacity:.8!important}`)
-        const cap = clip(`${clip(t.name, 28)} · ${captionOf(t, now)}`, Math.max(8, Math.floor((size.w - 52) / 6.3)))
-        const cw = 24 + cap.length * 6.3
-        caps.push(
-          `<g class="cap c-${i}"><rect x="${(size.w / 2 - cw / 2).toFixed(1)}" y="14" width="${cw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass)" stroke="${t.color}"/>` +
-            `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--tx)" text-anchor="middle">${esc(cap)}</text></g>`,
-        )
+        capOf(`c-${i}`, `${clip(t.name, 28)} · ${captionOf(t, now)}`, t.color)
       } else {
         css.push(`.t-${i}:hover .ln{stroke:${t.color}}`, `.t-${i}:hover .sat{r:10px}`)
         for (const r of linked) {
@@ -444,6 +449,16 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     const positions = chainPositions(steps.length, size)
     const latest = latestOf(focus.sessions)
     const color = focus.color === MINOR_COLOR ? ACCENT : focus.color
+    if (live) {
+      // A hovered step or anchor brightens, the rest of the chain fades, and its meta takes the hint's place.
+      css.push(
+        `.f:has(.st:hover,.an:hover) .hint{opacity:0}`,
+        `.f:has(.st:hover,.an:hover) .st:not(:hover),.f:has(.st:hover,.an:hover) .an:not(:hover),.f:has(.st:hover,.an:hover) .ch{opacity:.15}`,
+        `.st:hover,.an:hover{opacity:1!important}`,
+        `.st:hover .ring{stroke-width:3px}`,
+        `.an:hover rect{stroke-dasharray:none;stroke-width:1.5px}`,
+      )
+    }
     // Each step to the next: a segment from circle edge to circle edge, its arrow at the next circle's rim.
     for (let i = 1; i < positions.length && i < steps.length; i += 1) {
       const a = positions[i - 1]
@@ -452,7 +467,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const d = Math.hypot(b.x - a.x, b.y - a.y) || 1
       const ux = (b.x - a.x) / d
       const uy = (b.y - a.y) / d
-      parts.push(`<line x1="${(a.x + ux * 19).toFixed(1)}" y1="${(a.y + uy * 19).toFixed(1)}" x2="${(b.x - ux * 21).toFixed(1)}" y2="${(b.y - uy * 21).toFixed(1)}" stroke="${color}" stroke-width="1.6" marker-end="url(#arrow)" opacity="0.9"/>`)
+      parts.push(`<line${live ? ' class="ch"' : ''} x1="${(a.x + ux * 19).toFixed(1)}" y1="${(a.y + uy * 19).toFixed(1)}" x2="${(b.x - ux * 21).toFixed(1)}" y2="${(b.y - uy * 21).toFixed(1)}" stroke="${color}" stroke-width="1.6" marker-end="url(#arrow)" opacity="0.9"/>`)
     }
     const chars = chainLabelChars(steps.length, size)
     // Every step labelled: each meta line keeps to its room on its row. A crowded chain labels a few steps apart from each other, which take more.
@@ -489,9 +504,13 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const meta = metas.find(m => m.length <= metaRoom) ?? metas[metas.length - 1] ?? ''
       const lines = isLabelled ? wrap2(title, Math.min(isTight ? room : 22, room)) : []
       const tip = withTooltips && s && !isYou ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
-      const g: string[] = [`<g class="n hit" opacity="${op.toFixed(2)}">${tip}`]
+      if (live) {
+        css.push(`.f:has(.st-${i}:hover) .q-${i}{opacity:1}`)
+        capOf(`q-${i}`, `${i + 1} · ${isYou ? 'This session · you' : `${clip(title, 40)} · ${s ? sessionMeta(s, now, isLatest ? 'latest' : '') : ''}`}`, isYou ? ACCENT : color)
+      }
+      const g: string[] = [`<g class="n hit${live ? ` st st-${i}` : ''}" opacity="${op.toFixed(2)}">${tip}`]
       if (isLatest) g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="21" fill="${rgba(color, 0.22)}"/>`)
-      g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="16" style="fill:${fill};stroke:${ring}" stroke-width="2"${dash}/>`)
+      g.push(`<circle${live ? ' class="ring"' : ''} cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="16" style="fill:${fill};stroke:${ring}" stroke-width="2"${dash}/>`)
       g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${(pt.y + 4.5).toFixed(1)}" font-size="12.5" font-weight="600" style="fill:${numColor}" text-anchor="middle">${i + 1}</text>`)
       if (s?.isPinned) g.push(`<text x="${(pt.x + 12).toFixed(1)}" y="${(pt.y - 10).toFixed(1)}" font-size="10" fill="${ACCENT}">★</text>`)
       const labelColor = isYou ? ACCENT : isSel ? 'var(--tx)' : status === 'archived' ? 'var(--mu)' : 'var(--lb)'
@@ -524,14 +543,18 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     if (steps.length === 0) {
       parts.push(`<text x="${size.w / 2}" y="262" font-size="12.5" style="fill:var(--mu)" text-anchor="middle">${esc(clip('No sessions in the time range. Widen the range, or pin one.', Math.floor((size.w - 40) / 6.6)))}</text>`)
     }
-    for (const a of anchorsOf(view, focus, size)) {
+    anchorsOf(view, focus, size).forEach((a, k) => {
       const left = a.x - a.w / 2
+      if (live) {
+        css.push(`.f:has(.an-${k}:hover) .r-${k}{opacity:1}`)
+        capOf(`r-${k}`, `${clip(a.topic.name, 28)} · ${captionOf(a.topic, now)}`, a.topic.color)
+      }
       parts.push(
-        `<g class="hit" opacity="0.9"><rect x="${left.toFixed(1)}" y="${a.y - 16}" width="${a.w.toFixed(1)}" height="32" rx="16" style="fill:var(--glass)" stroke="${a.topic.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
+        `<g class="hit${live ? ` an an-${k}` : ''}" opacity="0.9"><rect x="${left.toFixed(1)}" y="${a.y - 16}" width="${a.w.toFixed(1)}" height="32" rx="16" style="fill:var(--glass)" stroke="${a.topic.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
         `<circle cx="${(left + 15).toFixed(1)}" cy="${a.y}" r="3.5" fill="${a.topic.color}"/>`,
         `<text x="${(left + 25).toFixed(1)}" y="${a.y + 4}" font-size="12" style="fill:var(--lb)">${esc(a.name)}${a.file ? ` <tspan class="mono" font-size="10.5" style="fill:var(--mu)">${esc(a.file)}</tspan>` : ''}</text></g>`,
       )
-    }
+    })
     parts.push(
       `<g class="hit"><rect x="14" y="12" width="96" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/><text x="30" y="31" font-size="12" style="fill:var(--lb)">‹ All topics</text></g>`,
     )
