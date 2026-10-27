@@ -363,7 +363,7 @@ function renderSvg(view: View, withTooltips: boolean, maxSessions: number): stri
     // A satellite's look lives here, not on each mark: its colour is the topic's (or this session's accent) through
     // `color`, running fills it (`sr`), archived dashes it (`sa`); a spoke traced takes the colour (`lt`), else fades (`lf`).
     `.sat{fill:var(--pill);stroke:currentColor;stroke-width:1.5}.sr .sat{fill:currentColor}.sa .sat{stroke:var(--dim);stroke-dasharray:2 2}`,
-    `.sh{fill:currentColor;fill-opacity:.12}.s .co{fill:#fff}.ln{fill:none;stroke:var(--ln);stroke-width:1;opacity:.8}.lt{stroke:currentColor;stroke-width:1.2;opacity:.75}.lf{opacity:.35}`,
+    `.sh{fill:currentColor;fill-opacity:.12}.sr .co{fill:#fff}.ln{fill:none;stroke:var(--ln);stroke-width:1;opacity:.8}.lt{stroke:currentColor;stroke-width:1.2;opacity:.75}.lf{opacity:.35}`,
     `.t,.x,.s{transition:opacity .25s}`,
     `.hit{cursor:pointer}`,
     `.glow{opacity:0;transition:opacity .25s}`,
@@ -775,7 +775,9 @@ function renderSvg(view: View, withTooltips: boolean, maxSessions: number): stri
   const ly = size.h - 16
   if (!isEmpty) parts.push(
     `<g font-size="11" style="fill:var(--mu)">`,
-    `<circle cx="20" cy="${ly - 4}" r="4" fill="${ACCENT}"/><text x="29" y="${ly}">active</text>`,
+    // "active" as the map draws a running satellite (`sr`: filled, a light core), in the idle ring's colour; `lg` keeps
+    // it out of the satellites' counts.
+    `<g class="sr" style="color:var(--mu)"><circle class="sat lg" cx="20" cy="${ly - 4}" r="4"/><circle class="co lg" cx="20" cy="${ly - 4}" r="1.8"/></g><text x="29" y="${ly}">active</text>`,
     `<circle cx="78" cy="${ly - 4}" r="4" fill="none" style="stroke:var(--mu)" stroke-width="1.5"/><text x="87" y="${ly}">idle</text>`,
     `<circle cx="124" cy="${ly - 4}" r="4" fill="none" style="stroke:var(--dim)" stroke-width="1.5" stroke-dasharray="2 2"/><text x="133" y="${ly}">shipped</text>`,
     `<text x="186" y="${ly}" fill="${ACCENT}">★</text><text x="199" y="${ly}">pinned</text>`,
