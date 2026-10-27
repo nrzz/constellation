@@ -384,12 +384,25 @@ test('running: one ripple per running satellite, each out of step; none on idle 
     expect(d).toBeLessThanOrEqual(3)
   })
   expect((svg.match(/<circle class="co" /g) ?? []).length).toBe(3)
-  expect(svg).toContain('.s .co{fill:#fff}')
+  expect(svg).toContain('.sr .co{fill:#fff}')
   // Running satellites filled, idle ones outlined, archived ones dashed: each by its class and the shared rules.
   expect((svg.match(/<g class="s n hit sr"/g) ?? []).length).toBe(3)
   expect((svg.match(/<g class="s n hit sa"/g) ?? []).length).toBe(1)
   expect(svg).toContain('.sat{fill:var(--pill);stroke:currentColor;stroke-width:1.5}.sr .sat{fill:currentColor}.sa .sat{stroke:var(--dim);stroke-dasharray:2 2}')
   expect(svg).toContain('@keyframes rp{')
+})
+
+test('running: the legend’s "active" mark is drawn as the map draws a running satellite, filled with a light core, not amber', () => {
+  for (const settings of [DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, pictureMode: 'clicks' as const }]) {
+    const svg = svgOf(liveView(settings, ['a-0']))
+    const legend = svg.slice(svg.lastIndexOf('<g font-size="11"'), svg.indexOf('>active</text>'))
+    expect(legend).not.toContain(ACCENT)
+    // The running class fills its dot (`.sr .sat`) and lights its core (`.sr .co`), as on each running satellite; in the
+    // idle ring's neutral colour, so the two read as filled against outlined.
+    expect(legend).toMatch(/<g class="sr" style="color:var\(--mu\)"><circle class="sat lg" [^>]*r="4"\/><circle class="co lg" /)
+    expect(svg).toContain('.sr .sat{fill:currentColor}')
+    expect(svg).toContain('.sr .co{fill:#fff}')
+  }
 })
 
 test('running: this session’s satellite is in the accent colour and ripples in it', () => {
