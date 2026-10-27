@@ -106,7 +106,7 @@ function addSession({ cfg, cwd }, s) {
 }
 
 const THEMES = [
-  { name: 'checkout', branch: 'fix/checkout', files: ['src/checkout/Cart.tsx', 'src/checkout/total.ts', 'src/checkout/Cart.test.tsx', 'src/checkout/coupon.ts'], asks: ['fix the cart total rounding', 'add coupon codes to the checkout', 'the cart badge count is stale after removing an item', 'checkout total ignores the shipping fee', 'make the cart test stop flaking on the total', 'split the checkout summary into its own component', 'apply the coupon before tax in the cart total', 'show a loading state on the checkout button', 'cart quantity input accepts negative numbers', 'the checkout coupon field loses focus on error', 'round the cart line totals once, at the end'] },
+  { name: 'checkout', branch: 'fix/checkout', files: ['src/checkout/Cart.tsx', 'src/checkout/total.ts', 'src/checkout/Cart.test.tsx', 'src/checkout/coupon.ts'], also: 'src/analytics/events.ts', asks: ['fix the cart total rounding', 'add coupon codes to the checkout', 'the cart badge count is stale after removing an item', 'checkout total ignores the shipping fee', 'make the cart test stop flaking on the total', 'split the checkout summary into its own component', 'apply the coupon before tax in the cart total', 'show a loading state on the checkout button', 'cart quantity input accepts negative numbers', 'the checkout coupon field loses focus on error', 'round the cart line totals once, at the end'] },
   { name: 'auth', branch: 'feat/cookie-auth', files: ['src/auth/session.ts', 'src/auth/middleware.ts', 'src/auth/refresh.ts', 'src/auth/login.tsx'], asks: ['move the auth tokens to httpOnly cookies', 'the refresh token race logs people out', 'add remember me to the login form', 'auth middleware rejects valid sessions after deploy', 'expire the session cookie on logout everywhere', 'rate limit the login endpoint', 'login form shows the wrong error for a locked account', 'refresh the auth session in the background', 'auth middleware should skip the health check', 'session cookie needs SameSite=Lax'] },
   { name: 'orders', branch: 'feat/cursor-pages', files: ['src/orders/route.ts', 'src/orders/OrdersList.tsx', 'src/orders/pagination.ts'], asks: ['switch the orders API to cursor pagination', 'infinite scroll for the orders list', 'orders list jumps when a new page loads', 'orders route returns duplicates across pages', 'add a status filter to the orders list', 'orders pagination cursor breaks on equal timestamps', 'export the orders list as csv', 'orders route is slow for large accounts', 'empty state for the orders list'] },
   { name: 'search', branch: 'feat/search', files: ['src/search/index.ts', 'src/search/SearchBox.tsx', 'src/search/rank.ts'], asks: ['search box should debounce the queries', 'rank exact title matches first in search', 'search index misses products added today', 'highlight the matched words in search results', 'keyboard navigation in the search box results', 'search ranking ignores stock', 'rebuild the search index nightly', 'search box clears on blur by accident', 'typo tolerance in search'] },
@@ -119,7 +119,7 @@ const THEMES = [
   { name: 'profile', branch: 'feat/profile', files: ['src/profile/Profile.tsx', 'src/profile/avatar.ts', 'src/profile/settings.ts'], asks: ['profile avatar upload crops badly', 'profile settings page for notifications', 'profile page loads the avatar twice', 'delete account from profile settings', 'profile form validation for phone numbers', 'avatar upload should resize on the server'] },
   { name: 'perf', branch: 'perf/cache', files: ['src/perf/cache.ts', 'webpack.config.js', 'src/perf/lazy.tsx'], asks: ['cache the product api responses', 'webpack bundle is 4mb, split it', 'lazy load the product images', 'cache invalidation when prices change', 'webpack build is slow in dev', 'measure the largest contentful paint'] },
   { name: 'deploy', branch: 'infra/docker', files: ['Dockerfile', 'deploy/k8s.yaml', 'deploy/healthcheck.ts'], asks: ['shrink the docker image for deploy', 'k8s deploy needs a readiness probe', 'deploy healthcheck times out on cold start', 'blue green deploy for the api', 'docker build cache misses in deploy', 'roll back a bad deploy quickly', 'deploy secrets through k8s', 'docker compose for local deploy testing'] },
-  { name: 'admin', branch: 'feat/admin', files: ['src/admin/Dashboard.tsx', 'src/admin/users.ts', 'src/admin/audit.ts'], asks: ['admin dashboard for refunds', 'admin users table needs paging', 'audit log for admin actions', 'admin dashboard charts are blank', 'ban a user from the admin users page', 'admin audit export to csv', 'admin role checks on every route', 'admin dashboard loads slowly'] },
+  { name: 'admin', branch: 'feat/admin', files: ['src/admin/Dashboard.tsx', 'src/admin/users.ts', 'src/admin/audit.ts'], also: 'src/payments/refund.ts', asks: ['admin dashboard for refunds', 'admin users table needs paging', 'audit log for admin actions', 'admin dashboard charts are blank', 'ban a user from the admin users page', 'admin audit export to csv', 'admin role checks on every route', 'admin dashboard loads slowly'] },
   { name: 'reviews', branch: 'feat/reviews', files: ['src/reviews/ReviewForm.tsx', 'src/reviews/moderation.ts', 'src/reviews/stars.ts'], asks: ['product reviews with star ratings', 'review moderation queue', 'review form loses text on error', 'average stars per product in reviews', 'flag abusive reviews for moderation', 'review photos upload', 'sort reviews by helpfulness', 'reviews widget on the product page'] },
 ]
 const ONE_OFFS = ['bump the eslint config', 'fix a typo in the footer', 'rename the env example file', 'what does this regex do', 'update the license year', 'explain the docker compose file', 'try out the new date picker', 'clean up console logs', 'look into the 404 page styling', 'add a favicon', 'how do i squash my last three commits', 'set up prettier on save', 'why is node using so much memory', 'convert this json to yaml', 'summarise the meeting notes file', 'lint warnings in the old scripts folder', 'what is the difference between these two branches', 'make a gitignore for python', 'check the robots txt', 'rename a variable everywhere']
@@ -154,6 +154,8 @@ function bigFolder(cwd, now) {
     t.asks.forEach((ask, n) => {
       const id = uuidOf(ti + 1, n)
       const files = t.files.filter((_, i) => (i + n) % 3 !== 2).slice(0, 3)
+      // A theme that also edits another theme's file links the two topics, so focused chains draw anchors (review A5-8).
+      if (t.also && n % 3 === 0) files.push(t.also)
       const start = now - ((k * 7919) % (44 * 86_400_000)) - 3_600_000
       k++
       out.push({ id, mtime: start + 600_000, text: transcript({ id, cwd, branch: n % 3 === 0 ? 'main' : t.branch, ask, files, title: titleOf(ask), start, done: `Done: ${ask}. Tests pass.` }) })
@@ -405,12 +407,15 @@ class Desktop {
    * Mounts the map Client of the last drawing as the Desktop lays it over the picture: as wide as the picture
    * (`columns` cells of `cell.w` px), and as tall as what it draws (`sizing: 'content'`, the Desktop's way, starting
    * at one row), or as tall as its box (`sizing: 'box'`, a host that sizes by CSS). Returns the drawn tree.
+   * `widthPx` is the picture's own width when it is not a whole number of cells (review A5-4): the pane's slot is
+   * `7.7 N - 40` px, and the layer still gets whole `columns`, so the two can disagree by part of a cell.
    */
-  mountLikeDesktop(columns, { cell = DESKTOP_CELL, sizing = 'content' } = {}) {
+  mountLikeDesktop(columns, { cell = DESKTOP_CELL, sizing = 'content', widthPx } = {}) {
     if (this.mounted) this.driver.unmount(this.id)
     this.cell = cell
     this.sizing = sizing
     this.columns = columns
+    this.widthPx = widthPx ?? columns * cell.w
     this.rows = 1
     this.driver.mount(this.id, frame.entry[frame.component], this.props())
     this.mounted = true
@@ -425,10 +430,10 @@ class Desktop {
     const vb = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svgOfTree(this.tree)?.props.source ?? '')
     return vb ? { w: Number(vb[1]), h: Number(vb[2]) } : { w: NaN, h: NaN }
   }
-  /** The picture's height in px: the image takes the layer's width at its viewBox's proportions. */
+  /** The picture's height in px: the image takes its slot's width at its viewBox's proportions. */
   pictureHeightPx() {
     const box = this.pictureBox()
-    return (this.columns * this.cell.w * box.h) / box.w
+    return (this.widthPx * box.h) / box.w
   }
   /** After new props: the host sizes the layer again (to what it draws, or to its box) until it settles. */
   refit() {
@@ -453,12 +458,13 @@ class Desktop {
     return clientOf(this.tree)?.props.props
   }
   /**
-   * The cell a point of the picture lies in, as the Desktop measures it: the picture is `columns × cell.w` px wide at
-   * the field's proportions, and a cell is `cell.w × cell.h` px. `undefined` where the point lies below the layer:
-   * the Desktop delivers no event there. `fine` adds sub-cell positions, as a pointer that has them gives.
+   * The cell a point of the picture lies in, as the Desktop measures it: the picture is `widthPx` wide (`columns ×
+   * cell.w` unless the mount said otherwise) at the field's proportions, and a cell is `cell.w × cell.h` px.
+   * `undefined` where the point lies below or right of the layer: the Desktop delivers no event there. `fine` adds
+   * sub-cell positions, as a pointer that has them gives.
    */
   cellOf(x, y, fine = false) {
-    const pxPerUnit = (this.columns * this.cell.w) / this.pictureBox().w
+    const pxPerUnit = this.widthPx / this.pictureBox().w
     const fx = (x * pxPerUnit) / this.cell.w
     const fy = (y * pxPerUnit) / this.cell.h
     if (Math.floor(fy) >= this.rows || Math.floor(fx) >= this.columns) return undefined
@@ -551,35 +557,70 @@ function checkCovers(desk, label) {
   const picture = desk.pictureHeightPx() / desk.cell.h
   check(desk.rows <= picture + 1e-9 && picture - desk.rows < 1, label, { layer: desk.rows, picture: Number(picture.toFixed(2)), columns: desk.columns, sizing: desk.sizing })
 }
+/** Presses the left button on a cell of the layer and lets go there; returns what the press picked. */
+function pressCell(desk, c) {
+  desk.pointer({ type: 'down', ...c, button: 'left' })
+  desk.pointer({ type: 'up', ...c, button: 'left' })
+  return desk.posts.splice(0).filter(d => d.type === 'pick')
+}
 /**
- * Every node on the picture, clicked at its own point, picks itself: at the pointer's sub-cell position, and at the
- * centre of its cell where a cell is small enough to land on the node (a wide layer, or a topic's pill). A node the
- * layer does not reach fails.
+ * Every node on the picture, clicked at its own point, picks itself (review A5-2), two ways:
+ * - `fine`: the pointer's sub-cell position (terminals that report pixels), a geometry check: it must pick the node;
+ * - `cell`: the centre of the node's cell, as the Desktop's pointer reports it, at every width. Two nodes centred in
+ *   one cell cannot both win a click on it, so the acceptance rule is: the pick is the node, or a node centred in the
+ *   very cell clicked. A click that picks a node centred in another cell (or nothing) is a miss, allowed up to
+ *   `otherCeiling` (0 unless a caller states why). A node the layer does not reach fails.
  */
-function checkEveryNode(desk, label) {
+function checkEveryNode(desk, label, { otherCeiling = 0 } = {}) {
   const missed = []
+  const other = []
+  let shared = 0
   const p = desk.props()
   const box = desk.pictureBox()
   const cellW = box.w / desk.columns
   const cellH = box.h / (desk.pictureHeightPx() / desk.cell.h)
+  const same = (a, b) => a && b && a.x === b.x && a.y === b.y
+  const short = n => `${n.kind} ${String(n.label || n.id).slice(0, 18)}`
   for (const n of p.nodes) {
     const at = pointOn(n)
     const fine = desk.cellOf(at.x, at.y, true)
     if (!fine) {
-      missed.push(`${n.kind} ${n.label ?? n.id}: below the layer`)
+      missed.push(`${short(n)}: below or right of the layer`)
       continue
     }
-    const tries = [['fine', fine]]
-    const isPill = n.kind === 'back' || (n.kind === 'topic' && (n.isMajor || n.isAnchor))
-    if (isPill || Math.hypot(cellW, cellH) / 2 <= 16) tries.push(['cell', { x: fine.x, y: fine.y }])
-    for (const [how, c] of tries) {
-      desk.pointer({ type: 'down', ...c, button: 'left' })
-      desk.pointer({ type: 'up', ...c, button: 'left' })
-      const got = desk.posts.splice(0).filter(d => d.type === 'pick')
-      if (!got.some(d => d.id === n.id)) missed.push(`${n.kind} ${n.label || n.id} at ${Math.round(at.x)},${Math.round(at.y)} (${how} ${c.x},${c.y}, a cell ${cellW.toFixed(1)}×${cellH.toFixed(1)}): ${JSON.stringify(got)}`)
-    }
+    const where = `at ${Math.round(at.x)},${Math.round(at.y)} (cell ${fine.x},${fine.y}, a cell ${cellW.toFixed(1)}×${cellH.toFixed(1)})`
+    const got = pressCell(desk, fine)
+    if (!got.some(d => d.id === n.id)) missed.push(`${short(n)} ${where}, fine: ${JSON.stringify(got)}`)
+    const cell = { x: fine.x, y: fine.y }
+    const won = pressCell(desk, cell)
+    if (won.some(d => d.id === n.id)) continue
+    const winner = p.nodes.find(m => won.some(d => d.id === m.id))
+    if (winner && same(desk.cellOf(pointOn(winner).x, pointOn(winner).y), cell)) shared += 1
+    else other.push(`${short(n)} ${where}: picked ${winner ? short(winner) : 'nothing'}`)
   }
-  check(missed.length === 0, `${label} (${p.nodes.length} nodes)`, missed.slice(0, 8))
+  const ok = missed.length === 0 && other.length <= otherCeiling
+  check(ok, `${label} (${p.nodes.length} nodes; whole-cell clicks: ${shared} lose to a node in the same cell, ${other.length} to one elsewhere, at most ${otherCeiling})`, [...missed, ...other].slice(0, 8))
+}
+/** What a focused chain's layer holds, for a check's label: what the check covered, not what it might (review A5-8). */
+function chainParts(desk) {
+  const nodes = desk.props().nodes
+  const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`
+  const steps = nodes.filter(n => n.kind === 'step' || n.kind === 'you').length
+  const anchors = nodes.filter(n => n.isAnchor).length
+  const back = nodes.some(n => n.kind === 'back') ? ' and the back pill' : ''
+  return `the topic’s pill, ${count(steps, 'step')}, ${count(anchors, 'anchor')}${back}`
+}
+/**
+ * Clicks every cell of the layer and counts the nodes no cell picks at all (review A5-2, A5-4): a node a person can
+ * never click on the picture, only through its button under it. At most `ceiling` of them.
+ */
+function checkReach(desk, label, ceiling) {
+  const p = desk.props()
+  const picked = new Set()
+  for (let y = 0; y < desk.rows; y += 1) for (let x = 0; x < desk.columns; x += 1) for (const d of pressCell(desk, { x, y })) picked.add(d.id)
+  const lost = p.nodes.filter(n => !picked.has(n.id))
+  check(lost.length <= ceiling, `${label}: ${lost.length} of ${p.nodes.length} nodes no cell of ${desk.columns}×${desk.rows} picks, at most ${ceiling}`, lost.slice(0, 6).map(n => `${n.kind} ${String(n.label || n.id).slice(0, 18)} at ${Math.round(n.x)},${Math.round(n.y)}`))
+  return lost.length
 }
 const SAT_GROUP = /<g class="[^"]*" transform="translate\(([\d.-]+) ([\d.-]+)\)"[^>]*>(?:(?!<\/g>)[\s\S])*?<circle class="sat" r=/g
 /** The points the picture's Svg source draws, by kind: each list holds the centres a layer node should sit on. */
@@ -757,6 +798,14 @@ async function fixtureFolderChecks() {
       checkCovers(desk, `a layer ${w} cells wide, sized by ${sizing === 'box' ? 'its box' : 'what it draws'}, covers the picture`)
       checkEveryNode(desk, `…and a click on each node picks it`)
     }
+    // A host that sizes the layer by its box and draws a wider font (review A5-8): its box holds more rows than the
+    // layer works out for the Desktop's cell, and the layer must map the pointer by the host's count, not its own.
+    const boxed = { w: 8.5, h: 19.8 }
+    desk.mountLikeDesktop(cols, { cell: boxed, sizing: 'box' })
+    const drawnRows = desk.draw()?.props?.height
+    check(desk.rows > drawnRows + 1, `a box-sized host with a wider font holds more rows than the layer draws`, { host: desk.rows, drawn: drawnRows })
+    checkCovers(desk, '…its layer covers the picture')
+    checkEveryNode(desk, '…and a click on each node picks it by the host’s rows')
     desk.mountLikeDesktop(cols)
 
     // The settings, pressed as buttons: outline, off, and back on.
@@ -779,7 +828,7 @@ async function fixtureFolderChecks() {
     check(clientOf(desk.tree)?.props.props.hits === true, 'On again: the layer is back')
     await desk.pressAndDraw(`t:${checkout.id}`)
     check(desk.props().mode === 'focus', 'a topic button under the picture focuses the topic too')
-    checkParity(desk, '…and the focused chain’s layer sits on its picture: steps, anchors and the back pill')
+    checkParity(desk, `…and the focused chain’s layer sits on its picture: ${chainParts(desk)}`)
 
     // A pane the Desktop seats inline keeps the pointer hint.
     await desk.pressAndDraw('back')
@@ -809,6 +858,17 @@ async function fixtureFolderChecks() {
     await desk.pressAndDraw('set:layerHeight:2')
     check(Math.abs(desk.props().cellAspect - (7.7 / 19.8 + 0.04)) < 1e-9, 'Layer height +2 reaches the layer as a taller cell', desk.props().cellAspect)
     checkCovers(desk, '…and the layer covers the picture again')
+    checkEveryNode(desk, '…and a click on each node picks it')
+    // The mirror (review A5-8): a narrower font (7.0 × 19.8 px) makes the layer reach past the picture onto the buttons
+    // under it; Layer height −2 brings its edge back up to the picture's bottom.
+    const narrowFont = { w: 7.0, h: 19.8 }
+    await desk.pressAndDraw('set:layerHeight:0')
+    desk.mountLikeDesktop(cols, { cell: narrowFont })
+    const past = desk.rows - desk.pictureHeightPx() / narrowFont.h
+    check(past > 0, 'with a narrower font the layer reaches past the picture', `${past.toFixed(2)} rows past`)
+    await desk.pressAndDraw('set:layerHeight:-2')
+    check(Math.abs(desk.props().cellAspect - (7.7 / 19.8 - 0.04)) < 1e-9, 'Layer height −2 reaches the layer as a shorter cell', desk.props().cellAspect)
+    checkCovers(desk, '…and the layer ends on the picture again')
     checkEveryNode(desk, '…and a click on each node picks it')
     await desk.pressAndDraw('set:layerHeight:0')
     check(Math.abs(desk.props().cellAspect - 7.7 / 19.8) < 1e-9, 'Layer height 0 is the Desktop’s own cell again', desk.props().cellAspect)
@@ -911,10 +971,46 @@ async function bigFolderChecks() {
     if (buttonOf(desk.tree, 'back')) await desk.pressAndDraw('back')
     await desk.loadModule()
     if (process.env.E2E_DEBUG) console.log('     state before the big click:', desk.props() && { mode: desk.props().mode, kinds: desk.props().nodes.map(n => n.kind).join(',') }, textOf(desk.tree).slice(0, 300))
-    desk.mountLikeDesktop(140)
-    checkCovers(desk, `the layer over the big map (${desk.props().fieldW}×${desk.props().fieldH}) covers the picture`)
-    checkParity(desk, '…its nodes sit on what the big map draws')
-    checkEveryNode(desk, '…and a click on each node of the big map picks it')
+    // The big map in panes of every width a person docks it at (review A5-2): the pane's body N columns gives the
+    // picture a slot of 7.7 N - 40 px, about N - 5 columns, and the field narrows with it.
+    const PAIRS = [115, 97, 77, 60, 44, 30]
+    const bodyOf = w => Math.round(w + 40 / DESKTOP_CELL.w)
+    for (const w of PAIRS) {
+      desk.bodyColumns = bodyOf(w)
+      await desk.pane()
+      desk.mountLikeDesktop(w)
+      const at = `a ${desk.bodyColumns}-column pane (${w} cells over a ${desk.props().fieldW}×${desk.props().fieldH} field)`
+      checkCovers(desk, `the layer over the big map in ${at} covers the picture`)
+      checkParity(desk, '…its nodes sit on what the big map draws')
+      // At 30 columns a cell is 17×45 units, taller than a minor topic's label row and wider than a dot's slack: a
+      // click on a label can land on a dot centred in a cell beside it (3 of 152). Each is still picked by a cell of
+      // its own (the reach check below), and the buttons under the picture pick every topic.
+      checkEveryNode(desk, '…and a click on each node of the big map picks it', { otherCeiling: w <= 30 ? 3 : 0 })
+      checkReach(desk, '…and every node is picked by some cell', 0)
+    }
+    // A picture that is not a whole number of cells (review A5-4): slots of 300 to 350 px, each a part of a cell past
+    // a whole one, the layer taking the slot's columns as the Desktop counts them.
+    for (let k = 39; k <= 45; k += 1) {
+      for (const part of [0, 0.25, 0.5, 0.75]) {
+        const widthPx = DESKTOP_CELL.w * (k + part)
+        if (widthPx > 350) continue
+        desk.bodyColumns = Math.round((widthPx + 40) / DESKTOP_CELL.w)
+        await desk.pane()
+        // How the Desktop turns the slot's px into columns is not measured (refute-A5): each count it could give.
+        const counts = new Map()
+        for (const how of ['floor', 'round', 'ceil']) {
+          const n = Math[how](widthPx / DESKTOP_CELL.w)
+          counts.set(n, counts.has(n) ? `${counts.get(n)}/${how}` : how)
+        }
+        for (const [cols, how] of counts) {
+          desk.mountLikeDesktop(cols, { widthPx })
+          checkReach(desk, `the big map in a ${widthPx.toFixed(1)} px slot, ${cols} columns (${how})`, 0)
+        }
+      }
+    }
+    desk.bodyColumns = VIEWPORT.columns
+    await desk.pane()
+    desk.mountLikeDesktop(115)
     // The lowest topic: on a layer six rows tall (8a99ba1 on the Desktop) it lay out of reach.
     const topic = desk.props().nodes.filter(n => n.kind === 'topic').sort((a, b) => b.y - a.y)[0]
     const { fieldH } = desk.props()
@@ -925,8 +1021,55 @@ async function bigFolderChecks() {
     check(desk.props().mode === 'focus', '…and focuses it')
     checkCovers(desk, '…the layer over its chain covers the picture')
     checkParity(desk, '…its chain’s layer sits on the picture of the chain')
-    checkEveryNode(desk, '…and a click on each step, anchor and the back pill picks it')
+    checkEveryNode(desk, `…and a click on each of ${chainParts(desk)} picks it`)
     saveShot('desktop-big-focus.svg', svgOfTree(desk.tree))
+    for (const w of PAIRS) {
+      desk.bodyColumns = bodyOf(w)
+      await desk.pane()
+      desk.mountLikeDesktop(w)
+      checkCovers(desk, `the focused chain in a ${desk.bodyColumns}-column pane (${w} cells over ${desk.props().fieldW}×${desk.props().fieldH}): its layer covers the picture`)
+      checkParity(desk, '…sits on the picture')
+      checkEveryNode(desk, `…and a click on each of ${chainParts(desk)} picks it`)
+      checkReach(desk, '…and every one is picked by some cell', 0)
+    }
+    // Chains linked to other topics by a shared file draw those topics as anchors (review A5-8: no e2e view had one).
+    // Two themes edit a file of another theme; focus each topic they settled in and click its anchors at every width.
+    desk.bodyColumns = VIEWPORT.columns
+    await desk.pane()
+    desk.mountLikeDesktop(115)
+    if (buttonOf(desk.tree, 'back')) await desk.pressAndDraw('back')
+    const mapNodes = desk.props().nodes
+    const topicOfTheme = theme => {
+      const votes = {}
+      for (const d of mapNodes) if (d.kind === 'session' && themeOf[d.id] === theme && d.topicId !== 'unsorted') votes[d.topicId] = (votes[d.topicId] ?? 0) + 1
+      return Object.entries(votes).sort((a, b) => b[1] - a[1])[0]?.[0]
+    }
+    let anchored = 0
+    for (const theme of THEMES.filter(t => t.also).map(t => t.name)) {
+      const id = topicOfTheme(theme)
+      if (!id || !buttonOf(desk.tree, `t:${id}`)) {
+        check(false, `the ${theme} theme has a topic with a button under the map`, id)
+        continue
+      }
+      await desk.pressAndDraw(`t:${id}`)
+      const anchors = desk.props().nodes.filter(n => n.isAnchor)
+      anchored += anchors.length
+      check(desk.props().mode === 'focus' && anchors.length >= 1, `the ${theme} chain, which shares a file with another theme, draws that topic as an anchor`, anchors.map(a => a.label))
+      for (const w of PAIRS) {
+        desk.bodyColumns = bodyOf(w)
+        await desk.pane()
+        desk.mountLikeDesktop(w)
+        checkParity(desk, `…in a ${desk.bodyColumns}-column pane its anchors sit on the picture`)
+        checkEveryNode(desk, `…and a click on each of ${chainParts(desk)} picks it`)
+        checkReach(desk, '…and every one is picked by some cell', 0)
+      }
+      desk.bodyColumns = VIEWPORT.columns
+      await desk.pane()
+      desk.mountLikeDesktop(115)
+      await desk.pressAndDraw('back')
+    }
+    check(anchored >= 2, 'the anchors the e2e views click', `${anchored} anchors`)
+    desk.bodyColumns = VIEWPORT.columns
     check(desk.faults.length === 0, 'the module never faulted', desk.faults)
   } catch (error) {
     check(false, 'the big folder run', String(error?.stack ?? error))

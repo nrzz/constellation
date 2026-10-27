@@ -283,6 +283,62 @@ export function nodeAtPoint(nodes, p, cell) {
   return best
 }
 
+/** Where each layer's dots that lose their own cell were moved to: computed once per drawing, on the first press. */
+const homes = new WeakMap()
+
+/**
+ * The node a whole-cell press on the layer picks (the Desktop's pointer). As
+ * `nodeAtPoint` at the cell's centre, except that two dots centred in one cell
+ * cannot both win it: the one that loses takes the nearest free cell (one no
+ * node's centre lies in and no topic's box covers) within three cells, so
+ * every dot of a dense map is picked by some cell (review A5-2). A minor
+ * topic whose dot's cell a satellite wins moves out the same way: in a narrow
+ * pane's big cells, dots can hold every cell its label covers.
+ */
+export function pickAtCell(nodes, s, c) {
+  let moved = homes.get(nodes)
+  if (!moved || moved.s !== s) {
+    moved = { s, at: rehome(nodes, s) }
+    homes.set(nodes, moved)
+  }
+  return moved.at.get(`${c.x},${c.y}`) || nodeAtPoint(nodes, { x: s.fieldX(c), y: s.fieldY(c) }, s.cell)
+}
+
+function rehome(nodes, s) {
+  const at = new Map()
+  const key = (x, y) => `${x},${y}`
+  const centre = (x, y) => ({ x: s.fieldX({ x, y }), y: s.fieldY({ x, y }) })
+  const taken = new Set(nodes.map(n => key(s.col(n.x), s.row(n.y))))
+  for (const n of nodes) {
+    const isMinor = n.kind === 'topic' && !n.isMajor && !n.isAnchor
+    if (n.kind !== 'session' && n.kind !== 'step' && !isMinor) continue
+    const cx = s.col(n.x)
+    const cy = s.row(n.y)
+    if (nodeAtPoint(nodes, centre(cx, cy), s.cell) === n) continue
+    let best = null
+    let bestD = Number.POSITIVE_INFINITY
+    for (let dy = -3; dy <= 3; dy += 1) {
+      for (let dx = -3; dx <= 3; dx += 1) {
+        const x = cx + dx
+        const y = cy + dy
+        if (x < 0 || y < 0 || x >= s.columns || y >= s.rows || taken.has(key(x, y))) continue
+        const p = centre(x, y)
+        if (nodes.some(m => isInsideDrawn(m, p))) continue
+        const d = Math.hypot(p.x - n.x, p.y - n.y)
+        if (d < bestD) {
+          best = key(x, y)
+          bestD = d
+        }
+      }
+    }
+    if (best) {
+      at.set(best, n)
+      taken.add(best)
+    }
+  }
+  return at
+}
+
 /** Whether a point lies on a topic's or the back pill's box as the picture draws it. */
 function isInsideDrawn(n, p) {
   if (n.kind === 'back') {
@@ -320,7 +376,8 @@ export default function ConstellationMap(props, surface) {
   const current = () => latest.get(surface) || { nodes, s, props }
   const hitAt = e => {
     const c = current()
-    return c.props.hits === true ? nodeAtPoint(c.nodes, { x: c.s.fieldX(e), y: c.s.fieldY(e) }, e.fine ? undefined : c.s.cell) : nodeAtCell(c.nodes, c.s, e.x, e.y, c.props.mode)
+    if (c.props.hits !== true) return nodeAtCell(c.nodes, c.s, e.x, e.y, c.props.mode)
+    return e.fine ? nodeAtPoint(c.nodes, { x: c.s.fieldX(e), y: c.s.fieldY(e) }) : pickAtCell(c.nodes, c.s, e)
   }
 
   if (!surface.state) {
