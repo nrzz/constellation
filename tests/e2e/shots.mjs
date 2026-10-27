@@ -6,7 +6,7 @@
 //
 // Writes desktop-map.png (the whole folder), desktop-trace.png (a topic traced under the pointer),
 // desktop-focus.png (that topic focused: its sessions as a numbered chain) and desktop-narrow.png (the same
-// chain in a pane 44 cells wide, about 340 px, where the field narrows to stay legible).
+// chain in a pane 44 cells wide, its picture about 300 px, where the field narrows to stay legible).
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -74,7 +74,8 @@ try {
   desk.bodyColumns = 44
   const narrow = await desk.pane()
   if (clientOf(narrow.tree)?.props.props.fieldW !== 520) throw new Error('the narrow pane did not narrow the field')
-  shots['desktop-narrow'] = { svg: svgOfTree(narrow.tree).props.source, width: Math.round(44 * 7.7) }
+  // The picture's slot, not the pane: a body 44 cells wide leaves the picture `44 × 7.7 − 40` px (hooks/layout.ts).
+  shots['desktop-narrow'] = { svg: svgOfTree(narrow.tree).props.source, width: Math.round(44 * 7.7 - 40) }
 } finally {
   await engine.close()
 }
