@@ -380,8 +380,26 @@ export async function scanSlug(
     next[id] = parseTranscript(text, seed) ?? { id, size: entry.size, mtimeMs: entry.mtimeMs, isEmpty: true }
   }
   if (Object.keys(cache).some(id => !(id in next))) isChanged = true
-  const sessions = Object.values(next).filter(isSummary).sort((a, b) => b.lastAt - a.lastAt)
-  return { sessions, cache: next, isChanged, isPartial }
+  return { sessions: distinctSessions(next), cache: next, isChanged, isPartial }
+}
+
+/**
+ * A cache's summaries, newest first, one per session id. Claude Code names each file after its
+ * rows' id; a file whose rows carry an id another file has (a transcript copied without renaming)
+ * goes by its own file name, the file named after the id keeping it (else the newest). `taken`
+ * spans folders: a file name already drawn from another folder is not drawn again.
+ */
+export function distinctSessions(cache: ScanCache, taken = new Set<string>()): SessionSummary[] {
+  const entries = Object.entries(cache).filter((e): e is [string, SessionSummary] => isSummary(e[1]))
+  entries.sort(([fa, a], [fb, b]) => Number(fb === b.id) - Number(fa === a.id) || b.lastAt - a.lastAt)
+  const sessions: SessionSummary[] = []
+  for (const [file, s] of entries) {
+    const id = taken.has(s.id) ? file : s.id
+    if (taken.has(id)) continue
+    taken.add(id)
+    sessions.push(id === s.id ? s : { ...s, id })
+  }
+  return sessions.sort((a, b) => b.lastAt - a.lastAt)
 }
 
 export type ScanScope = 'folder' | 'all'
@@ -416,6 +434,7 @@ export async function scanProject(
   const root = await projectsRoot($)
   const slugs = await slugsInScope($, root, scope, cwd)
   const sessions: SessionSummary[] = []
+  const taken = new Set<string>()
   let isPartial = false
   for (const slug of slugs) {
     // `scan3`: summaries parsed since a pasted prompt counts as one (the older `cache:` and `scan2:` keys are cleared at start).
@@ -444,7 +463,7 @@ export async function scanProject(
         $.ui.log(`constellation: cache for ${slug} not saved: ${String(error)}`, { to: 'debug' })
       }
     }
-    sessions.push(...result.sessions)
+    sessions.push(...distinctSessions(result.cache, taken))
   }
   sessions.sort((a, b) => b.lastAt - a.lastAt)
   return { sessions, root, slugs, isPartial }

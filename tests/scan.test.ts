@@ -5,6 +5,7 @@ import {
   LARGE_BYTES,
   SLICE_BYTES,
   basenameOf,
+  distinctSessions,
   isNoiseFile,
   isTranscript,
   largeStub,
@@ -293,6 +294,14 @@ describe('scanSlug and its cache', () => {
     const r = await scanSlug($, '/nowhere', 'x', {})
     expect(r.sessions).toEqual([])
     expect(r.isChanged).toBe(false)
+  })
+
+  test('one summary per id: the file named after it keeps it though older, a copy goes by its file name, a name drawn from another folder is not drawn again', () => {
+    const at = (id: string, lastAt: number) => ({ ...largeStub(seed('s1')), id, lastAt })
+    const cache: ScanCache = { 'copy-1': at('s1', 3000), s1: at('s1', 1000), s2: at('s2', 2000) }
+    expect(distinctSessions(cache).map(s => s.id)).toEqual(['copy-1', 's2', 's1'])
+    const taken = new Set(['s2', 'copy-1'])
+    expect(distinctSessions(cache, taken).map(s => s.id)).toEqual(['s1'])
   })
 })
 

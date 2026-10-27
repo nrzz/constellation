@@ -73,6 +73,33 @@ test('a transcript over 4 MiB is never read: it shows as a large stub with a bad
   await ui.unmount()
 })
 
+test('two transcript files whose rows carry one session id draw it once: the copy goes by its file name', async ($, on) => {
+  const id = '88888888-aaaa-4bbb-8ccc-000000000008'
+  const copies = ['88888888-copy-0001', '88888888-copy-0002']
+  const files: Record<string, FakeFile> = {}
+  ;[id, ...copies].forEach((name, i) => {
+    const at = `2026-10-2${i}T10:00:00.000Z`
+    files[name] = { text: userRow(id, `u-${i}`, at, 'tune the invoice ledger export to the new tax columns'), mtime: at }
+  })
+  stubEngine(on, { files })
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount(paneOn('desktop'))
+  const keysOf = async (prefix: string) =>
+    (await ui.findAll({ type: prefix === 'ls:' ? 'Box' : 'Button' })).map(e => String(e.key)).filter(k => k.startsWith(prefix))
+  await ui.press({ key: `t:auto:${id}` })
+  const chain = await keysOf('s:')
+  expect(chain.filter(k => k === `s:${id}`).length).toBe(1)
+  expect(chain).toContain(`s:${copies[0]}`)
+  expect(chain).toContain(`s:${copies[1]}`)
+  // The List opens on the focused topic, its steps showing.
+  await ui.press({ key: 'view:list' })
+  const rows = await keysOf('ls:')
+  expect(rows.filter(k => k === `ls:${id}`).length).toBe(1)
+  expect(new Set(rows).size).toBe(rows.length)
+  expect(rows.length).toBe(3)
+  await ui.unmount()
+})
+
 test('a big folder is read in bounded passes: the first scan reads 40 files, the rest follow on the clock', async ($, on) => {
   const files: Record<string, FakeFile> = {}
   for (let i = 0; i < READS_PER_PASS + 15; i += 1) {
