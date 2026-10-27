@@ -23,16 +23,23 @@ check() { # <label> <ok:0|1> [detail]
   fi
 }
 
-# A stand-in claude at <path> that says <version> (empty: says no version) and logs its arguments to $LOG.
+# A stand-in claude at <path> that says <version> (empty: says no version; raw:<line> prints the line as it is) and
+# logs how it was run to $LOG (the whole line) and $LOG.args (each argument on its own line, in brackets).
 stub() { # <path> <version>
   mkdir -p "$(dirname "$1")"
+  case "$2" in
+    raw:*) line=${2#raw:} ;;
+    '') line='' ;;
+    *) line="$2 (Claude Code)" ;;
+  esac
   cat >"$1" <<EOF
 #!/bin/sh
 if [ "\$1" = "--version" ]; then
-  [ -n "$2" ] && echo "$2 (Claude Code)"
+  [ -n "$line" ] && echo "$line"
   exit 0
 fi
 echo "$1 \$*" >>"\$LOG"
+for a in "\$@"; do printf '[%s]\n' "\$a" >>"\$LOG.args"; done
 [ -n "\${STUB_FAIL:-}" ] && exit 3
 exit 0
 EOF
@@ -40,16 +47,25 @@ EOF
 }
 
 # Runs install.sh under <shell> in a fresh HOME with only <bin> (and the system's tools) on PATH; extra env as
-# NAME=value words after the shell. Sets OUT, CODE and RAN (the log of claude runs).
+# NAME=value words after the shell. Sets OUT, CODE, RAN (the log of claude runs) and ARGS (their arguments).
 run() { # <shell> [NAME=value…]
   local shell=$1
   shift
   OUT=$(env -i HOME="$HOME_DIR" PATH="$BIN:/usr/bin:/bin" LOG="$LOG" "$@" "$shell" "$REPO/install.sh" 2>&1)
   CODE=$?
   RAN=$(cat "$LOG" 2>/dev/null)
+  ARGS=$(cat "$LOG.args" 2>/dev/null)
+}
+# The same with no HOME at all, as a bare `env -i` or a service account runs it.
+run_without_home() { # <shell>
+  OUT=$(env -i PATH="$BIN:/usr/bin:/bin" LOG="$LOG" "$1" "$REPO/install.sh" 2>&1)
+  CODE=$?
+  RAN=$(cat "$LOG" 2>/dev/null)
 }
 
+CASE=""
 fresh() {
+  [ -n "$CASE" ] && rm -rf "$CASE"
   CASE=$(mktemp -d)
   HOME_DIR="$CASE/home"
   BIN="$CASE/bin"
@@ -66,7 +82,7 @@ for shell in sh dash bash; do
   stub "$BIN/claude" 2.1.310
   run "$shell"
   check "$shell: a new enough claude on PATH installs the plugin" "$([ $CODE = 0 ] && [ "$RAN" = "$BIN/claude plugin install constellation --marketplace nrzz/constellation" ] && echo 0 || echo 1)" "$CODE: $RAN"
-  check "$shell: …and says which version" "$(echo "$OUT" | grep -q 'with Claude Code 2.1.310' && echo 0 || echo 1)" "$OUT"
+  check "$shell: …and says which version, then Done" "$(echo "$OUT" | grep -q 'with Claude Code 2.1.310' && echo "$OUT" | grep -q '^Done\.' && echo 0 || echo 1)" "$OUT"
 
   fresh
   stub "$BIN/claude" 2.1.283
@@ -136,7 +152,41 @@ for shell in sh dash bash; do
   stub "$BIN/claude" 2.1.310
   run "$shell" CONSTELLATION_MARKETPLACE=/path/to/checkout
   check "$shell: CONSTELLATION_MARKETPLACE installs from another marketplace" "$([ $CODE = 0 ] && [ "$RAN" = "$BIN/claude plugin install constellation --marketplace /path/to/checkout" ] && echo 0 || echo 1)" "$CODE: $RAN"
+
+  # Each argument reaches claude whole.
+  fresh
+  stub "$BIN/claude" 2.1.310
+  run "$shell" "CONSTELLATION_MARKETPLACE=/path with space/checkout"
+  check "$shell: a marketplace path with spaces is one argument" "$([ "$ARGS" = "$(printf '[plugin]\n[install]\n[constellation]\n[--marketplace]\n[/path with space/checkout]')" ] && echo 0 || echo 1)" "$ARGS"
+
+  # Versions compare as numbers, never as text: 2.1.1000 is newer than 2.1.299, 2.10.0 than 2.9.5.
+  fresh
+  stub "$BIN/claude" 2.1.1000
+  run "$shell"
+  check "$shell: a claude 2.1.1000 on PATH is new enough" "$([ $CODE = 0 ] && [ "$RAN" = "$BIN/claude plugin install constellation --marketplace nrzz/constellation" ] && echo 0 || echo 1)" "$CODE: $RAN"
+  fresh
+  stub "$HOME_DIR/.config/Claude/claude-code/2.1.299/aaaa/claude" 2.1.299
+  stub "$HOME_DIR/.config/Claude/claude-code/2.1.1000/bbbb/claude" 2.1.1000
+  run "$shell"
+  check "$shell: Desktop 2.1.1000 wins over 2.1.299" "$([ $CODE = 0 ] && echo "$RAN" | grep -q '/2.1.1000/bbbb/claude plugin install' && echo 0 || echo 1)" "$CODE: $RAN"
+  fresh
+  stub "$HOME_DIR/.config/Claude/claude-code/2.10.0/aaaa/claude" 2.10.0
+  stub "$HOME_DIR/.config/Claude/claude-code/2.9.5/bbbb/claude" 2.9.5
+  run "$shell"
+  check "$shell: Desktop 2.10.0 wins over 2.9.5" "$([ $CODE = 0 ] && echo "$RAN" | grep -q '/2.10.0/aaaa/claude plugin install' && echo 0 || echo 1)" "$CODE: $RAN"
+
+  # A version line of another shape is still read, as install.ps1 reads it.
+  fresh
+  stub "$BIN/claude" "raw:Claude Code 2.1.283"
+  run "$shell"
+  check "$shell: a version line of another shape is still read: 2.1.283 is refused" "$([ $CODE = 1 ] && [ -z "$RAN" ] && echo "$OUT" | grep -q 'Claude Code 2.1.283 is on PATH; mods need' && echo 0 || echo 1)" "$CODE: $RAN $OUT"
+
+  # No HOME at all: the plain message, not the shell's complaint about an unset variable.
+  fresh
+  run_without_home "$shell"
+  check "$shell: no HOME and no claude: exit 1 with the plain message" "$([ $CODE = 1 ] && echo "$OUT" | grep -q "is not on PATH" && ! echo "$OUT" | grep -qi 'not set\|unbound' && echo 0 || echo 1)" "$CODE: $OUT"
 done
+[ -n "$CASE" ] && rm -rf "$CASE"
 
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

@@ -16,6 +16,8 @@
 & {
   function Install-Constellation {
     $marketplace = if ($env:CONSTELLATION_MARKETPLACE) { $env:CONSTELLATION_MARKETPLACE } else { 'nrzz/constellation' }
+    # A trailing backslash would reach claude as an escaped quote under Windows PowerShell 5.1.
+    if ($marketplace.Length -gt 3) { $marketplace = $marketplace.TrimEnd('\') }
     $need = [version]'2.1.287'
 
     # The version a claude prints ("2.1.308 (Claude Code)" -> 2.1.308), or $null.
@@ -27,18 +29,28 @@
 
     # Every Claude Code the Claude Desktop app keeps for its Code tab, newest first:
     # <its data>\claude-code\<version>\<build>\claude.exe, in the Store app's and the installer app's folders.
+    # Listed folder by folder with -LiteralPath, so brackets in a profile path are no wildcard.
     function Get-BundledClaude {
-      $patterns = @()
+      $roots = @()
       if ($env:LOCALAPPDATA) {
-        $patterns += Join-Path $env:LOCALAPPDATA 'Claude-Data\*\claude-code\*\*\claude.exe'
-        $patterns += Join-Path $env:LOCALAPPDATA 'Packages\Claude_*\LocalCache\Roaming\Claude\claude-code\*\*\claude.exe'
+        foreach ($d in @(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Claude-Data') -Directory -ErrorAction SilentlyContinue)) {
+          $roots += Join-Path $d.FullName 'claude-code'
+        }
+        foreach ($d in @(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Packages') -Directory -Filter 'Claude_*' -ErrorAction SilentlyContinue)) {
+          $roots += Join-Path $d.FullName 'LocalCache\Roaming\Claude\claude-code'
+        }
       }
-      if ($env:APPDATA) { $patterns += Join-Path $env:APPDATA 'Claude\claude-code\*\*\claude.exe' }
-      $found = foreach ($p in $patterns) { Get-Item -Path $p -ErrorAction SilentlyContinue }
-      $found |
-        Where-Object { $_ -and $_.Directory.Parent.Name -match '^\d+\.\d+\.\d+$' } |
-        Sort-Object -Property @{ Expression = { [version]$_.Directory.Parent.Name } } -Descending |
-        ForEach-Object { $_.FullName }
+      if ($env:APPDATA) { $roots += Join-Path $env:APPDATA 'Claude\claude-code' }
+      $found = foreach ($root in $roots) {
+        foreach ($v in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
+          if ($v.Name -notmatch '^\d+\.\d+\.\d+$') { continue }
+          foreach ($b in @(Get-ChildItem -LiteralPath $v.FullName -Directory -ErrorAction SilentlyContinue)) {
+            $exe = Join-Path $b.FullName 'claude.exe'
+            if (Test-Path -LiteralPath $exe -PathType Leaf) { [pscustomobject]@{ Path = $exe; Version = [version]$v.Name } }
+          }
+        }
+      }
+      $found | Sort-Object -Property Version -Descending | ForEach-Object { $_.Path }
     }
 
     $claude = $null
@@ -47,7 +59,9 @@
       $claude = $env:CLAUDE_BIN
       $version = Get-ClaudeVersion $claude
     } else {
-      $onPath = Get-Command claude -ErrorAction SilentlyContinue | Select-Object -First 1
+      # Only a program: npm's claude.ps1 (which the default policy refuses to run) and a function or alias of
+      # that name in this session are passed over for the claude.cmd or claude.exe beside them.
+      $onPath = Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
       $pathVersion = if ($onPath) { Get-ClaudeVersion $onPath.Source } else { $null }
       # The one on PATH when it is new enough (or says no version, as before); else the newest the Desktop app keeps.
       if ($onPath -and (-not $pathVersion -or $pathVersion -ge $need)) {
@@ -92,8 +106,21 @@
     }
 
     Write-Host "Installing Constellation from $marketplace with Claude Code $(if ($version) { $version } else { '?' })..."
-    & $claude plugin install constellation --marketplace $marketplace | Out-Host
-    if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+    # Claude Code writes UTF-8 into the pipe: read it as UTF-8 whatever the console's code page, then put that back.
+    # (Without a console the encoding cannot be set, and nothing needs it.)
+    $encoding = $null
+    try { $encoding = [Console]::OutputEncoding; [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { $encoding = $null }
+    try {
+      & $claude plugin install constellation --marketplace $marketplace | Out-Host
+      $exit = $LASTEXITCODE
+    } catch {
+      # No claude ran (a CLAUDE_BIN that is gone, say): $LASTEXITCODE is whatever ran before, so say so and fail.
+      Write-Host "Could not run ${claude}: $($_.Exception.Message)"
+      return 1
+    } finally {
+      if ($encoding) { try { [Console]::OutputEncoding = $encoding } catch { } }
+    }
+    if ($exit -ne 0) { return $exit }
     Write-Host ""
     Write-Host "Done. Open Claude Code in any project folder: the band above the prompt offers the folder's topics,"
     Write-Host "/map opens the map, /map help lists every command and key. To remove it: claude plugin uninstall constellation"
@@ -101,6 +128,7 @@
   }
 
   $code = Install-Constellation
+  if ($null -eq $code) { $code = 1 }
   # Run as a file (powershell -File install.ps1), the exit code is the result; piped into iex, the window stays open.
   if ($PSCommandPath) { exit $code } elseif ($code -ne 0) { $global:LASTEXITCODE = $code }
 }

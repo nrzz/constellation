@@ -15,9 +15,10 @@ set -eu
 MARKETPLACE=${CONSTELLATION_MARKETPLACE:-nrzz/constellation}
 NEED="2.1.287"
 
-# The version a claude prints ("2.1.308 (Claude Code)" → 2.1.308), or nothing.
+# The version a claude prints ("2.1.308 (Claude Code)" → 2.1.308; the first x.y.z on its line, as install.ps1
+# reads it), or nothing.
 version_of() {
-  "$1" --version 2>/dev/null | sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1 || true
+  "$1" --version 2>/dev/null | sed -n 's/^[^0-9]*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1 || true
 }
 # Whether version $1 is $2 or later.
 at_least() {
@@ -31,7 +32,11 @@ unix_path() {
 bundled() {
   app_data=""
   [ -n "${APPDATA:-}" ] && app_data="$(unix_path "$APPDATA")/Claude/claude-code"
-  for root in "$HOME/Library/Application Support/Claude/claude-code" "${XDG_CONFIG_HOME:-$HOME/.config}/Claude/claude-code" ${app_data:+"$app_data"}; do
+  # No HOME (a bare `env -i`, a service account): only the folders that need none.
+  home=${HOME:-}
+  config=${XDG_CONFIG_HOME:-}
+  if [ -z "$config" ] && [ -n "$home" ]; then config="$home/.config"; fi
+  for root in ${home:+"$home/Library/Application Support/Claude/claude-code"} ${config:+"$config/Claude/claude-code"} ${app_data:+"$app_data"}; do
     for c in "$root"/*/*/claude "$root"/*/*/claude.exe; do
       if [ -f "$c" ]; then printf '%s\n' "$c"; fi
     done
