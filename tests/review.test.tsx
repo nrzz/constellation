@@ -2,7 +2,10 @@
 // one numbering for the chain, Undo per entry, the old caches, placed panes, the start-time pane
 // across a resume, anchors under the pointer, a focus ring on a chip, and the chat row's hotkeys.
 import { expect, test } from 'claude-code/testing'
+import type { Timer } from 'claude-code'
 
+import { cancelReclaim, notePaneFocus, scheduleReclaim } from '../hooks/actions'
+import type { ReclaimIo } from '../hooks/actions'
 import { READS_PER_PASS } from '../hooks/scan'
 import { CHECKOUT, CWD, IDS, ME, NOW, bandOn, paneOn, run, stubEngine, submit, turn, userRow, assistantRow } from './helpers'
 import type { FakeFile } from './helpers'
@@ -193,4 +196,69 @@ test('the chat row offers no hotkeys, since no site holds the focus there; the p
   expect((await pane.find({ type: 'Button', key: 'tc:focus' }))?.props.hotkey).toBe('f')
   expect((await pane.find({ type: 'Button', key: `s:${IDS.tests}` }))?.props.hotkey).toBe('2')
   await pane.unmount()
+})
+
+test('a keyboard reclaim never reopens a closed pane: with the pane gone it asks nothing, a close cancels it, and a pane still placed takes the keyboard back', async () => {
+  // A clock the test turns by hand, and the panes the engine would list.
+  let now = 0
+  let timers: { at: number; fn: () => void; isCancelled: boolean }[] = []
+  const advance = async (ms: number) => {
+    const end = now + ms
+    for (;;) {
+      const due = timers.filter(t => !t.isCancelled && t.at <= end).sort((a, b) => a.at - b.at)[0]
+      if (!due) break
+      now = due.at
+      due.isCancelled = true
+      due.fn()
+      // Let the ask's awaits (the pane list, the open) settle.
+      for (let i = 0; i < 8; i += 1) await Promise.resolve()
+    }
+    now = end
+  }
+  let panes: { id: string; isPlaced: boolean }[] = []
+  let shown = 0
+  const io: ReclaimIo = {
+    after: (ms, fn) => {
+      const t = { at: now + ms, fn, isCancelled: false }
+      timers.push(t)
+      return { cancel: () => void (t.isCancelled = true) } as unknown as Timer
+    },
+    panes: async () => panes,
+    show: async () => void (shown += 1),
+    log: () => undefined,
+  }
+  // The pane redrew without the keyboard (Escape gave it to the prompt).
+  notePaneFocus('terminal', false)
+  // Closed by a second Escape before the reclaim fires: nothing asks for it, nothing reopens.
+  scheduleReclaim(io)
+  await advance(400)
+  expect(shown).toBe(0)
+  // Still open: it asks at 60 ms and, the pane still without the keyboard, again at 360 ms.
+  panes = [{ id: 'constellation', isPlaced: true }]
+  scheduleReclaim(io)
+  await advance(100)
+  expect(shown).toBe(1)
+  await advance(300)
+  expect(shown).toBe(2)
+  // The close hook cancels a pending reclaim: no ask at all.
+  shown = 0
+  timers = []
+  scheduleReclaim(io)
+  cancelReclaim()
+  await advance(400)
+  expect(shown).toBe(0)
+  // A pane placed under another id is not this one.
+  panes = [{ id: 'other', isPlaced: true }]
+  scheduleReclaim(io)
+  await advance(400)
+  expect(shown).toBe(0)
+  // Once the pane has the keyboard again, no further ask.
+  panes = [{ id: 'constellation', isPlaced: true }]
+  scheduleReclaim(io)
+  await advance(100)
+  expect(shown).toBe(1)
+  notePaneFocus('terminal', true)
+  await advance(300)
+  expect(shown).toBe(1)
+  notePaneFocus('terminal', false)
 })

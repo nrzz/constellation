@@ -11,7 +11,7 @@ the band, the commands, handoff injection, auto notes, the terminal's
 text-mode map Client, and the features added beyond the brief (topic goals,
 rename, recolour, merge, a "since your last look" digest, a status line,
 Draft next prompt, `/map export`, a model-spend counter, letter hotkeys).
-`claude plugin validate --strict`, `claude plugin test` (@@UNIT@@ tests) and `tsc`
+`claude plugin validate --strict`, `claude plugin test` (146 tests) and `tsc`
 pass, and so do the end-to-end suites against the real engine:
 `tests/e2e/tui.sh` (the terminal, with real mouse events),
 `tests/e2e/desktop.mjs` (the Desktop's own wire, its map Client sized as the
@@ -23,6 +23,11 @@ page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
 What is left is the release checklist at the end: a second look at a real
 Desktop window on Windows (the first, on 8a99ba1, found what the Windows pass
 below fixes), then the release.
+
+**Work continues on Windows only, from 2026-10-27: start with
+`docs/HANDOVER.md`** (state, how to run everything there, the re-test
+checklist, open items, a prompt to continue). The cloud notes below stay for
+reference.
 
 ## Design reference (the visual and interaction spec)
 
@@ -709,7 +714,8 @@ environment limits, a narrow pane's small text). Fixed, each with a test:
   share `anchorsOf`, rounded once.
 - F4, the hint wrapped into the map: fitted to the width, `wrap: 'truncate'`.
 - F5, a pending keyboard reclaim reopened a closed pane: the reclaim checks
-  `$.ui.panes()` first, and a close cancels it.
+  `$.ui.panes()` first, and a close cancels it (`scheduleReclaim`, tested
+  with a hand-turned clock, since the test kit cannot raise `ui.close`).
 - F6, the focused pill's hit width left out "· you": `focusPillOf` is shared.
 - F7, satellites took presses on a pill's edges: a point inside a drawn box
   belongs to the box, unless it is within 8 units of a dot, or (a whole-cell
@@ -730,8 +736,8 @@ environment limits, a narrow pane's small text). Fixed, each with a test:
   node at five widths, in a 44-column pane, and with a wider font before and
   after Layer height +2.
 
-Results: @@UNIT@@ unit tests; `tests/e2e/tui.sh` @@TUI@@ checks;
-`tests/e2e/desktop.mjs` @@DESK@@ checks; `tests/e2e/installers.sh` 54 checks
+Results: 146 unit tests; `tests/e2e/tui.sh` 67 checks;
+`tests/e2e/desktop.mjs` 105 checks; `tests/e2e/installers.sh` 54 checks
 (`installers.ps1` waits on a Windows run: PowerShell could not be fetched
 into the cloud container).
 

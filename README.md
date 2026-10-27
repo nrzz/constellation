@@ -22,14 +22,14 @@ Desktop sidebar and nothing is lost between them.
 
 Status: built against Claude Code 2.1.310 and run end to end on 2.1.311, every
 picture on this page drawn by the real engine. `claude plugin validate
---strict`, `claude plugin test` (@@UNIT@@ tests, including an edge-case suite),
+--strict`, `claude plugin test` (146 tests, including an edge-case suite),
 `tsc` and three end-to-end suites pass:
 
 - `tests/e2e/tui.sh` drives the real Claude Code TUI in tmux with real mouse
   events: hover, clicks on topics, steps, dots and buttons, a drag, the
   keyboard after a click and after Escape, the band, every command, a real
   model turn that quotes the injected handoff note, `/clear`, and the classic
-  renderer that has no mouse (@@TUI@@ checks, run as installed through the
+  renderer that has no mouse (67 checks, run as installed through the
   one-line installer by `E2E_INSTALL=1`).
 - `tests/e2e/desktop.mjs` runs the engine the way Claude Desktop does, over
   its stdio wire, and acts as the Desktop's frame: it loads the map's Client
@@ -39,7 +39,7 @@ picture on this page drawn by the real engine. `claude plugin validate
   44-column pane, with a wider font before and after Layer height +2, over
   the fixture folder, a 140-session folder with a transcript over 4 MiB, an
   empty folder, and new sessions opening the map on Desktop, VS Code and
-  mobile (@@DESK@@ checks).
+  mobile (105 checks).
 - `tests/e2e/installers.sh` runs `install.sh` under sh, dash and bash against
   stand-in `claude` commands laid out as on macOS, Linux and Windows (54
   checks); `tests/e2e/installers.ps1` runs the same cases against

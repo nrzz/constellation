@@ -1259,21 +1259,39 @@ let reclaimTimer: Timer | undefined
  * slower machine); the engine grants it only over an empty composer.
  */
 function reclaimKeys($: EngineInterface): void {
+  scheduleReclaim({
+    after: (ms, fn) => $.clock.after(ms, fn),
+    panes: () => $.ui.panes(),
+    show: () => showPane($),
+    log: text => $.ui.log(text, { to: 'debug' }),
+  })
+}
+
+/** What a reclaim needs from the engine; a test hands in its own clock and panes. */
+export type ReclaimIo = {
+  after: (ms: number, fn: () => void) => Timer
+  panes: () => Promise<readonly { id: string; isPlaced: boolean }[]>
+  show: () => Promise<unknown>
+  log: (text: string) => void
+}
+
+/** Asks for the keyboard 60 ms and again 360 ms on, each time only while the pane is still placed and still without it. */
+export function scheduleReclaim(io: ReclaimIo): void {
   reclaimTimer?.cancel()
   const ask = async (): Promise<void> => {
     if (paneHadKeys()) return
     try {
       // Only a pane still open takes the keyboard back: asking would reopen one a second Escape just closed.
-      const panes = await $.ui.panes()
+      const panes = await io.panes()
       if (!panes.some(p => p.id === PANE && p.isPlaced)) return
-      await showPane($)
+      await io.show()
     } catch (error) {
-      $.ui.log(`constellation: keys not taken back: ${String(error)}`, { to: 'debug' })
+      io.log(`constellation: keys not taken back: ${String(error)}`)
     }
   }
-  reclaimTimer = $.clock.after(60, () => {
+  reclaimTimer = io.after(60, () => {
     void ask()
-    reclaimTimer = $.clock.after(300, () => {
+    reclaimTimer = io.after(300, () => {
       reclaimTimer = undefined
       void ask()
     })
