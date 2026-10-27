@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { EMPTY_STORE, buildModel } from '../hooks/cluster'
-import { fieldOf, sizeOf, svgOf } from '../hooks/draw'
+import { clipName, fieldOf, sizeOf, svgOf } from '../hooks/draw'
 import { placementOf } from '../hooks/actions'
 import { DESKTOP_CELL, chainPositions, fieldWidthFor, pillWidth } from '../hooks/layout'
 import { READS_PER_PASS } from '../hooks/scan'
@@ -859,4 +859,94 @@ test('your own focused topic: the pointer layer’s pill is as wide as the drawn
   expect(pill?.label).toContain('· you')
   expect(pill?.w).toBe(Math.round(pillWidth('Hub topic', '2 of 2 · you')))
   expect(svgOf(view)).toContain(`width="${pillWidth('Hub topic', '2 of 2 · you').toFixed(1)}"`)
+})
+
+/** A folder of named topics, each with `sessions` sessions last active `hours` ago, the first one focusable with a goal. */
+function namedFolder(topics: { name: string; sessions: number; hours: number; files?: string[] }[], goal?: string) {
+  const sessions: SessionSummary[] = []
+  const store = { ...EMPTY_STORE, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string>, goals: (goal ? { 'topic:n0': goal } : {}) as Record<string, string> }
+  topics.forEach((t, i) => {
+    store.topics[`topic:n${i}`] = { name: t.name, createdAt: i }
+    for (let k = 0; k < t.sessions; k += 1) {
+      const id = `n${i}-${k}`
+      const lastAt = NOW - t.hours * 3600_000 - k * 60_000
+      sessions.push({ id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: `Session ${id}`, startedAt: lastAt - 3600_000, lastAt, turns: 3, filesTouched: t.files ?? [], lastAssistantText: '', size: 1, mtimeMs: lastAt })
+      store.assign[id] = `topic:n${i}`
+    }
+  })
+  return buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
+}
+
+function namedView(model: ReturnType<typeof namedFolder>, columns: number | undefined, focusTopic?: string) {
+  const placement = placementOf(model, null, fieldWidthFor(columns))
+  return { model, placed: placement.placed, field: placement.size, ui: { ...INITIAL_UI, ...(focusTopic ? { focusTopic } : {}) }, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' as const }
+}
+
+test('two minor topics told apart by their last word keep it on the map and on the layer', async () => {
+  const model = namedFolder([
+    { name: 'Hub topic', sessions: 4, hours: 1 },
+    { name: 'Authentication Middleware', sessions: 2, hours: 24 * 10 },
+    { name: 'Authentication Middleware Rate', sessions: 2, hours: 24 * 11 },
+  ])
+  const minors = model.topics.filter(t => t.name.startsWith('Authentication'))
+  expect(minors.map(t => t.isMajor)).toEqual([false, false])
+  for (const columns of [44, 120]) {
+    const view = namedView(model, columns)
+    const labels = [...svgOf(view).matchAll(/class="mono lbl"[^>]*>([^<]*)</g)].map(m => (m[1] ?? '').trim()).filter(l => l.startsWith('Authenti'))
+    expect(labels.length).toBe(2)
+    expect(new Set(labels).size).toBe(2)
+    expect(labels.some(l => l.endsWith(' Rate'))).toBe(true)
+    const layer = fieldOf(view).nodes.filter(n => n.kind === 'topic' && n.title?.startsWith('Authentication')).map(n => n.label)
+    expect(layer.length).toBe(2)
+    expect(new Set(layer).size).toBe(2)
+  }
+})
+
+test('two anchors told apart by their last word read differently, however many share the row', async () => {
+  for (const [columns, others] of [[undefined, 3], [44, 1]] as const) {
+    const model = namedFolder([
+      { name: 'Checkout', sessions: 2, hours: 1, files: ['src/pay-0.ts', 'src/pay-1.ts', 'src/pay-2.ts', 'src/pay-3.ts', 'src/pay-4.ts'] },
+      { name: 'Cashfree Handover', sessions: 1, hours: 2, files: ['src/pay-0.ts'] },
+      { name: 'Cashfree Handover Refund', sessions: 1, hours: 3, files: ['src/pay-1.ts'] },
+      ...Array.from({ length: others }, (_, i) => ({ name: `Other linked topic ${i}`, sessions: 1, hours: 4 + i, files: [`src/pay-${2 + i}.ts`] })),
+    ])
+    const view = namedView(model, columns, 'topic:n0')
+    const shown = (columns === undefined ? 5 : 3)
+    const anchors = fieldOf(view).nodes.filter(n => n.isAnchor)
+    expect(anchors.length).toBe(shown)
+    const cash = anchors.filter(a => a.title?.startsWith('Cashfree'))
+    expect(cash.length).toBe(2)
+    // The layer's names (the terminal prints them), the text before the file.
+    expect(new Set(cash.map(a => /^(.*?)(?: · |$)/.exec(a.label ?? '')?.[1])).size).toBe(2)
+    // The picture's names, the text before the file's tspan, in the two most recent anchors.
+    const names = [...svgOf(view).matchAll(/<g class="hit an an-[01]"[^>]*>.*?<text [^>]*>([^<]*)</g)].map(m => (m[1] ?? '').trim())
+    expect(names.length).toBe(2)
+    expect(new Set(names).size).toBe(2)
+    expect(names.some(n => n.endsWith('Refund') || n.endsWith('fund'))).toBe(true)
+    // The file a name no longer leaves room for is in the anchor's hover caption.
+    if (columns === undefined) expect(svgOf(view)).toContain('Cashfree Handover Refund · via pay-1.ts · ')
+  }
+})
+
+test('a 300-character goal is cut to the narrow field', async () => {
+  const goal = 'Make the checkout suite deterministic on CI and keep the whole thing green while we move the payment code. '.repeat(3).slice(0, 300)
+  for (const columns of [44, 120]) {
+    const view = namedView(namedFolder([{ name: 'Checkout', sessions: 5, hours: 1 }], goal), columns, 'topic:n0')
+    const text = /<tspan class="mono" style="fill:var\(--mu\)">GOAL<\/tspan>  ([^<]*)<\/text>/.exec(svgOf(view))?.[1] ?? ''
+    expect(text.endsWith('…')).toBe(true)
+    expect(text.length * 6.2).toBeLessThanOrEqual(view.field.w - 40)
+  }
+})
+
+test('a clipped name keeps its last word, or its last characters when the word has no room, never past its room', async () => {
+  expect(clipName('Authentication Middleware Rate', 24)).toBe('Authentication Mid… Rate')
+  expect(clipName('Authentication Middleware', 24)).toBe('Authenticati… Middleware')
+  expect(clipName('Cashfree Handover Refund', 14)).toBe('Cashfr… Refund')
+  expect(clipName('Cashfree Handover Refund', 9)).toBe('Cash…fund')
+  expect(clipName('Cashfree Handover', 9)).toBe('Cash…over')
+  expect(clipName('Supercalifragilistic', 9)).toBe('Supercal…')
+  expect(clipName('Cart Total', 24)).toBe('Cart Total')
+  for (const name of ['Authentication Middleware Rate', 'Cashfree Handover Refund', 'a b', 'Word', 'x y z w v u']) {
+    for (let max = 4; max <= 30; max += 1) expect(clipName(name, max).length).toBeLessThanOrEqual(max)
+  }
 })
