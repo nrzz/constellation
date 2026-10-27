@@ -1250,7 +1250,10 @@ export async function escape($: EngineInterface, hadKeys: boolean): Promise<bool
 
 /** Per surface: did the pane hold the keyboard at its last drawing? The engine raises Escape's close before it redraws the pane without the keyboard, so this says who had it. */
 const keysHeld = new Map<string, boolean>()
+/** Counts the drawings with the keyboard, so a reclaim can tell the pane had it again since its first ask. */
+let focusedDraws = 0
 export function notePaneFocus(surface: string, isFocused: boolean): void {
+  if (isFocused) focusedDraws += 1
   keysHeld.set(surface, isFocused)
 }
 export function paneHadKeys(): boolean {
@@ -1258,6 +1261,8 @@ export function paneHadKeys(): boolean {
 }
 
 let reclaimTimer: Timer | undefined
+/** Bumped by each schedule and cancel: an ask already waiting on the engine when the pane closes sees it changed and stops. */
+let reclaimRun = 0
 /**
  * The engine hands the keyboard to the prompt once Escape's close hook has
  * returned, so a request made inside the hook is lost to that handoff. Ask a
@@ -1281,14 +1286,21 @@ export type ReclaimIo = {
   log: (text: string) => void
 }
 
-/** Asks for the keyboard 60 ms and again 360 ms on, each time only while the pane is still placed and still without it. */
+/**
+ * Asks for the keyboard 60 ms and again 360 ms on, each time only while the
+ * pane is still placed and still without it. The second ask is the backup for
+ * a slower machine: once the pane was drawn with the keyboard after the first,
+ * it stays quiet, so a move to the prompt the person made since is kept.
+ */
 export function scheduleReclaim(io: ReclaimIo): void {
   reclaimTimer?.cancel()
+  const run = (reclaimRun += 1)
   const ask = async (): Promise<void> => {
     if (paneHadKeys()) return
     try {
       // Only a pane still open takes the keyboard back: asking would reopen one a second Escape just closed.
       const panes = await io.panes()
+      if (run !== reclaimRun) return
       if (!panes.some(p => p.id === PANE && p.isPlaced)) return
       await io.show()
     } catch (error) {
@@ -1296,16 +1308,19 @@ export function scheduleReclaim(io: ReclaimIo): void {
     }
   }
   reclaimTimer = io.after(60, () => {
+    const seen = focusedDraws
     void ask()
     reclaimTimer = io.after(300, () => {
       reclaimTimer = undefined
+      if (focusedDraws !== seen) return
       void ask()
     })
   })
 }
 
-/** The pane is closing: a pending reclaim must not reopen it. */
+/** The pane is closing: a pending reclaim, or an ask already waiting on the engine, must not reopen it. */
 export function cancelReclaim(): void {
+  reclaimRun += 1
   reclaimTimer?.cancel()
   reclaimTimer = undefined
 }

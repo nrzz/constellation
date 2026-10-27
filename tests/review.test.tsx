@@ -275,3 +275,69 @@ test('a keyboard reclaim never reopens a closed pane: with the pane gone it asks
   expect(shown).toBe(1)
   notePaneFocus('terminal', false)
 })
+
+/** A hand-turned clock for the reclaim, whose pane list the test can hold on a promise; `shownAt` is when each ask opened the pane. */
+function reclaimRig() {
+  let now = 0
+  const timers: { at: number; fn: () => void; isCancelled: boolean }[] = []
+  const settle = async () => {
+    for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  }
+  const rig = {
+    shownAt: [] as number[],
+    panes: (): Promise<{ id: string; isPlaced: boolean }[]> => Promise.resolve([{ id: 'constellation', isPlaced: true }]),
+    advance: async (ms: number) => {
+      const end = now + ms
+      for (;;) {
+        const due = timers.filter(t => !t.isCancelled && t.at <= end).sort((a, b) => a.at - b.at)[0]
+        if (!due) break
+        now = due.at
+        due.isCancelled = true
+        due.fn()
+        await settle()
+      }
+      now = end
+    },
+    settle,
+    io: {
+      after: (ms, fn) => {
+        const t = { at: now + ms, fn, isCancelled: false }
+        timers.push(t)
+        return { cancel: () => void (t.isCancelled = true) } as unknown as Timer
+      },
+      panes: () => rig.panes(),
+      show: async () => void rig.shownAt.push(now),
+      log: () => undefined,
+    } as ReclaimIo,
+  }
+  return rig
+}
+
+test('a close that lands while an ask waits on the pane list stops that ask: the pane is not reopened', async () => {
+  const rig = reclaimRig()
+  let release = (_: { id: string; isPlaced: boolean }[]) => undefined as void
+  rig.panes = () => new Promise(resolve => void (release = resolve))
+  notePaneFocus('terminal', false)
+  scheduleReclaim(rig.io)
+  // The 60 ms ask has passed the keyboard check and waits on the engine's pane list.
+  await rig.advance(60)
+  // A second Escape closes the pane meanwhile; the engine still lists it when the answer comes.
+  cancelReclaim()
+  release([{ id: 'constellation', isPlaced: true }])
+  await rig.settle()
+  await rig.advance(400)
+  expect(rig.shownAt).toEqual([])
+})
+
+test('the 360 ms ask stays quiet once the pane had the keyboard again: a move to the prompt after that is kept', async () => {
+  const rig = reclaimRig()
+  notePaneFocus('terminal', false)
+  scheduleReclaim(rig.io)
+  await rig.advance(60)
+  // The first ask gave the pane the keyboard; at 200 ms the person hands it to the prompt.
+  notePaneFocus('terminal', true)
+  await rig.advance(140)
+  notePaneFocus('terminal', false)
+  await rig.advance(300)
+  expect(rig.shownAt).toEqual([60])
+})
