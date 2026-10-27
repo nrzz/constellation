@@ -234,6 +234,35 @@ test('in a chain a click on a step’s label, past its number, opens that sessio
   await ui.unmount()
 })
 
+test('only the left button picks: a right or a middle press on a topic opens nothing', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(PANE)
+  await ui.resize({ columns: COLUMNS, rows: ROWS, in: 'map' })
+  const topic = (await nodesOf(ui)).find(n => n.id === CHECKOUT)
+  expect(topic).toBeDefined()
+  if (!topic) return
+  for (const button of ['right', 'middle'] as const) {
+    await ui.pointer({ type: 'down', ...(await at(ui, topic, 2)), button, in: 'map' })
+    await ui.pointer({ type: 'up', ...(await at(ui, topic, 2)), button, in: 'map' })
+    expect(await ui.find({ type: 'Button', key: 'back' })).toBeUndefined()
+  }
+  // A press that names no button is a left press: a host may leave it out.
+  await ui.pointer({ type: 'down', ...(await at(ui, topic, 2)), in: 'map' })
+  await ui.pointer({ type: 'up', ...(await at(ui, topic, 2)), in: 'map' })
+  expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a satellite takes the cell its centre lies in, even beside its pill (39 columns)', () => {
+  const s = layerFor(39, 32, { fieldW: 520, fieldH: 1100, hits: true })
+  const pill = { id: 't6', kind: 'topic', x: 246, y: 795, w: 215, isMajor: true, label: '' }
+  const dot = { id: 's', kind: 'session', x: 202, y: 755, label: '', topicId: 't6' }
+  const at = (c: { x: number; y: number }) => nodeAtPoint([pill, dot], { x: s.fieldX(c), y: s.fieldY(c) }, s.cell)?.id
+  expect(at({ x: 15, y: 22 })).toBe('s') // the cell that holds the dot's centre
+  expect(at({ x: 15, y: 23 })).toBe('t6') // the cell below: centre on the pill, no dot centre in it
+})
+
 test('the text map’s text, where it sits, and what a cell hits', async () => {
   const s = { columns: 40, rows: 12, col: (x: number) => Math.round((x / 860) * 39), row: (y: number) => Math.round((y / 520) * 9) + 1 }
   const back = { id: 'back', kind: 'back', x: 62, y: 27, label: '‹ All topics' }

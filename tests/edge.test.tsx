@@ -517,6 +517,44 @@ test('four hundred sessions in forty topics stay under the Svg cap and the Clien
   expect(focused).toContain('>10</text>')
 })
 
+/** A desktop view of `topics` topics with `each` recent sessions apiece. */
+function crowdedView(topics: number, each: number) {
+  const sessions: SessionSummary[] = []
+  const store = { ...EMPTY_STORE, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string> }
+  for (let t = 0; t < topics; t += 1) {
+    const topicId = `topic:c${t}`
+    store.topics[topicId] = { name: `Crowded topic ${t} with a long name`, createdAt: t }
+    for (let k = 0; k < each; k += 1) {
+      const id = `c-${t}-${k}`
+      const lastAt = NOW - (t * each + k) * 60_000
+      sessions.push({ id, cwd: CWD, slug: 'x', branch: `feat/${t}`, firstPrompt: `item ${k} of ${t}`, title: `Item ${k} of crowded topic ${t}, a long title`, startedAt: lastAt - 3600_000, lastAt, turns: k, filesTouched: [`src/c${t}/f${k}.ts`], lastAssistantText: 'done', size: 1, mtimeMs: lastAt })
+      store.assign[id] = topicId
+    }
+  }
+  const model = buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
+  const placement = placementOf(model, null)
+  return { model, placed: placement.placed, field: placement.size, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' as const }
+}
+
+test('the click layer holds only the satellites the picture drew, and nothing over the too-many-topics placeholder', async () => {
+  const shed = crowdedView(60, 6)
+  const svg = svgOf(shed)
+  const drawn = svg.split('class="sat"').length - 1
+  // Sixty topics shed every satellite from the picture (four each still overflow the cap): the layer must shed them too.
+  expect(drawn).toBe(0)
+  expect(fieldOf(shed).nodes.filter(n => n.kind === 'session').length).toBe(drawn)
+  // Forty topics keep some satellites, fewer than the six the budget offers: the layer keeps the same ones.
+  const part = crowdedView(40, 10)
+  const partDrawn = svgOf(part).split('class="sat"').length - 1
+  expect(partDrawn).toBeGreaterThan(0)
+  expect(partDrawn).toBeLessThan(40 * 6)
+  expect(fieldOf(part).nodes.filter(n => n.kind === 'session').length).toBe(partDrawn)
+  const placeholder = crowdedView(200, 3)
+  expect(svgOf(placeholder)).toContain('Too many topics to draw at once')
+  expect(fieldOf(placeholder).nodes).toEqual([])
+  expect(fieldOf(placeholder).links).toEqual([])
+})
+
 const ROW = {
   plugin: 'constellation',
   component: 'CommandOutput',

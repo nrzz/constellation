@@ -283,13 +283,29 @@ export function hintFitted(view: View, size: FieldSize): string {
   return clip(hint, chars)
 }
 
-/** The whole field as an SVG document, under the 131072-character cap. */
 /** How many of a topic's sessions run: its active ones, and this session once it joined (before its transcript lands in the topic). */
 export function runningOf(view: Pick<View, 'me'>, t: Topic): number {
   return t.sessions.filter(s => s.status === 'active').length + (view.me.topicId === t.id && !t.sessions.some(s => s.id === view.me.sessionId) ? 1 : 0)
 }
 
-export function svgOf(view: View, options: SvgOptions = {}): string {
+/** A drawing of the field, and how many satellites per topic it kept: null where it gave way to the placeholder. */
+type Drawn = { svg: string; kept: number | null }
+const drawings = new WeakMap<View, Drawn>()
+
+/** The whole field as an SVG document, under the 131072-character cap. A view is drawn once, for the picture and its layer. */
+export function svgOf(view: View, options?: SvgOptions): string {
+  return options ? drawSvg(view, options).svg : drawingOf(view).svg
+}
+
+function drawingOf(view: View): Drawn {
+  const known = drawings.get(view)
+  if (known) return known
+  const made = drawSvg(view, {})
+  drawings.set(view, made)
+  return made
+}
+
+function drawSvg(view: View, options: SvgOptions): Drawn {
   const withTooltips = options.withTooltips ?? true
   const { model, ui, placed, now } = view
   // The same budget the pointer layer takes, so what is drawn is what is clickable.
@@ -713,10 +729,10 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       { withTooltips: false, maxSessions: 0 },
     ]
     const next = ladder.find(step => step.withTooltips !== withTooltips || (step.maxSessions ?? maxSessions) < maxSessions)
-    if (next) return svgOf(view, next)
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}"><style>${themeCss(view.settings.fieldBackground)}</style><rect width="${size.w}" height="${size.h}" rx="16" fill="none" style="stroke:var(--line)"/><text x="${size.w / 2}" y="${size.h / 2}" font-size="13" style="fill:var(--mu)" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`
+    if (next) return drawSvg(view, next)
+    return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}"><style>${themeCss(view.settings.fieldBackground)}</style><rect width="${size.w}" height="${size.h}" rx="16" fill="none" style="stroke:var(--line)"/><text x="${size.w / 2}" y="${size.h / 2}" font-size="13" style="fill:var(--mu)" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`, kept: null }
   }
-  return svg
+  return { svg, kept: maxSessions }
 }
 
 /** What the drawing says, for a reader without the picture. */
@@ -1792,7 +1808,10 @@ export function fieldOf(view: View): FieldProps {
   const nodes: FieldNode[] = []
   const links: FieldProps['links'] = []
   const legend = '● active  ○ idle  ◦ shipped  ♦ you'
-  const perTopic = satellitesPerTopic(model.topics.length)
+  // Over the picture, the layer holds what the picture kept once it shed to fit its cap; the terminal draws its own text map.
+  const kept = view.surface === 'terminal' ? satellitesPerTopic(model.topics.length) : drawingOf(view).kept
+  if (kept === null) return { mode: focus ? 'focus' : 'map', hint: hintFitted(view, size), nodes: [], links: [], legend, fieldW: size.w, fieldH: size.h }
+  const perTopic = kept
   if (!focus) {
     // The focus ring may rest on a chip that is no topic (+ New topic): that traces nothing.
     const traced = ui.hover && model.topicById[ui.hover] ? ui.hover : null
