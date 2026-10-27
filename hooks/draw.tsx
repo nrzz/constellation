@@ -176,7 +176,7 @@ export function hintOf(view: View): string {
   }
   if (ui.mergeFrom) {
     const t = model.topicById[ui.mergeFrom]
-    return `Merging ${clip(t?.name ?? '', 30)}: pick the topic to merge it into`
+    return `Merging ${clipName(t?.name ?? '', 30)}: pick the topic to merge it into`
   }
   if (ui.moveMode && ui.selected) {
     const s = model.byId[ui.selected]
@@ -939,7 +939,7 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
             <Text color={t.color}>●</Text>,
             <Button
               key={`t:${t.id}`}
-              label={clip(t.name, 28)}
+              label={clipName(t.name, 28)}
               plain={framed || !isPicking ? true : undefined}
               dimColor={!t.isMajor}
               onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(t.id))}
@@ -1001,7 +1001,7 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
             return rt
               ? chip(T, view, `ab:${rt.id}`, rt.color, 'quiet', [
                   <Text color={rt.color}>●</Text>,
-                  <Button key={`a:${rt.id}`} label={clip(rt.name, 22)} plain dimColor onPress={() => act.focusTopic(rt.id)} />,
+                  <Button key={`a:${rt.id}`} label={clipName(rt.name, 22)} plain dimColor onPress={() => act.focusTopic(rt.id)} />,
                   <Text dimColor mono size="footnote">
                     {r.via}
                   </Text>,
@@ -1170,7 +1170,7 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
           >
             <Box key={`lh:${t.id}`} flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
               <Text color={t.color}>●</Text>
-              <Button key={`t:${t.id}`} label={clip(t.name, 40)} plain dimColor={!t.isMajor} onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(isOpen ? null : t.id))} />
+              <Button key={`t:${t.id}`} label={clipName(t.name, 40)} plain dimColor={!t.isMajor} onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(isOpen ? null : t.id))} />
               <Text dimColor mono size="footnote">
                 {`${t.id === UNSORTED_ID ? 'unsorted' : t.isMajor ? 'major' : 'minor'} · ${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.sessions.length ? ` · ${ageOf(t.lastAt, now)} ago` : ''}`}
               </Text>
@@ -1438,7 +1438,7 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
             hover={{ backgroundColor: rgba(t.color, isSuggested ? 0.26 : 0.18), borderColor: rgba(t.color, isSuggested ? 1 : 0.7) }}
           >
             <Text color={t.color}>●</Text>
-            <Button key={`j:${t.id}`} plain label={clip(t.name, 26)} hotkey={hk(view, i < 9 ? String(i + 1) : undefined)} onPress={() => act.join(t.id)} />
+            <Button key={`j:${t.id}`} plain label={clipName(t.name, 26)} hotkey={hk(view, i < 9 ? String(i + 1) : undefined)} onPress={() => act.join(t.id)} />
             <Text dimColor mono size="footnote">{`${t.sessions.length}${latest ? ` · ${ageOf(latest.lastAt, view.now)}` : ''}`}</Text>
             {isSuggested ? <Text color={t.color} size="footnote">suggested</Text> : null}
           </Box>
@@ -1568,7 +1568,7 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
         return rt
           ? chip(T, view, `kb:${rt.id}`, rt.color, 'quiet', [
               <Text color={rt.color}>●</Text>,
-              <Button key={`rel:${rt.id}`} label={clip(rt.name, 22)} plain onPress={() => act.focusTopic(rt.id)} />,
+              <Button key={`rel:${rt.id}`} label={clipName(rt.name, 22)} plain onPress={() => act.focusTopic(rt.id)} />,
               <Text dimColor mono size="footnote">
                 {r.via}
               </Text>,
@@ -1779,7 +1779,7 @@ export function drawBand(T: Table, view: View, act: Actions): RenderElement | nu
     return card(T, [
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="sm">
         <Text weight="medium">Park a handoff note</Text>
-        {topic ? <Text dimColor mono size="footnote">{clip(topic.name, 40)}</Text> : null}
+        {topic ? <Text dimColor mono size="footnote">{clipName(topic.name, 40)}</Text> : null}
       </Box>,
       <Box flexDirection="row" gap="xs" alignItems="center" flexWrap="wrap">
         {Input ? <Input key="park" placeholder="What is done, what is left, what to watch" submitLabel="park" onSubmit={text => act.park(text)} /> : null}

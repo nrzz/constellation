@@ -8,7 +8,8 @@ import type { Engine, FoundElement } from 'claude-code/testing'
 import { ACCENT, PALETTE } from '../hooks/cluster'
 import { reasonOf } from '../hooks/actions'
 import { CARD_BORDER, HAIRLINE, MUTED, PROBLEM } from '../hooks/draw'
-import { CHECKOUT, CWD, IDS, alphaOf, bandOn, boxesOf, kids, paneOn, rgbOf, run, stubEngine } from './helpers'
+import { transcripts } from './fixtures/transcripts'
+import { CHECKOUT, CWD, FIXTURE_FILES, IDS, ME, alphaOf, bandOn, boxesOf, kids, paneOn, rgbOf, run, stubEngine, submit } from './helpers'
 
 const HEADER = ['view:map', 'view:list', 'settings', 'help', 'mine']
 /** A label in capitals: "CONSTELLATION", "JUMP BACK IN", "RELATED". */
@@ -540,4 +541,72 @@ test('a topic with no sessions yet: its card says so in a dim line that tells wh
   expect(await ui.find({ type: 'Text', text: /^none$/ })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /^No related topics yet/ }))?.props.dimColor).toBe(true)
   await ui.unmount()
+})
+
+// Two topics whose names differ only in the last word (as uniqueNames makes them) and a hub they both touch.
+const RETRY = 'Cashfree Payment Gateway Webhook Signature Retry'
+const REFUND = 'Cashfree Payment Gateway Webhook Signature Refund'
+/** The rounding transcript as another session: same files, its own id. */
+function copyOf(id: string): string {
+  return (transcripts['checkout-rounding'] ?? '').split(IDS.rounding).join(id)
+}
+const TWINS = {
+  files: {
+    ...FIXTURE_FILES,
+    '66666666-aaaa-4bbb-8ccc-000000000006': { text: copyOf('66666666-aaaa-4bbb-8ccc-000000000006'), mtime: '2026-10-19T12:00:00.000Z' },
+    '77777777-aaaa-4bbb-8ccc-000000000007': { text: copyOf('77777777-aaaa-4bbb-8ccc-000000000007'), mtime: '2026-10-19T13:00:00.000Z' },
+  },
+  store: {
+    topics: { 'topic:hub': { name: 'Checkout', createdAt: 1 }, 'topic:retry': { name: RETRY, createdAt: 2 }, 'topic:refund': { name: REFUND, createdAt: 3 } },
+    assign: { [IDS.tests]: 'topic:hub', [IDS.rounding]: 'topic:hub', '66666666-aaaa-4bbb-8ccc-000000000006': 'topic:retry', '77777777-aaaa-4bbb-8ccc-000000000007': 'topic:refund' },
+  },
+}
+
+/** The labels the two twin topics' Buttons with this key prefix carry, retry first. */
+async function twinLabels(ui: { findAll: (query: { type: 'Button' }) => Promise<FoundElement[]> }, prefix: string) {
+  const buttons = await ui.findAll({ type: 'Button' })
+  return ['topic:retry', 'topic:refund'].map(id => buttons.find(b => b.key === `${prefix}${id}`)?.props.label as string | undefined)
+}
+
+function apart([retry, refund]: (string | undefined)[]) {
+  expect(retry).toBeDefined()
+  expect(refund).toBeDefined()
+  expect(retry).not.toBe(refund)
+  expect(retry?.endsWith('Retry')).toBe(true)
+  expect(refund?.endsWith('Refund')).toBe(true)
+}
+
+test('two topics told apart by their last word keep it on every chip: the join chooser, the buttons under the map, the List, the related chips and the merge hint', async ($, hooks) => {
+  stubEngine(hooks, TWINS)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  await submit($, 'the cashfree webhook signature check fails again')
+  const band = await $.ui.mount(bandOn('desktop'))
+  apart(await twinLabels(band, 'j:'))
+  await band.unmount()
+  const ui = await $.ui.mount(paneOn('desktop'))
+  if (await ui.find({ type: 'Button', key: 'back' })) await ui.press({ key: 'back' })
+  apart(await twinLabels(ui, 't:'))
+  await ui.press({ key: 'view:list' })
+  apart(await twinLabels(ui, 't:'))
+  await ui.press({ key: 'view:map' })
+  await ui.press({ key: 't:topic:hub' })
+  apart(await twinLabels(ui, 'rel:'))
+  apart(await twinLabels(ui, 'a:'))
+  // Merging one twin: the hint names it by its last word too.
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 't:topic:retry' })
+  await ui.press({ key: 'tc:merge' })
+  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toMatch(/Merging [^<]+ Retry: pick/)
+  await ui.unmount()
+})
+
+test('the band asking for a note names a long topic by its last word too', { options: { handoffNotes: 'ask' } }, async ($, hooks) => {
+  stubEngine(hooks, { ...TWINS, store: { ...TWINS.store, assign: { ...TWINS.store.assign, [ME]: 'topic:retry' } } })
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+  const band = await $.ui.mount(bandOn('desktop'))
+  const head = kids((await boxesOf(band, 'cd:')).find(b => b.id === 'park')?.box)
+  expect((await band.findAll({ type: 'Text' })).some(t => t.props.mono === true && t.text.endsWith(' Retry'))).toBe(true)
+  expect(head.length).toBeGreaterThan(0)
+  await band.unmount()
 })
