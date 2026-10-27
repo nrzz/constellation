@@ -210,10 +210,12 @@ export async function rescan($: EngineInterface): Promise<void> {
   const me = await read($, meAtom)
   await update($, scanAtom, s => ({ ...s, isScanning: true }))
   try {
-    const { sessions, root } = await scanProject($, settings.scope, me.cwd)
+    const { sessions, root, isPartial } = await scanProject($, settings.scope, me.cwd)
     await update($, sessionsAtom, () => sessions)
     await update($, scanAtom, () => ({ isScanning: false, at: Date.now(), root, error: null }))
-    if (settings.useModelForTitles) void nameAutoTopics($)
+    // A big folder is read in passes of 40 files, so no one hook runs long; the rest follows shortly.
+    if (isPartial) scheduleRescan($, 300)
+    else if (settings.useModelForTitles) void nameAutoTopics($)
   } catch (error) {
     await update($, scanAtom, s => ({ ...s, isScanning: false, error: String(error) }))
     $.ui.log(`constellation: scan failed: ${String(error)}`, { to: 'debug' })
@@ -246,10 +248,18 @@ export async function bootstrap($: EngineInterface, options: PluginOptions, cwd:
   } catch {
     sessionId = ''
   }
-  await loadSettings($, options)
+  const settings = await loadSettings($, options)
   const store = await loadStore($)
   const topicId = store.assign[sessionId] ?? null
-  await update($, meAtom, () => ({ ...INITIAL_ME, sessionId, cwd, folder: basenameOf(cwd.replace(/[\\/]+$/, '')) || cwd, topicId, isBandHidden: topicId !== null }))
+  await update($, meAtom, () => ({
+    ...INITIAL_ME,
+    sessionId,
+    cwd,
+    folder: basenameOf(cwd.replace(/[\\/]+$/, '')) || cwd,
+    topicId,
+    // The band shows the chooser only when `openOnStart` asks for the band; a suggestion may still raise it later unless `none`.
+    isBandHidden: topicId !== null || settings.openOnStart !== 'band',
+  }))
   await update($, uiAtom, () => INITIAL_UI)
   await update($, undoAtom, () => null)
   await update($, usageAtom, () => INITIAL_USAGE)
@@ -433,8 +443,9 @@ export async function draftPrompt($: EngineInterface, sessionId: string | null):
   const name = topic && topic.id !== UNSORTED_ID ? topic.name : 'this work'
   const text = `Continue ${name} from “${s.title}”${topic?.goal ? ` (goal: ${clip(topic.goal, 120)})` : ''}. Last state: ${clip(noteText(s) || 'no note', 300)} Next step: `
   try {
-    await $.prompt.fill({ text, mode: 'replace' })
-    await toast($, 'Drafted the next prompt in the composer; edit it and send.', { quiet: true })
+    const filled = await $.prompt.fill({ text, mode: 'replace' })
+    if (filled.isFilled) await toast($, 'Drafted the next prompt in the composer; edit it and send.', { quiet: true })
+    else await toast($, `Could not draft here: ${filled.refusal === 'dialog' ? 'a dialog is open' : 'no composer to fill'}.`)
   } catch (error) {
     await toast($, `Could not fill the prompt: ${String(error)}`)
   }
@@ -747,7 +758,7 @@ export async function suggestFor($: EngineInterface, prompt: string): Promise<{ 
     await joinTopic($, s.best.topicId)
     return { joined: true }
   }
-  await patchMe($, { suggested: s.best.topicId, isBandHidden: false })
+  await patchMe($, { suggested: s.best.topicId, isBandHidden: snap.settings.openOnStart === 'none' ? snap.me.isBandHidden : false })
   return { joined: false }
 }
 

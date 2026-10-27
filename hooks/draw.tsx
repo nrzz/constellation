@@ -389,9 +389,16 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   parts[styleAt] = `<style>${css.join('')}</style>`
   const svg = parts.join('')
   if (svg.length > SVG_CAP) {
-    if (withTooltips) return svgOf(view, { withTooltips: false, maxSessions })
-    if (maxSessions > 12) return svgOf(view, { withTooltips: false, maxSessions: 12 })
-    return svg.slice(0, SVG_CAP)
+    // Shed detail in steps: tooltips first, then satellites per topic, until the document fits whole.
+    const ladder: SvgOptions[] = [
+      { withTooltips: false, maxSessions },
+      { withTooltips: false, maxSessions: 12 },
+      { withTooltips: false, maxSessions: 4 },
+      { withTooltips: false, maxSessions: 0 },
+    ]
+    const next = ladder.find(step => step.withTooltips !== withTooltips || (step.maxSessions ?? 60) < maxSessions)
+    if (next) return svgOf(view, next)
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${FIELD_W}" height="${FIELD_H}" viewBox="0 0 ${FIELD_W} ${FIELD_H}"><rect width="${FIELD_W}" height="${FIELD_H}" rx="16" fill="${BG}"/><text x="430" y="260" font-size="13" fill="${MUTED}" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`
   }
   return svg
 }
@@ -588,6 +595,8 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
   const { model, ui, now } = view
   const query = ui.query
   const topics = model.topics.filter(t => topicMatches(query, t))
+  // Before a join the chooser's chips hold the digits; the list's steps take them once this session has a topic.
+  const stepHotkeys = view.me.topicId !== null || view.me.isNewTopic
   return (
     <Box flexDirection="column" gap="xs">
       {topics.length === 0 ? <Text dimColor>{query ? 'Nothing matches the search.' : 'No sessions on this map yet. Run a session in this folder, or name this one with /topic <name>.'}</Text> : null}
@@ -611,7 +620,7 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
               <Button
                 key={`s:${s.id}`}
                 plain
-                hotkey={i < 9 ? String(i + 1) : undefined}
+                hotkey={stepHotkeys && i < 9 ? String(i + 1) : undefined}
                 variant={ui.selected === s.id ? 'primary' : undefined}
                 onPress={() => (s.isYou ? act.selectSession(null) : act.selectSession(ui.selected === s.id ? null : s.id))}
               >
@@ -1028,13 +1037,18 @@ function node(n: FieldNode): FieldNode {
   return out as FieldNode
 }
 
-/** The field as plain data for the Client module: the same positions the Svg uses. */
+/** A Client's props hold at most 100,000 characters; the field stays well under it. */
+export const FIELD_CHARS = 90000
+
+/** The field as plain data for the Client module: the same positions the Svg uses, bounded in size. */
 export function fieldOf(view: View): FieldProps {
   const { model, ui, placed } = view
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
   const nodes: FieldNode[] = []
   const links: FieldProps['links'] = []
   const legend = '● active  ○ idle  ◌ shipped  ◆ you'
+  // Satellites share a budget across topics, so forty topics do not mean four hundred nodes.
+  const perTopic = Math.max(2, Math.min(40, Math.floor(240 / Math.max(1, model.topics.length))))
   if (!focus) {
     const traced = ui.hover
     for (const t of model.topics) {
@@ -1044,9 +1058,9 @@ export function fieldOf(view: View): FieldProps {
       const countLabel = ui.query.trim() ? `${t.sessions.filter(s => matches(ui.query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
       nodes.push(node({ id: t.id, kind: 'topic', x: p.x, y: p.y, label: `${clip(t.name, 24)} ${countLabel}`, color: t.color, isMajor: t.isMajor, isDim, isSelected: false, title: t.name }))
       const half = t.isMajor ? pillWidth(t.name, countLabel) / 2 : undefined
-      t.sessions.slice(0, 40).forEach((s, k) => {
+      t.sessions.slice(0, perTopic).forEach((s, k) => {
         const sp = satellitePosition(p, t.id, k, t.isMajor, half)
-        nodes.push(node({ id: s.id, kind: 'session', x: sp.x, y: sp.y, label: '', title: s.title, color: t.color, isDim: isDim || !s.isInRange || !matches(ui.query, s), isSelected: ui.selected === s.id, isArchived: s.status === 'archived', isActive: s.status === 'active', topicId: t.id }))
+        nodes.push(node({ id: s.id, kind: 'session', x: Math.round(sp.x), y: Math.round(sp.y), label: '', title: clip(s.title, 24), color: t.color, isDim: isDim || !s.isInRange || !matches(ui.query, s), isSelected: ui.selected === s.id, isArchived: s.status === 'archived', isActive: s.status === 'active', topicId: t.id }))
       })
     }
     for (const l of model.links) {
@@ -1088,7 +1102,9 @@ export function fieldOf(view: View): FieldProps {
       })
     }
   }
-  return { mode: focus ? 'focus' : 'map', hint: hintOf(view), nodes, links, legend }
+  const field: FieldProps = { mode: focus ? 'focus' : 'map', hint: hintOf(view), nodes, links, legend }
+  if (JSON.stringify(field).length > FIELD_CHARS) field.nodes = nodes.filter(n => n.kind !== 'session')
+  return field
 }
 
 export type { Point }

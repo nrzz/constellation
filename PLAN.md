@@ -11,7 +11,7 @@ the band, the commands, handoff injection, auto notes, the terminal's
 text-mode map Client, and the features added beyond the brief (topic goals,
 rename, recolour, merge, a "since your last look" digest, a status line,
 Draft next prompt, `/map export`, a model-spend counter, letter hotkeys).
-`claude plugin validate --strict`, `claude plugin test` (52 tests) and `tsc`
+`claude plugin validate --strict`, `claude plugin test` (83 tests) and `tsc`
 pass. The generated field was compared with the prototype by eye through
 the preview page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
 
@@ -428,9 +428,17 @@ facts". Work like this:
    `ui.message` hook. The Desktop keeps the Svg plus buttons: whether an
    absolutely placed Client can sit over the Svg there could not be tried in
    the cloud.
-7. Tests: 52 across scan, cluster, layout, the mod through the engine on
-   desktop and terminal, and the Client. `tests/preview/*.mjs` render the
-   field for demo data to SVG and PNG and build the comparison page.
+7. Tests: 83 across scan, cluster, layout, the mod through the engine on
+   desktop and terminal, the Client, and an edge-case suite (empty folders,
+   hostile and huge transcripts, bounded scans, every openOnStart, a refusing
+   store, model failures, dismissed dialogs, key and hotkey uniqueness in every
+   state, mobile and VS Code, /clear and resume, range and search, the size
+   caps). The pass found and fixed: unbounded first scans, the band ignoring
+   `openOnStart: none`, a refused prompt fill reported as drafted, the Svg
+   sliced mid-document past forty topics, Client props over 100k characters,
+   and a digit hotkey clash between the chooser and the list.
+   `tests/preview/*.mjs` render the field for demo data to SVG and PNG and
+   build the comparison page.
 
 Lessons for the next build: a test's `$` has only the event nouns (no
 `$.fs`), so fixtures reach the scanner through `fs.*` stubs and the

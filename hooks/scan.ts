@@ -34,7 +34,12 @@ export type ScanResult = {
   cache: ScanCache
   /** True when a file was read or a stale entry dropped: the cache wants saving. */
   isChanged: boolean
+  /** True when the pass hit its read budget and files are left unread. */
+  isPartial: boolean
 }
+
+/** Transcripts one pass reads at most, so a first scan of a big folder stays short; the rest follows. */
+export const READS_PER_PASS = 40
 
 /** The slug Claude Code files a folder's transcripts under: `D:\Projects` → `D--Projects`. */
 export function slugOf(cwd: string): string {
@@ -233,6 +238,7 @@ export async function scanSlug(
   dir: string,
   slug: string,
   cache: ScanCache,
+  maxReads = READS_PER_PASS,
 ): Promise<ScanResult> {
   let entries: FsEntry[]
   try {
@@ -242,8 +248,11 @@ export async function scanSlug(
   }
   const next: ScanCache = {}
   let isChanged = false
-  for (const entry of entries) {
-    if (!isTranscript(entry)) continue
+  let isPartial = false
+  let reads = 0
+  // Newest files first, so a bounded pass shows the recent work before the old.
+  const transcriptsNewestFirst = entries.filter(isTranscript).sort((a, b) => b.mtimeMs - a.mtimeMs)
+  for (const entry of transcriptsNewestFirst) {
     const id = entry.name.slice(0, -'.jsonl'.length)
     const seed = { id, slug, size: entry.size, mtimeMs: entry.mtimeMs }
     const known = cache[id]
@@ -252,11 +261,18 @@ export async function scanSlug(
       continue
     }
     const cached = isSummary(known) ? known : undefined
-    isChanged = true
     if (entry.size > LARGE_BYTES) {
+      isChanged = true
       next[id] = cached ? { ...cached, size: entry.size, mtimeMs: entry.mtimeMs, large: true } : largeStub(seed)
       continue
     }
+    if (reads >= maxReads) {
+      isPartial = true
+      if (known) next[id] = known
+      continue
+    }
+    reads += 1
+    isChanged = true
     let text: string
     try {
       text = await $.fs.read(`${dir}/${entry.name}`)
@@ -268,7 +284,7 @@ export async function scanSlug(
   }
   if (Object.keys(cache).some(id => !(id in next))) isChanged = true
   const sessions = Object.values(next).filter(isSummary).sort((a, b) => b.lastAt - a.lastAt)
-  return { sessions, cache: next, isChanged }
+  return { sessions, cache: next, isChanged, isPartial }
 }
 
 export type ScanScope = 'folder' | 'all'
@@ -291,10 +307,11 @@ export async function scanProject(
   $: EngineInterface,
   scope: ScanScope,
   cwd: string,
-): Promise<{ sessions: SessionSummary[]; root: string; slugs: string[] }> {
+): Promise<{ sessions: SessionSummary[]; root: string; slugs: string[]; isPartial: boolean }> {
   const root = await projectsRoot($)
   const slugs = await slugsInScope($, root, scope, cwd)
   const sessions: SessionSummary[] = []
+  let isPartial = false
   for (const slug of slugs) {
     const key = `cache:${slug}`
     const stored = asObject(await $.store.get(key))
@@ -308,6 +325,7 @@ export async function scanProject(
       }
     }
     const result = await scanSlug($, `${root}/${slug}`, slug, cache)
+    if (result.isPartial) isPartial = true
     if (result.isChanged) {
       try {
         await $.store.set(key, result.cache)
@@ -318,5 +336,5 @@ export async function scanProject(
     sessions.push(...result.sessions)
   }
   sessions.sort((a, b) => b.lastAt - a.lastAt)
-  return { sessions, root, slugs }
+  return { sessions, root, slugs, isPartial }
 }

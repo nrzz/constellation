@@ -19,7 +19,7 @@ Desktop sidebar and nothing is lost between them.
   model was asked.
 
 Status: built in Claude Code 2.1.310. `claude plugin validate --strict`,
-`claude plugin test` (52 tests) and `tsc` pass. The rendered field was checked
+`claude plugin test` (83 tests, including an edge-case suite) and `tsc` pass. The rendered field was checked
 against the approved prototype
 ([preview](https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u),
 [prototype](https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0));
@@ -174,8 +174,14 @@ messaging are not offered there.
 - Transcripts over 4 MiB cannot be read by a mod; such a session shows as a
   stub titled "(large transcript)" until a smaller read of it is cached.
 - The map reads `~/.claude/projects/<slug>/*.jsonl` (`CLAUDE_CONFIG_DIR`
-  respected) and never writes a transcript. Its own data lives in the plugin
-  store (4 MiB in all), which is why summaries are kept small.
+  respected) and never writes a transcript. A scan reads at most 40 changed
+  transcripts per pass, newest first, and follows up within a second until
+  the folder is covered, so a first look at a big folder fills in over a few
+  seconds. Its own data lives in the plugin store (4 MiB in all), which is why
+  summaries are kept small.
+- With more than about forty topics the field sheds detail to stay under the
+  SVG and Client size caps: tooltips first, then satellites. Narrow the time
+  range or search to see everything again.
 
 ## Development
 
@@ -188,6 +194,15 @@ node tests/preview/render.mjs            # SVGs of the field for demo data, unde
 node tests/preview/shots.mjs             # PNGs of them (Playwright)
 node tests/preview/page.mjs              # the comparison page, tests/out/preview.html
 ```
+
+Tests: `tests/scan.test.ts` (parsing, cache, large files), `tests/cluster.test.ts`
+(topics, links, scoring, order), `tests/layout.test.ts`, `tests/register.test.tsx`
+(the whole mod through the engine on desktop and terminal), `tests/client.test.tsx`
+(the terminal map and the Desktop hit layer) and `tests/edge.test.tsx` (empty
+folders, hostile and huge transcripts, bounded scans, every `openOnStart`, a
+refusing store, model failures, dismissed dialogs, key and hotkey uniqueness
+in every state, mobile and VS Code, `/clear`, resume, range and search, the
+size caps). `tests/helpers.tsx` is the engine stub they share.
 
 `hooks/scan.ts` reads transcripts, `hooks/cluster.ts` builds topics,
 `hooks/layout.ts` places them, `hooks/draw.tsx` draws the SVG and the element
