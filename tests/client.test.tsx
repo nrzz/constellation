@@ -555,7 +555,8 @@ function parity(label: string, view: View): string[] {
     const minor = nodes.filter(n => n.kind === 'topic' && !n.isMajor)
     same(dots.length, minor.length, 'dots')
     for (const n of minor) if (!dots.some(p => Math.abs(p.x - n.x) <= 0.51 && Math.abs(p.y - n.y) <= 0.51)) bad.push(`${label}: no dot drawn at ${n.id}`)
-    const sats = [...svg.matchAll(/<circle class="sat" cx="([\d.-]+)" cy="([\d.-]+)"/g)].map(m => ({ x: num(m[1]), y: num(m[2]) }))
+    // A satellite's marks sit in one group placed at its centre.
+    const sats = [...svg.matchAll(/<g class="s n hit[^"]*" transform="translate\(([\d.-]+) ([\d.-]+)\)"/g)].map(m => ({ x: num(m[1]), y: num(m[2]) }))
     const held = nodes.filter(n => n.kind === 'session')
     same(sats.length, held.length, 'satellites')
     for (const n of held) if (!sats.some(p => Math.abs(p.x - n.x) <= 0.51 && Math.abs(p.y - n.y) <= 0.51)) bad.push(`${label}: no satellite drawn at ${n.id}`)

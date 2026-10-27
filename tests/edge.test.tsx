@@ -537,17 +537,19 @@ function crowdedView(topics: number, each: number) {
 }
 
 test('the click layer holds only the satellites the picture drew, and nothing over the too-many-topics placeholder', async () => {
-  const shed = crowdedView(60, 6)
+  const shed = crowdedView(70, 6)
   const svg = svgOf(shed)
   const drawn = svg.split('class="sat"').length - 1
-  // Sixty topics shed every satellite from the picture (four each still overflow the cap): the layer must shed them too.
-  expect(drawn).toBe(0)
+  // Seventy topics shed to two satellites apiece of the three the budget offers: the layer must shed the same.
+  expect(drawn).toBe(70 * 2)
   expect(fieldOf(shed).nodes.filter(n => n.kind === 'session').length).toBe(drawn)
-  // Forty topics keep some satellites, fewer than the six the budget offers: the layer keeps the same ones.
+  // Sixty and forty topics keep what the budget offers (four and six apiece), and the layer the same.
+  const sixty = crowdedView(60, 6)
+  expect(svgOf(sixty).split('class="sat"').length - 1).toBe(60 * 4)
+  expect(fieldOf(sixty).nodes.filter(n => n.kind === 'session').length).toBe(60 * 4)
   const part = crowdedView(40, 10)
   const partDrawn = svgOf(part).split('class="sat"').length - 1
-  expect(partDrawn).toBeGreaterThan(0)
-  expect(partDrawn).toBeLessThan(40 * 6)
+  expect(partDrawn).toBe(40 * 6)
   expect(fieldOf(part).nodes.filter(n => n.kind === 'session').length).toBe(partDrawn)
   const placeholder = crowdedView(200, 3)
   expect(svgOf(placeholder)).toContain('Too many topics to draw at once')

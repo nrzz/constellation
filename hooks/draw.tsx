@@ -31,6 +31,9 @@ export const SANS = "'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans
 export const MONO = "'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace"
 export const SVG_CAP = 131072
 
+/** A coordinate to a tenth, without a trailing `.0`: marks repeated hundreds of times spend no characters on it. */
+const tenth = (v: number) => String(Number(v.toFixed(1)))
+
 export type View = {
   model: Model
   placed: Record<string, PlacedTopic>
@@ -326,15 +329,40 @@ function drawingOf(view: View): Drawn {
 
 function drawSvg(view: View, options: SvgOptions): Drawn {
   const withTooltips = options.withTooltips ?? true
-  const { model, ui, placed, now } = view
   // The same budget the pointer layer takes, so what is drawn is what is clickable.
-  const maxSessions = options.maxSessions ?? satellitesPerTopic(model.topics.length)
+  const budget = options.maxSessions ?? satellitesPerTopic(view.model.topics.length)
+  const full = renderSvg(view, withTooltips, budget)
+  if (full.length <= SVG_CAP) return { svg: full, kept: budget }
+  // Shed detail in steps until the document fits whole: tooltips first, then satellites per topic, as many kept as fit.
+  const plain = withTooltips ? renderSvg(view, false, budget) : full
+  if (plain.length <= SVG_CAP) return { svg: plain, kept: budget }
+  const bare = renderSvg(view, false, 0)
+  if (bare.length > SVG_CAP) {
+    const size = sizeOf(view)
+    return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}"><style>${themeCss(view.settings.fieldBackground)}</style><rect width="${size.w}" height="${size.h}" rx="16" fill="none" style="stroke:var(--line)"/><text x="${size.w / 2}" y="${size.h / 2}" font-size="13" style="fill:var(--mu)" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`, kept: null }
+  }
+  // A topic's satellites cost alike, and one with fewer than the budget stops growing: the straight line from none to the
+  // budget never overestimates what fits, so stepping down from its answer finds the most that do.
+  for (let kept = Math.min(budget - 1, Math.floor((budget * (SVG_CAP - bare.length)) / (plain.length - bare.length))); kept > 0; kept -= 1) {
+    const svg = renderSvg(view, false, kept)
+    if (svg.length <= SVG_CAP) return { svg, kept }
+  }
+  return { svg: bare, kept: 0 }
+}
+
+/** The field at one level of detail, whatever its length. */
+function renderSvg(view: View, withTooltips: boolean, maxSessions: number): string {
+  const { model, ui, placed, now } = view
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
   const size = sizeOf(view)
   const query = ui.query.trim()
   const parts: string[] = []
   const css: string[] = [
     themeCss(view.settings.fieldBackground),
+    // A satellite's look lives here, not on each mark: its colour is the topic's (or this session's accent) through
+    // `color`, running fills it (`sr`), archived dashes it (`sa`); a spoke traced takes the colour (`lt`), else fades (`lf`).
+    `.sat{fill:var(--pill);stroke:currentColor;stroke-width:1.5}.sr .sat{fill:currentColor}.sa .sat{stroke:var(--dim);stroke-dasharray:2 2}`,
+    `.sh{fill:currentColor;fill-opacity:.12}.s .co{fill:#fff}.ln{fill:none;stroke:var(--ln);stroke-width:1;opacity:.8}.lt{stroke:currentColor;stroke-width:1.2;opacity:.75}.lf{opacity:.35}`,
     `.t,.x,.s{transition:opacity .25s}`,
     `.hit{cursor:pointer}`,
     `.glow{opacity:0;transition:opacity .25s}`,
@@ -364,6 +392,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
       // step's glow breathes.
       `@keyframes rp{0%{transform:scale(1);opacity:.85}100%{transform:scale(2.6);opacity:0}}@keyframes br{50%{opacity:.4}}`,
       `.rp{opacity:0;transform-box:fill-box;transform-origin:center}.br{animation:br 4s ease-in-out infinite}`,
+      `.s .rp{fill:none;stroke:currentColor;stroke-width:1.2;animation:rp var(--u) ease-out var(--v) infinite}`,
       `@media (prefers-reduced-motion:reduce){.f *{animation:none!important}}`,
     )
   }
@@ -382,10 +411,15 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
   model.topics.forEach((t, i) => indexOf.set(t.id, i))
   // Running: a session written in the last few minutes, or this one; a topic holding one. Live draws a ripple about each.
   const runningIn = (t: Topic) => runningOf(view, t)
+  // A ripple's clock: two to three seconds, started part way through, so no two widen together.
+  const clockOf = (seed: number) => {
+    const d = 2 + (seed % 11) / 10
+    return { d: d.toFixed(1), off: ((seed * 0.37) % d).toFixed(2) }
+  }
   const ripple = (x: number, y: number, r: number, stroke: string, seed: number) => {
     if (!live) return ''
-    const d = 2 + (seed % 11) / 10
-    return `<circle class="rp" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="none" stroke="${stroke}" stroke-width="1.2" style="animation:rp ${d.toFixed(1)}s ease-out -${((seed * 0.37) % d).toFixed(2)}s infinite"/>`
+    const { d, off } = clockOf(seed)
+    return `<circle class="rp" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="none" stroke="${stroke}" stroke-width="1.2" style="animation:rp ${d}s ease-out -${off}s infinite"/>`
   }
 
   parts.push(
@@ -500,7 +534,8 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
       }
       const cy = d ? ` cy` : ''
       const cyStyle = d ? `;--d:${d}s;--c:${t.color};--i:${d / 4}` : ''
-      const g: string[] = [`<g class="t t-${i}${running > 0 ? ' run' : ''}${cy}" opacity="${opacity.toFixed(2)}"${live ? ` style="animation-duration:${7 + (i % 5) * 0.8}s;animation-delay:-${(i * 1.9) % 7}s${cyStyle}"` : ''}>`]
+      const motion = live ? `animation-duration:${tenth(7 + (i % 5) * 0.8)}s;animation-delay:-${tenth((i * 1.9) % 7)}s${cyStyle};` : ''
+      const g: string[] = [`<g class="t t-${i}${running > 0 ? ' run' : ''}${cy}" opacity="${opacity.toFixed(2)}" style="${motion}color:${t.color}">`]
       const sessions = t.sessions.slice(0, maxSessions)
       if (live && sessions.length > 0) {
         // Its spokes and satellites sway about its centre as one group, a few degrees each way: a full turn would carry
@@ -513,7 +548,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
         if (s.isInRange) {
           // From the unit's edge, never across its own label.
           const from = unitEdge(p, sp)
-          g.push(`<line class="ln" x1="${from.x.toFixed(1)}" y1="${from.y.toFixed(1)}" x2="${sp.x.toFixed(1)}" y2="${sp.y.toFixed(1)}" ${isTraced ? `stroke="${t.color}"` : 'style="stroke:var(--ln)"'} stroke-width="${isTraced ? 1.2 : 1}" opacity="${isTraced ? 0.75 : traced ? 0.35 : 0.8}"/>`)
+          g.push(`<path class="ln${isTraced ? ' lt' : traced ? ' lf' : ''}" d="M${tenth(from.x)} ${tenth(from.y)}l${tenth(sp.x - from.x)} ${tenth(sp.y - from.y)}"/>`)
         }
       })
       sessions.forEach((s, k) => {
@@ -526,20 +561,23 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
         let op = s.isInRange ? 1 : 0.18
         if (traced && !isTraced) op = Math.min(op, 0.25)
         if (!isMatch) op = Math.min(op, 0.15)
-        // This session in the accent colour, as everywhere else.
+        // This session in the accent colour, as everywhere else; the rest take the topic's colour from its group.
         const tone = s.id === view.me.sessionId ? ACCENT : t.color
         const isRun = s.status === 'active'
-        const fillAttr = isRun ? `fill="${tone}"` : 'style="fill:var(--pill)"'
-        const ringAttr = s.status === 'archived' ? 'style="stroke:var(--dim)"' : `stroke="${tone}"`
-        const dash = s.status === 'archived' ? ' stroke-dasharray="2 2"' : ''
-        const glow = isSel || (query && isMatch) ? `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 4}" fill="${rgba(t.color, 0.3)}"/>` : ''
-        const halo = `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 5}" fill="${rgba(tone, 0.12)}"/>`
+        // One group at the satellite's place holds its marks, so none repeats the position: forty topics keep their six.
+        const cls = `s n hit${isRun ? ' sr' : ''}${s.status === 'archived' ? ' sa' : ''}`
+        const glow = isSel || (query && isMatch) ? `<circle r="${r + 4}" fill="${rgba(t.color, 0.3)}"/>` : ''
+        const halo = `<circle class="sh" r="${r + 5}"/>`
         // A running satellite: a bright core, and a ripple on a clock of its own so no two widen together.
-        const core = isRun ? `<circle class="co" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${Math.max(1, r * 0.45).toFixed(1)}" fill="#FFFFFF"/>` : ''
-        const rip = isRun ? ripple(sp.x, sp.y, r + 1.5, tone, i * 7 + k * 3) : ''
+        const core = isRun ? `<circle class="co" r="${Math.max(1, r * 0.45).toFixed(1)}"/>` : ''
+        const clock = clockOf(i * 7 + k * 3)
+        const rip = isRun && live ? `<circle class="rp" r="${r + 1.5}" style="--u:${Number(clock.d)}s;--v:-${Number(clock.off)}s"/>` : ''
         const tip = withTooltips ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
-        const pin = s.isPinned ? `<text x="${(sp.x + 5).toFixed(1)}" y="${(sp.y - 5).toFixed(1)}" font-size="9" fill="${ACCENT}">★</text>` : ''
-        g.push(`<g class="s n hit" opacity="${op.toFixed(2)}">${tip}${halo}${glow}${rip}<circle class="sat" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r}" ${fillAttr} ${ringAttr} stroke-width="1.5"${dash}/>${core}${pin}</g>`)
+        const pin = s.isPinned ? `<text x="5" y="-5" font-size="9" fill="${ACCENT}">★</text>` : ''
+        g.push(
+          `<g class="${cls}" transform="translate(${tenth(sp.x)} ${tenth(sp.y)})"${op < 1 ? ` opacity="${op.toFixed(2)}"` : ''}${tone !== t.color ? ` style="color:${tone}"` : ''}>` +
+            `${tip}${halo}${glow}${rip}<circle class="sat" r="${r}"/>${core}${pin}</g>`,
+        )
       })
       if (live && sessions.length > 0) g.push('</g>')
       if (t.isMajor) {
@@ -737,20 +775,7 @@ function drawSvg(view: View, options: SvgOptions): Drawn {
   parts.push(`<rect x="0.5" y="0.5" width="${size.w - 1}" height="${size.h - 1}" rx="16" fill="none" style="stroke:var(--line)"/>`)
   parts.push('</g></svg>')
   parts[styleAt] = `<style>${css.join('')}</style>`
-  const svg = parts.join('')
-  if (svg.length > SVG_CAP) {
-    // Shed detail in steps: tooltips first, then satellites per topic, until the document fits whole.
-    const ladder: SvgOptions[] = [
-      { withTooltips: false, maxSessions },
-      { withTooltips: false, maxSessions: 12 },
-      { withTooltips: false, maxSessions: 4 },
-      { withTooltips: false, maxSessions: 0 },
-    ]
-    const next = ladder.find(step => step.withTooltips !== withTooltips || (step.maxSessions ?? maxSessions) < maxSessions)
-    if (next) return drawSvg(view, next)
-    return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}"><style>${themeCss(view.settings.fieldBackground)}</style><rect width="${size.w}" height="${size.h}" rx="16" fill="none" style="stroke:var(--line)"/><text x="${size.w / 2}" y="${size.h / 2}" font-size="13" style="fill:var(--mu)" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`, kept: null }
-  }
-  return { svg, kept: maxSessions }
+  return parts.join('')
 }
 
 /** What the drawing says, for a reader without the picture. */
