@@ -3,8 +3,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import { ACCENT, EMPTY_STORE, buildModel, satellitesPerTopic } from '../hooks/cluster'
-import { placementOf } from '../hooks/actions'
-import { fieldOf, pointerHint, svgOf } from '../hooks/draw'
+import { handoffText, placementOf } from '../hooks/actions'
+import { captionOf, fieldOf, pointerHint, sessionMeta, svgOf } from '../hooks/draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, settingValue } from '../hooks/state'
 import type { SessionSummary } from '../types'
 import { CWD, NOW, boxesOf, paneOn, stubEngine } from './helpers'
@@ -581,4 +581,20 @@ test('live idle cycle fade: the four-hundred-session folder keeps a slot on ever
   const drawn = view.model.topics.filter(t => t.isMajor).length
   expect((svg.match(/<g class="t t-\d+( run)? cy"[^>]*--i:\d+/g) ?? []).length).toBe(drawn)
   expect(svg).toContain('@keyframes ck{')
+})
+
+test('a session active this minute reads "now", never "now ago": its meta, its topic’s caption, its chain step, its handoff note', () => {
+  const view = runningView(1, 3)
+  const topic = view.model.topicById['topic:r0']
+  const s = topic?.sessions.find(x => x.lastAt === NOW)
+  expect(s).toBeDefined()
+  if (!topic || !s) return
+  expect(sessionMeta(s, NOW).startsWith('now · ')).toBe(true)
+  expect(captionOf(topic, NOW)).toBe('3 sessions · active now')
+  expect(captionOf(topic, NOW + 3600_000)).toBe('3 sessions · last 1h ago')
+  expect(handoffText(s, topic, 1, NOW)).toContain(`(step 1 of ${topic.name}, now, branch feat/0)`)
+  const placement = placementOf(view.model, 'topic:r0')
+  const focused = { ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:r0' }, placed: placement.placed, field: placement.size }
+  for (const svg of [svgOf(view), svgOf(focused)]) expect(svg).not.toContain('now ago')
+  expect(svgOf(focused)).toMatch(/>now( · [^<]*)?</)
 })

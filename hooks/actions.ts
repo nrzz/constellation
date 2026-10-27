@@ -7,7 +7,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ModelUsage, PluginOptions, Timer } from 'claude-code'
 
-import { UNSORTED_ID, ageOf, buildModel, chainSteps, cleanName, latestOf, nameKey, orderChain, scoreJoin, topicIdFor } from './cluster'
+import { UNSORTED_ID, agoOf, buildModel, chainSteps, cleanName, latestOf, nameKey, orderChain, scoreJoin, topicIdFor } from './cluster'
 import type { Model, SessionView, Topic } from './cluster'
 import { clip, matches, noteText, statsOf } from './draw'
 import type { Actions, View } from './draw'
@@ -411,7 +411,7 @@ export async function bootstrap($: EngineInterface, options: PluginOptions, cwd:
 export function handoffText(s: SessionView, topic: Topic | undefined, step: number | undefined, now: number): string {
   const where = topic ? `${step ? `step ${step} of ` : ''}${topic.name}, ` : ''
   const lines = [
-    `[Constellation] Handoff note from the earlier session “${s.title}” (${where}${ageOf(s.lastAt, now)} ago${s.branch ? `, branch ${s.branch}` : ''}):`,
+    `[Constellation] Handoff note from the earlier session “${s.title}” (${where}${agoOf(s.lastAt, now)}${s.branch ? `, branch ${s.branch}` : ''}):`,
     noteText(s) || '(that session left no note)',
   ]
   if (topic?.goal) lines.push(`Topic goal: ${topic.goal}`)
@@ -716,7 +716,7 @@ export async function tidyTopic($: EngineInterface, topicId: string): Promise<vo
   for (const s of targets) {
     let answer: string
     try {
-      answer = await $.ui.ask(`Archive “${clip(s.title, 50)}” (${ageOf(s.lastAt, snap.now)} ago, ${topic.name})?`, ['Archive', 'Keep', 'Stop'])
+      answer = await $.ui.ask(`Archive “${clip(s.title, 50)}” (${agoOf(s.lastAt, snap.now)}, ${topic.name})?`, ['Archive', 'Keep', 'Stop'])
     } catch {
       break
     }
@@ -983,11 +983,11 @@ export async function openDigest($: EngineInterface): Promise<void> {
   if (seen === undefined) {
     digest = `First look at ${snap.me.folder}: ${snap.model.sessions.length} session${snap.model.sessions.length === 1 ? '' : 's'} across ${snap.model.topics.filter(t => t.id !== UNSORTED_ID).length} topic${snap.model.topics.filter(t => t.id !== UNSORTED_ID).length === 1 ? '' : 's'}.`
   } else if (fresh.length === 0) {
-    digest = `Nothing new since your last look (${ageOf(seen, snap.now)} ago).`
+    digest = `Nothing new since your last look (${agoOf(seen, snap.now)}).`
   } else {
     const newest = fresh[0]
     const topic = newest ? snap.model.topicById[newest.topicId] : undefined
-    digest = `Since your last look (${ageOf(seen, snap.now)} ago): ${fresh.length} session${fresh.length === 1 ? '' : 's'} new or updated · newest: ${clip(newest?.title ?? '', 40)}${topic && topic.id !== UNSORTED_ID ? ` (${topic.name})` : ''}${newest && noteText(newest) ? ` · ${clip(noteText(newest), 90)}` : ''}`
+    digest = `Since your last look (${agoOf(seen, snap.now)}): ${fresh.length} session${fresh.length === 1 ? '' : 's'} new or updated · newest: ${clip(newest?.title ?? '', 40)}${topic && topic.id !== UNSORTED_ID ? ` (${topic.name})` : ''}${newest && noteText(newest) ? ` · ${clip(noteText(newest), 90)}` : ''}`
   }
   await patchUi($, { digest })
   const next = cloneStore(snap.store)
@@ -1143,7 +1143,7 @@ export async function listSteps($: EngineInterface): Promise<string> {
   const lines = steps.map((step, i) =>
     step.isYou || !step.session
       ? `${i + 1}. This session · you`
-      : `${i + 1}. ${step.session.title} · ${ageOf(step.session.lastAt, snap.now)} ago${latest && step.session.id === latest.id ? ' · latest' : ''}${noteText(step.session) ? ` · ${clip(noteText(step.session), 100)}` : ''}`,
+      : `${i + 1}. ${step.session.title} · ${agoOf(step.session.lastAt, snap.now)}${latest && step.session.id === latest.id ? ' · latest' : ''}${noteText(step.session) ? ` · ${clip(noteText(step.session), 100)}` : ''}`,
   )
   return [`${topic.name}: ${sessions.length} step${sessions.length === 1 ? '' : 's'}${steps.length > sessions.length ? ', and you' : ''}. /pickup <n> puts a step’s note beside your next prompt.`, ...lines].join('\n')
 }
@@ -1159,7 +1159,7 @@ export async function inlineMapText($: EngineInterface): Promise<string> {
   listedTopics(model).forEach((t, i) => {
     const latest = latestOf(t.sessions)
     const mine = snap.me.topicId === t.id ? ' · you' : ''
-    lines.push(`${i + 1}. ${t.name} (${t.sessions.length}${mine})${latest ? ` · latest: ${clip(latest.title, 48)} · ${ageOf(latest.lastAt, snap.now)} ago` : ''}${t.goal ? ` · goal: ${clip(t.goal, 60)}` : ''}`)
+    lines.push(`${i + 1}. ${t.name} (${t.sessions.length}${mine})${latest ? ` · latest: ${clip(latest.title, 48)} · ${agoOf(latest.lastAt, snap.now)}` : ''}${t.goal ? ` · goal: ${clip(t.goal, 60)}` : ''}`)
   })
   const unsorted = model.topicById[UNSORTED_ID]
   if (unsorted && unsorted.sessions.length) lines.push(`Unsorted (${unsorted.sessions.length})${unsorted.sessions[0] ? ` · latest: ${clip(unsorted.sessions[0].title, 48)}` : ''}`)

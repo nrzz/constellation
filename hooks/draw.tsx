@@ -8,7 +8,7 @@
 // touches `$`.
 import type { Elements, RenderElement } from 'claude-code'
 
-import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
+import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, agoOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
 import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, crowdedLabels, focusSize, isUpperStep, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
@@ -142,7 +142,7 @@ export function turnsOf(s: Pick<SessionView, 'turns' | 'large'>): string {
 }
 
 export function sessionMeta(s: SessionView, now: number, extra = ''): string {
-  const parts = [`${ageOf(s.lastAt, now)} ago`]
+  const parts = [agoOf(s.lastAt, now)]
   if (s.branch) parts.push(s.branch)
   parts.push(turnsOf(s))
   if (extra) parts.push(extra)
@@ -220,7 +220,8 @@ export function isLive(view: Pick<View, 'surface' | 'settings'>): boolean {
 export function captionOf(t: Topic, now: number): string {
   const noted = [...t.sessions].sort((a, b) => b.lastAt - a.lastAt).find(s => s.note?.text)
   const n = t.sessions.length
-  return t.goal ?? noted?.note?.text ?? `${n} session${n === 1 ? '' : 's'} · last ${ageOf(t.lastAt, now)} ago`
+  const age = agoOf(t.lastAt, now)
+  return t.goal ?? noted?.note?.text ?? `${n} session${n === 1 ? '' : 's'} · ${age === 'now' ? 'active now' : `last ${age}`}`
 }
 
 type SvgOptions = { withTooltips?: boolean; maxSessions?: number }
@@ -685,7 +686,7 @@ function renderSvg(view: View, withTooltips: boolean, maxSessions: number): stri
       // The meta line keeps to its room on its row and to the field's edge. Where room is short it sheds its turns, then
       // "latest" (the glow says it), before a word is cut; "you" sheds its "now".
       const metaRoom = Math.max(6, Math.min(crowded?.meta ?? metaChars, Math.floor((2 * Math.min(pt.x, size.w - pt.x) - 8) / 6.3)))
-      const age = s ? `${ageOf(s.lastAt, now)} ago` : ''
+      const age = s ? agoOf(s.lastAt, now) : ''
       const latestTag = isLatest ? ['latest'] : []
       const metas = isYou
         ? ['now · you', 'you']
@@ -1172,7 +1173,7 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
               <Text color={t.color}>●</Text>
               <Button key={`t:${t.id}`} label={clip(t.name, 40)} plain dimColor={!t.isMajor} onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(isOpen ? null : t.id))} />
               <Text dimColor mono size="footnote">
-                {`${t.id === UNSORTED_ID ? 'unsorted' : t.isMajor ? 'major' : 'minor'} · ${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.sessions.length ? ` · ${ageOf(t.lastAt, now)} ago` : ''}`}
+                {`${t.id === UNSORTED_ID ? 'unsorted' : t.isMajor ? 'major' : 'minor'} · ${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.sessions.length ? ` · ${agoOf(t.lastAt, now)}` : ''}`}
               </Text>
               {view.me.topicId === t.id ? (
                 <Text color={ACCENT} size="footnote">
@@ -1474,7 +1475,7 @@ export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElemen
   const step = topic ? stepNumber(view, topic, 'you') : 1
   const title = topic ? `This session is step ${step} of ${topic.name}` : me.isNewTopic ? 'This session starts a new topic' : 'This session has no topic'
   const summary = latest
-    ? `Handoff note from “${clip(latest.title, 48)}” (${ageOf(latest.lastAt, view.now)} ago)${me.pendingNote ? ' goes into your next prompt' : ' is in your context'}: ${clip(noteText(latest) || '(no note yet)', 220)}`
+    ? `Handoff note from “${clip(latest.title, 48)}” (${agoOf(latest.lastAt, view.now)})${me.pendingNote ? ' goes into your next prompt' : ' is in your context'}: ${clip(noteText(latest) || '(no note yet)', 220)}`
     : topic
       ? 'No earlier session here yet. Your handoff note will be the first.'
       : 'Name it below or with /topic <name>. It appears on the map with its first handoff note.'
@@ -1538,7 +1539,7 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
     </Box>,
     !isUnsorted ? <Text dimColor>{topic.goal ? `Goal: ${clip(topic.goal, 200)}` : 'No goal yet. A goal travels with every handoff on this topic.'}</Text> : null,
     latest ? (
-      <Text>{`Latest: ${clip(latest.title, 60)} (${ageOf(latest.lastAt, now)} ago). ${clip(noteText(latest), 220)}`}</Text>
+      <Text>{`Latest: ${clip(latest.title, 60)} (${agoOf(latest.lastAt, now)}). ${clip(noteText(latest), 220)}`}</Text>
     ) : (
       <Text dimColor>{isUnsorted ? 'Sessions nothing else claimed. Select one and Move to topic to file it.' : 'No sessions yet. Each session that joins this topic becomes the next step of its chain.'}</Text>
     ),
