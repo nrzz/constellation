@@ -5,9 +5,10 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine, FoundElement } from 'claude-code/testing'
 
-import { ACCENT } from '../hooks/cluster'
-import { CARD_BORDER, HAIRLINE } from '../hooks/draw'
-import { CHECKOUT, CWD, IDS, alphaOf, boxesOf, kids, paneOn, rgbOf, run, stubEngine } from './helpers'
+import { ACCENT, PALETTE } from '../hooks/cluster'
+import { reasonOf } from '../hooks/actions'
+import { CARD_BORDER, HAIRLINE, MUTED, PROBLEM } from '../hooks/draw'
+import { CHECKOUT, CWD, IDS, alphaOf, bandOn, boxesOf, kids, paneOn, rgbOf, run, stubEngine } from './helpers'
 
 const HEADER = ['view:map', 'view:list', 'settings', 'help', 'mine']
 /** A label in capitals: "CONSTELLATION", "JUMP BACK IN", "RELATED". */
@@ -29,7 +30,7 @@ function hover(box: FoundElement | undefined): { backgroundColor?: string; borde
 }
 
 /** No label in capitals; `cards` lets through the topic and session cards' own labels, which are later surfaces of this pass. */
-async function noShouting(ui: Ui, cards: string[] = []) {
+async function noShouting(ui: { findAll: (query: { type: 'Text' }) => Promise<FoundElement[]> }, cards: string[] = []) {
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text.trim())
   expect(texts.filter(t => SHOUT.test(t) && !cards.includes(t))).toEqual([])
 }
@@ -408,4 +409,76 @@ test('terminal: every topic and header button still shows, no chip draws a borde
   expect(choices.length).toBeGreaterThan(5)
   for (const { box } of choices) expect(box.props.borderStyle).toBeUndefined()
   await ui.unmount()
+})
+
+test('the band asking for a note: a card in the topic colour with a medium sentence-case title, the field, Skip an outline and a dim footnote; no primary slab', { options: { handoffNotes: 'ask' } }, async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  const color = kids((await boxesOf(ui, 'tb:')).find(c => c.id === CHECKOUT)?.box).find(k => k.text === '●')?.props.color
+  await ui.unmount()
+  await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+  const band = await $.ui.mount(bandOn('desktop'))
+  const card = (await boxesOf(band, 'cd:')).find(b => b.id === 'park')?.box
+  expect(rgbOf(card?.props.borderColor)).toBe(rgbOf(color))
+  expect(alphaOf(card?.props.borderColor)).toBeLessThan(0.5)
+  expect(alphaOf(card?.props.backgroundColor)).toBeLessThan(0.1)
+  expect((await band.find({ type: 'Text', text: /^Park a handoff note$/ }))?.props.weight).toBe('medium')
+  expect(await band.find({ type: 'Input', key: 'park' })).toBeDefined()
+  const skip = (await boxesOf(band, 'ob:')).find(b => b.id === 'park:skip')?.box
+  expect(skip?.props.borderStyle).toBe('round')
+  expect(kids(skip).find(k => k.type === 'Button')?.props.plain).toBe(true)
+  expect((await band.findAll({ type: 'Text' })).some(t => t.props.dimColor === true && t.props.size === 'footnote')).toBe(true)
+  await noShouting(band)
+  expect((await band.findAll({ type: 'Button' })).filter(b => b.props.variant === 'primary')).toEqual([])
+  await band.unmount()
+})
+
+test('the band naming a new topic: a hairline card with a medium sentence-case title, the field, Cancel an outline and a dim footnote', async ($, hooks) => {
+  stubEngine(hooks)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount(bandOn('desktop'))
+  await band.press({ key: 'j:new' })
+  const card = (await boxesOf(band, 'cd:')).find(b => b.id === 'name')?.box
+  expect(card?.props.borderColor).toBe(HAIRLINE)
+  expect((await band.find({ type: 'Text', text: /^Name a new topic$/ }))?.props.weight).toBe('medium')
+  expect(await band.find({ type: 'Input', key: 'topicname' })).toBeDefined()
+  const cancel = (await boxesOf(band, 'ob:')).find(b => b.id === 'topicname:cancel')?.box
+  expect(cancel?.props.borderStyle).toBe('round')
+  expect(kids(cancel).find(k => k.type === 'Button')?.props.plain).toBe(true)
+  expect((await band.findAll({ type: 'Text' })).some(t => t.props.dimColor === true && t.props.size === 'footnote')).toBe(true)
+  await noShouting(band)
+  await band.unmount()
+})
+
+test('a toast: a translucent hairline card in no topic colour, the done mark dim, Undo an outline chip and Dismiss plain dim; a refusal wears the problem mark and colour', async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  await ui.press({ key: `t:${CHECKOUT}` })
+  await ui.press({ key: `s:${IDS.tests}` })
+  await ui.press({ key: 'sc:archive' })
+  const done = (await boxesOf(ui, 'cd:')).find(b => b.id === 'toast')?.box
+  expect(done?.props.borderColor).toBe(HAIRLINE)
+  expect(PALETTE.map(rgbOf)).not.toContain(rgbOf(done?.props.backgroundColor))
+  expect(alphaOf(done?.props.backgroundColor)).toBeLessThan(0.1)
+  expect(kids(done).find(k => k.text === '✓')?.props.color).toBe(MUTED)
+  const undo = (await boxesOf(ui, 'ob:')).find(b => b.id === 'toast:undo')?.box
+  expect(undo?.props.borderStyle).toBe('round')
+  expect(kids(undo).find(k => k.type === 'Button')?.props.plain).toBe(true)
+  const dismiss = await ui.find({ type: 'Button', key: 'toast:dismiss' })
+  expect(dismiss?.props.plain).toBe(true)
+  expect(dismiss?.props.dimColor).toBe(true)
+  await ui.press({ key: 'back' })
+  await ui.press({ key: `t:${CHECKOUT}` })
+  await ui.press({ key: 'tc:merge' })
+  await ui.press({ key: `t:${CHECKOUT}` })
+  const refused = (await boxesOf(ui, 'cd:')).find(b => b.id === 'toast')?.box
+  expect(rgbOf(refused?.props.borderColor)).toBe(rgbOf(PROBLEM))
+  expect(kids(refused).find(k => k.text === '!')?.props.color).toBe(PROBLEM)
+  expect([...PALETTE, ACCENT].map(rgbOf)).not.toContain(rgbOf(PROBLEM))
+  await ui.unmount()
+})
+
+test('a toast that failed shows the reason alone, not the error class', async ($, hooks) => {
+  expect(reasonOf(new Error('no composer'))).toBe('no composer')
+  expect(reasonOf('plain words')).toBe('plain words')
 })

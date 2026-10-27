@@ -207,8 +207,14 @@ export async function viewOf($: EngineInterface, surface: string, columns?: numb
   }
 }
 
-export async function toast($: EngineInterface, text: string, options: { undo?: boolean; quiet?: boolean } = {}): Promise<void> {
-  await update($, uiAtom, u => ({ ...u, toast: { text, hasUndo: options.undo === true } }))
+/** An error's words for a toast: the message alone, not "Error: …", and no closing full stop (the toast adds one). */
+export function reasonOf(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).trim().replace(/\.$/, '')
+}
+
+/** `problem`: the action did not happen (refused or failed); the pane's toast wears the problem mark. */
+export async function toast($: EngineInterface, text: string, options: { undo?: boolean; quiet?: boolean; problem?: boolean } = {}): Promise<void> {
+  await update($, uiAtom, u => ({ ...u, toast: { text, hasUndo: options.undo === true, ...(options.problem ? { isProblem: true } : {}) } }))
   if (!options.quiet) $.ui.toast(text)
 }
 
@@ -432,7 +438,7 @@ export async function joinTopic($: EngineInterface, topicId: string, options: { 
   const snap = await snapshot($)
   const topic = snap.model.topicById[topicId]
   if (!topic || topicId === UNSORTED_ID) {
-    await toast($, 'That topic is not on the map any more.')
+    await toast($, 'That topic is not on the map any more.', { problem: true })
     return
   }
   const next = cloneStore(snap.store)
@@ -456,7 +462,7 @@ export async function joinTopic($: EngineInterface, topicId: string, options: { 
 export async function createTopic($: EngineInterface, rawName: string): Promise<void> {
   const name = cleanName(rawName)
   if (!name) {
-    await toast($, 'A topic needs a name.')
+    await toast($, 'A topic needs a name.', { problem: true })
     return
   }
   const snap = await snapshot($)
@@ -530,7 +536,7 @@ export async function pickUp($: EngineInterface, sessionId: string): Promise<voi
   const snap = await snapshot($)
   const s = snap.model.byId[sessionId]
   if (!s) {
-    await toast($, 'That session is not on the map any more.')
+    await toast($, 'That session is not on the map any more.', { problem: true })
     return
   }
   const topic = snap.model.topicById[s.topicId]
@@ -547,7 +553,7 @@ export async function pickUpLatest($: EngineInterface, topicId: string): Promise
   const topic = snap.model.topicById[topicId]
   const latest = topic ? latestOf(topic.sessions) : undefined
   if (!latest) {
-    await toast($, 'That topic has no session to pick up from yet.')
+    await toast($, 'That topic has no session to pick up from yet.', { problem: true })
     return
   }
   await pickUp($, latest.id)
@@ -582,7 +588,7 @@ export async function draftPrompt($: EngineInterface, sessionId: string | null):
   const topic = sessionId ? snap.model.topicById[snap.model.byId[sessionId]?.topicId ?? ''] : snap.me.topicId ? snap.model.topicById[snap.me.topicId] : undefined
   const s = sessionId ? snap.model.byId[sessionId] : topic ? latestOf(topic.sessions) : undefined
   if (!s) {
-    await toast($, 'Nothing to draft from yet.')
+    await toast($, 'Nothing to draft from yet.', { problem: true })
     return
   }
   const name = topic && topic.id !== UNSORTED_ID ? topic.name : 'this work'
@@ -590,9 +596,9 @@ export async function draftPrompt($: EngineInterface, sessionId: string | null):
   try {
     const filled = await $.prompt.fill({ text, mode: 'replace' })
     if (filled.isFilled) await toast($, 'Drafted the next prompt in the composer; edit it and send.', { quiet: true })
-    else await toast($, `Could not draft here: ${filled.refusal === 'dialog' ? 'a dialog is open' : 'no composer to fill'}.`)
+    else await toast($, `Could not draft here: ${filled.refusal === 'dialog' ? 'a dialog is open' : 'no composer to fill'}.`, { problem: true })
   } catch (error) {
-    await toast($, `Could not fill the prompt: ${String(error)}`)
+    await toast($, `Could not fill the prompt: ${reasonOf(error)}.`, { problem: true })
   }
 }
 
@@ -604,9 +610,9 @@ export async function messageSession($: EngineInterface, sessionId: string, text
   if (!s || !body) return
   try {
     const sent = await $.session.send({ to: { sessionId }, text: body })
-    await toast($, sent.isDelivered ? `Message sent to “${clip(s.title, 40)}”. Its reply arrives here.` : `Not delivered: ${sent.reason}. That session is not running.`)
+    await toast($, sent.isDelivered ? `Message sent to “${clip(s.title, 40)}”. Its reply arrives here.` : `Not delivered: ${sent.reason}. That session is not running.`, { problem: !sent.isDelivered })
   } catch (error) {
-    await toast($, `Not delivered: ${String(error)}`)
+    await toast($, `Not delivered: ${reasonOf(error)}.`, { problem: true })
   }
 }
 
@@ -626,10 +632,10 @@ export async function newSessionFrom($: EngineInterface, sessionId: string): Pro
   else argv = ['xdg-open', url]
   try {
     const run = await $.process.run(argv, { timeoutMs: 10000 })
-    if (run.exitCode === 0) await toast($, `Opening a new session on ${topic?.name ?? 'this topic'}, seeded from “${clip(s.title, 40)}”. Desktop asks you to confirm the folder.`)
-    else await toast($, `Could not open the link (${argv[0]} exited ${run.exitCode}).`)
+    if (run.exitCode === 0) await toast($, `Opening a new session on ${topic?.name ?? 'this topic'}, seeded from “${clip(s.title, 40)}”. The Desktop asks you to confirm the folder.`)
+    else await toast($, `Could not open the link (${argv[0]} exited ${run.exitCode}).`, { problem: true })
   } catch (error) {
-    await toast($, `Could not open the link: ${String(error)}`)
+    await toast($, `Could not open the link: ${reasonOf(error)}.`, { problem: true })
   }
 }
 
@@ -688,7 +694,7 @@ export async function toggleArchive($: EngineInterface, sessionId: string): Prom
     const answer = await $.ui.ask(`Also archive “${clip(s.title, 40)}” in the Desktop sidebar?`, ['Archive there too', 'Only on the map'])
     if (answer !== 'Archive there too') return
     const result = await $.mcp.call(server, 'archive_session', { session_id: sessionId })
-    if (result.isError) await toast($, 'The Desktop did not archive it.')
+    if (result.isError) await toast($, 'The Desktop did not archive it.', { problem: true })
   } catch {
     // dismissed, or no dialog here
   }
@@ -841,7 +847,7 @@ export async function mergeInto($: EngineInterface, targetId: string): Promise<v
   await patchUi($, { mergeFrom: null })
   if (!from || !target) return
   if (from.id === target.id) {
-    await toast($, `${from.name} cannot merge into itself.`)
+    await toast($, `${from.name} cannot merge into itself.`, { problem: true })
     return
   }
   const next = cloneStore(snap.store)
@@ -906,7 +912,7 @@ export async function jumpTo($: EngineInterface, sessionId: string): Promise<voi
   const snap = await snapshot($)
   const s = snap.model.byId[sessionId]
   if (!s) {
-    await toast($, 'That session is not on the map any more.')
+    await toast($, 'That session is not on the map any more.', { problem: true })
     return
   }
   await patchUi($, { focusTopic: s.topicId, selected: sessionId, hover: null, showSettings: false, showHelp: false, messageMode: false, editing: null, moveMode: false, mergeFrom: null })

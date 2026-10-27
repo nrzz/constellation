@@ -7,8 +7,9 @@
 //   cards     the joined card, the topic card and the session card
 //   list      the List view, the first topic open with a step selected
 //   settings  the settings view, the advanced rows unfolded
+//   states    the band asking for a note and naming a new topic, a toast with Undo and a refused one
 //
-//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus|cards|list|settings]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
+//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus|cards|list|settings|states]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
 //
 // The Desktop draws a Button's children as one flat label in the button's own colours (a `primary` one a
 // light slab, a default one a grey chip, a `plain` one as text), a hotkey as a small key cap after the
@@ -127,6 +128,12 @@ const SCENES = {
   ],
   list: [['list', () => column(draw.drawHeader(T, { ...focused, ui: { ...focused.ui, view: 'list' } }, act), draw.drawList(T, { ...focused, ui: { ...focused.ui, view: 'list' } }, act))]],
   settings: [['settings', () => draw.drawSettings(T, { ...view, ui: { ...ui, showSettings: true, showAdvanced: true } }, act)]],
+  states: [
+    ['band: a note', () => draw.drawBand(T, { ...view, me: { ...view.me, askNote: true } }, act)],
+    ['band: a new topic', () => draw.drawBand(T, { ...view, me: { ...view.me, topicId: null, isNewTopic: true } }, act)],
+    ['toast', () => draw.drawToast(T, { ...view, ui: { ...ui, toast: { text: 'Archived “Gates on the branch”.', hasUndo: true } } }, act)],
+    ['toast: refused', () => draw.drawToast(T, { ...view, ui: { ...ui, toast: { text: 'Could not draft here: a dialog is open.', hasUndo: false, isProblem: true } } }, act)],
+  ],
 }
 const panels = []
 for (const [label, build] of SCENES[WHICH]) {

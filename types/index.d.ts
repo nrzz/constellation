@@ -68,7 +68,8 @@ export type MapSettings = {
   layerHeight: number
 }
 
-export type ToastState = { text: string; hasUndo: boolean }
+/** `isProblem`: the action did not happen (refused or failed). */
+export type ToastState = { text: string; hasUndo: boolean; isProblem?: boolean }
 
 /** The pane's own view state. */
 export type UiState = {

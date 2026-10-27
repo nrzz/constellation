@@ -23,6 +23,8 @@ export const TEXT = '#E8ECF2'
 export const MUTED = '#8B95A5'
 /** A translucent hairline that reads on the Desktop's dark and light themes alike. */
 export const HAIRLINE = 'rgba(139, 149, 165, 0.3)'
+/** Something that did not happen (a refused or failed action): a coral no topic, the accent or live wears. */
+export const PROBLEM = '#F26D5B'
 export const DIM = '#6F7988'
 export const LABEL = '#C9D1DC'
 export const SANS = "'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif"
@@ -1579,12 +1581,26 @@ export function drawToast(T: Table, view: View, act: Actions): RenderElement | n
   const { Box, Text, Button } = T
   const toast = view.ui.toast
   if (!toast) return null
+  // A word on what just happened: a translucent hairline card in no topic's colour, so it never reads as one;
+  // a refused or failed action wears the problem coral and its own mark.
+  const isProblem = toast.isProblem === true
+  const framed = view.surface !== 'terminal'
   return (
-    <Box flexDirection="row" gap="sm" alignItems="center" borderStyle="round" borderColor="#5FD3A6" paddingX={1}>
-      <Text color="#5FD3A6">{marks(view).done}</Text>
+    <Box
+      key="cd:toast"
+      flexDirection="row"
+      gap="sm"
+      alignItems="center"
+      flexWrap="wrap"
+      borderStyle="round"
+      borderColor={isProblem ? rgba(PROBLEM, 0.55) : HAIRLINE}
+      backgroundColor={isProblem ? rgba(PROBLEM, 0.08) : rgba(MUTED, 0.06)}
+      paddingX={1}
+    >
+      <Text color={isProblem ? PROBLEM : MUTED}>{isProblem ? '!' : marks(view).done}</Text>
       <Text>{toast.text}</Text>
-      {toast.hasUndo ? <Button key="toast:undo" label="Undo" hotkey={hk(view, 'z')} onPress={() => act.undo()} /> : null}
-      <Button key="toast:dismiss" label="Dismiss" plain onPress={() => act.dismissToast()} />
+      {toast.hasUndo ? outline(T, view, 'ob:toast:undo', [<Button key="toast:undo" label="Undo" hotkey={hk(view, 'z')} plain={framed || undefined} onPress={() => act.undo()} />]) : null}
+      <Button key="toast:dismiss" label="Dismiss" plain dimColor onPress={() => act.dismissToast()} />
     </Box>
   )
 }
@@ -1656,23 +1672,32 @@ export function drawInlineRow(T: Table, raw: View, act: Actions): RenderElement 
 export function drawBand(T: Table, view: View, act: Actions): RenderElement | null {
   const { Box, Text, Button, Input } = T
   const { me } = view
+  const framed = view.surface !== 'terminal'
   if (me.askNote) {
-    return (
+    // The note goes with this session's topic, so the card wears that topic's colour, as the joined card does.
+    const topic = me.topicId ? view.model.topicById[me.topicId] : undefined
+    const { borderColor, fill } = topic ? tinted(topic.color) : { borderColor: HAIRLINE, fill: undefined }
+    return card(T, [
+      <Box flexDirection="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="sm">
+        <Text weight="medium">Park a handoff note</Text>
+        {topic ? <Text dimColor mono size="footnote">{clip(topic.name, 40)}</Text> : null}
+      </Box>,
       <Box flexDirection="row" gap="xs" alignItems="center" flexWrap="wrap">
-        <Text>Park a handoff note for this session?</Text>
         {Input ? <Input key="park" placeholder="What is done, what is left, what to watch" submitLabel="park" onSubmit={text => act.park(text)} /> : null}
-        <Button key="park:skip" label="Skip" role="dismiss" onPress={() => act.skipNote()} />
-      </Box>
-    )
+        {outline(T, view, 'ob:park:skip', [<Button key="park:skip" label="Skip" role="dismiss" plain={framed || undefined} onPress={() => act.skipNote()} />])}
+      </Box>,
+      <Text dimColor size="footnote">The next session on this topic gets it with its first prompt.</Text>,
+    ], borderColor, { key: 'cd:park', fill })
   }
   if (me.topicId === null && me.isNewTopic) {
-    return (
+    return card(T, [
+      <Text weight="medium">Name a new topic</Text>,
       <Box flexDirection="row" gap="xs" alignItems="center" flexWrap="wrap">
-        <Text>New topic for this session:</Text>
         {Input ? <Input key="topicname" placeholder="Name this topic" submitLabel="create" onSubmit={name => act.createTopic(name)} autoFocus /> : <Text dimColor>/topic &lt;name&gt; names it</Text>}
-        <Button key="topicname:cancel" label="Cancel" role="dismiss" onPress={() => act.cancelNewTopic()} />
-      </Box>
-    )
+        {outline(T, view, 'ob:topicname:cancel', [<Button key="topicname:cancel" label="Cancel" role="dismiss" plain={framed || undefined} onPress={() => act.cancelNewTopic()} />])}
+      </Box>,
+      <Text dimColor size="footnote">This session becomes its first step; later sessions can join it.</Text>,
+    ], HAIRLINE, { key: 'cd:name' })
   }
   if (me.topicId !== null || me.isBandHidden) return null
   return drawChooser(T, view, act, 'band')
