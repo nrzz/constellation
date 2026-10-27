@@ -83,8 +83,8 @@ settle 45 || { summary; cleanup; exit 1; }
 expect_text whole "Checkout Cart" "the band offers the folder's topic"
 
 type_line "/map" 6
-expect_text whole "CONSTELLATION" "/map opens the pane"
-expect_text whole "JUMP BACK IN" "the pane shows the recent sessions"
+expect_text whole "Constellation" "/map opens the pane"
+expect_text whole "Jump back in" "the pane shows the recent sessions"
 expect_text right "Click or Tab to a topic" "the docked terminal map draws its hint"
 expect_text right "○ Checkout Cart 2" "the terminal map draws the topic"
 expect_eq "$(mouse_flags)" "11" "the fullscreen renderer has the terminal reporting the mouse (SGR, any motion)"
@@ -128,7 +128,7 @@ if read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"; then
   fi
   if read -r BR BC <<<"$(locate '‹ All topics' 1 60)"; then
     click $((BC+3)) "$BR"
-    expect_text right "JUMP BACK IN" "a click on the back pill returns to all topics"
+    expect_text right "Jump back in" "a click on the back pill returns to all topics"
   else
     echo "FAIL: the back pill is not on the screen"; FAILED=$((FAILED+1)); right | tail -30
   fi
@@ -137,8 +137,8 @@ if read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"; then
     click "$DC" "$DR"
     expect_text right "Pick up here" "a click on a session's dot opens its card in the chain"
     keys Escape; keys Escape
-    expect_text right "JUMP BACK IN" "Esc twice: the card, then the chain"
-    expect_text right "CONSTELLATION" "…and the pane stays open with nothing more to back out of yet"
+    expect_text right "Jump back in" "Esc twice: the card, then the chain"
+    expect_text right "Constellation" "…and the pane stays open with nothing more to back out of yet"
   else
     echo "FAIL: no session dot near the topic"; FAILED=$((FAILED+1)); right | tail -30
   fi
@@ -171,7 +171,7 @@ expect_text whole "Close help" "h opens the help card (the header's button flips
 keys Escape
 expect_text whole "\[ Help \]" "Esc closes the help first"
 keys Escape; sleep 2
-expect_absent whole "CONSTELLATION" "Esc with nothing left closes the pane"
+expect_absent whole "Jump back in" "Esc with nothing left closes the pane"
 
 type_line "/map help" 4
 expect_text whole "/pickup list" "/map help prints the commands"
@@ -254,7 +254,7 @@ IFS='|' read -r CFG DEMO <<<"$(seed_cfg default)"
 start_engine "$CFG" "$DEMO"
 settle 45 || { summary; cleanup; exit 1; }
 type_line "/map" 6
-expect_text whole "CONSTELLATION" "/map opens the pane inline"
+expect_text whole "Constellation" "/map opens the pane inline"
 expect_eq "$(mouse_flags)" "00" "the classic renderer leaves the terminal's mouse reporting off"
 expect_text whole "Tab to a topic · Enter focuses · the mouse works in /tui fullscreen" "the inline map's hint says what works there"
 if read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"; then
@@ -275,7 +275,7 @@ expect_absent whole "‹ All topics" "Esc backs out of the topic"
 keys h
 expect_text whole "Close help" "the hotkeys work inline: h opens the help"
 keys Escape; keys Escape; sleep 2
-expect_absent whole "CONSTELLATION" "Esc, Esc closes the pane"
+expect_absent whole "Jump back in" "Esc, Esc closes the pane"
 
 summary
 cleanup

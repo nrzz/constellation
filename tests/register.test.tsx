@@ -5,7 +5,7 @@ import type { FsEntry, On } from 'claude-code'
 import { backedOut } from '../hooks/actions'
 import { INITIAL_UI } from '../hooks/state'
 import { transcripts } from './fixtures/transcripts'
-import { pathOf } from './helpers'
+import { boxesOf, kids, pathOf } from './helpers'
 
 const CWD = 'D:\\Projects\\web-app'
 const SLUG = 'D--Projects-web-app'
@@ -385,7 +385,8 @@ test('archive and move leave an Undo; merge folds one topic into another', async
   expect(await ui.find({ type: 'Button', key: 'move:cancel' })).toBeDefined()
   await ui.press({ key: 't:topic:docs' })
   expect(stubs.toasts[stubs.toasts.length - 1]).toContain('Moved')
-  expect((await ui.find({ type: 'Button', key: 't:topic:docs' }))?.text).toContain('1')
+  // The count sits beside the name in the topic's chip, outside its Button.
+  expect(kids((await boxesOf(ui, 'tb:')).find(c => c.id === 'topic:docs')?.box).some(k => k.type === 'Text' && k.text === '1')).toBe(true)
 
   await ui.press({ key: 't:topic:docs' })
   await ui.press({ key: 'tc:merge' })
@@ -393,7 +394,7 @@ test('archive and move leave an Undo; merge folds one topic into another', async
   await ui.press({ key: `t:${CHECKOUT}` })
   expect(stubs.toasts[stubs.toasts.length - 1]).toContain('Merged Docs into')
   expect(await ui.find({ type: 'Button', key: 't:topic:docs' })).toBeUndefined()
-  expect((await ui.find({ type: 'Button', key: `t:${CHECKOUT}` }))?.text).toContain('2')
+  expect(kids((await boxesOf(ui, 'tb:')).find(c => c.id === CHECKOUT)?.box).some(k => k.type === 'Text' && k.text === '2')).toBe(true)
   await ui.unmount()
 })
 

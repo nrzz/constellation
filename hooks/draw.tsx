@@ -282,6 +282,11 @@ export function hintFitted(view: View, size: FieldSize): string {
 }
 
 /** The whole field as an SVG document, under the 131072-character cap. */
+/** How many of a topic's sessions run: its active ones, and this session once it joined (before its transcript lands in the topic). */
+export function runningOf(view: Pick<View, 'me'>, t: Topic): number {
+  return t.sessions.filter(s => s.status === 'active').length + (view.me.topicId === t.id && !t.sessions.some(s => s.id === view.me.sessionId) ? 1 : 0)
+}
+
 export function svgOf(view: View, options: SvgOptions = {}): string {
   const withTooltips = options.withTooltips ?? true
   const { model, ui, placed, now } = view
@@ -339,7 +344,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   const indexOf = new Map<string, number>()
   model.topics.forEach((t, i) => indexOf.set(t.id, i))
   // Running: a session written in the last few minutes, or this one; a topic holding one. Live draws a ripple about each.
-  const runningIn = (t: Topic) => t.sessions.filter(s => s.status === 'active').length + (view.me.topicId === t.id && !t.sessions.some(s => s.id === view.me.sessionId) ? 1 : 0)
+  const runningIn = (t: Topic) => runningOf(view, t)
   const ripple = (x: number, y: number, r: number, stroke: string, seed: number) => {
     if (!live) return ''
     const d = 2 + (seed % 11) / 10
@@ -789,28 +794,31 @@ export function statsOf(model: Model): string {
 export function drawHeader(T: Table, view: View, act: Actions): RenderElement {
   const { Box, Text, Button, Input, Select } = T
   const { ui } = view
+  // The Desktop draws each control as a chip, the current one tinted in the accent; the terminal has no
+  // fills or hairlines to spare, so there the current view keeps its `primary` (reversed) button.
+  const framed = view.surface !== 'terminal'
+  const pick = (id: string, isOn: boolean, button: RenderElement) => (isOn ? chip(T, view, `hb:${id}`, ACCENT, 'accent', [button]) : outline(T, view, `hb:${id}`, [button]))
   return (
     <Box flexDirection="column" gap="xs">
       {/* The title and the crumb on one row, the controls on the next: a narrow pane wraps the controls alone, in order. */}
       <Box flexDirection="row" alignItems="center" gap="sm">
-        <Text weight="semibold" mono>
-          CONSTELLATION
-        </Text>
+        <Text weight="medium">Constellation</Text>
         <Text dimColor size="footnote" wrap="truncate">
           {crumbOf(view)}
         </Text>
       </Box>
-      <Box flexDirection="row" alignItems="center" gap="sm" flexWrap="wrap">
+      <Box flexDirection="row" alignItems="center" gap="xs" flexWrap="wrap">
         {Input ? <Input key="q" placeholder="Search sessions, notes, files" value={ui.query} submitLabel="search" onInput={v => act.setQuery(v)} onSubmit={v => act.setQuery(v)} /> : null}
         {Select ? <Select key="range" options={RANGE_OPTIONS} value={String(view.settings.rangeDays)} onSelect={v => act.setRange(Number(v))} /> : null}
-        <Button key="view:map" label="Map" hotkey={hk(view, 'm')} variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
-        <Button key="view:list" label="List" hotkey={hk(view, 'l')} variant={ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />
-        <Button key="settings" label={`${marks(view).gear}${ui.showSettings ? 'Done' : 'Settings'}`} hotkey={hk(view, 's')} onPress={() => act.toggleSettings()} />
-        <Button key="help" label={ui.showHelp ? 'Close help' : 'Help'} hotkey={hk(view, 'h')} onPress={() => act.toggleHelp()} />
+        {pick('map', ui.view === 'map', <Button key="view:map" label="Map" hotkey={hk(view, 'm')} plain={framed || undefined} variant={framed ? undefined : ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />)}
+        {pick('list', ui.view === 'list', <Button key="view:list" label="List" hotkey={hk(view, 'l')} plain={framed || undefined} variant={framed ? undefined : ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />)}
+        {pick('settings', ui.showSettings, <Button key="settings" label={`${marks(view).gear}${ui.showSettings ? 'Done' : 'Settings'}`} hotkey={hk(view, 's')} plain={framed || undefined} onPress={() => act.toggleSettings()} />)}
+        {pick('help', ui.showHelp, <Button key="help" label={ui.showHelp ? 'Close help' : 'Help'} hotkey={hk(view, 'h')} plain={framed || undefined} onPress={() => act.toggleHelp()} />)}
         {view.me.topicId ? (
-          <Button key="mine" hotkey={hk(view, 'y')} plain onPress={() => act.myTopic()}>
-            <Text color={ACCENT}>♦</Text> my topic
-          </Button>
+          <Box key="hb:mine" flexDirection="row" alignItems="center" gap="xs" paddingX={1} hover={{ backgroundColor: rgba(ACCENT, 0.12) }}>
+            <Text color={ACCENT}>♦</Text>
+            <Button key="mine" label="my topic" hotkey={hk(view, 'y')} plain onPress={() => act.myTopic()} />
+          </Box>
         ) : null}
         {ui.query.trim() ? <Button key="q:clear" label="× clear search" plain dimColor onPress={() => act.setQuery('')} /> : null}
         <Button key="refresh" label={`${marks(view).refresh}refresh`} plain dimColor onPress={() => act.refresh()} />
@@ -832,22 +840,34 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
   const { Box, Text, Button } = T
   const { model, ui } = view
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
+  const framed = view.surface !== 'terminal'
   if (!focus) {
+    // A merge or move pick strengthens every chip so it reads as a target; the terminal shows it as buttons.
     const isPicking = ui.mergeFrom !== null || ui.moveMode
     return (
       <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-        {model.topics.map(t => (
-          <Button
-            key={`t:${t.id}`}
-            plain={isPicking ? undefined : true}
-            dimColor={!t.isMajor}
-            onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(t.id))}
-          >
-            <Text color={t.color}>●</Text> {clip(t.name, 28)} <Text dimColor mono>{String(t.sessions.length)}</Text>
-          </Button>
-        ))}
-        {ui.mergeFrom !== null ? <Button key="merge:cancel" label="Cancel merge" onPress={() => act.mergeMode(null)} /> : null}
-        {ui.moveMode ? <Button key="move:cancel" label="Cancel move" onPress={() => act.moveMode(false)} /> : null}
+        {model.topics.map(t =>
+          chip(T, view, `tb:${t.id}`, t.color, isPicking ? 'strong' : t.isMajor ? 'normal' : 'quiet', [
+            <Text color={t.color}>●</Text>,
+            <Button
+              key={`t:${t.id}`}
+              label={clip(t.name, 28)}
+              plain={framed || !isPicking ? true : undefined}
+              dimColor={!t.isMajor}
+              onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(t.id))}
+            />,
+            <Text dimColor mono size="footnote">
+              {String(t.sessions.length)}
+            </Text>,
+            runningOf(view, t) > 0 ? (
+              <Text color={ACCENT} size="footnote">
+                live
+              </Text>
+            ) : null,
+          ]),
+        )}
+        {ui.mergeFrom !== null ? outline(T, view, 'xb:merge', [<Button key="merge:cancel" label="Cancel merge" plain={framed || undefined} onPress={() => act.mergeMode(null)} />]) : null}
+        {ui.moveMode ? outline(T, view, 'xb:move', [<Button key="move:cancel" label="Cancel move" plain={framed || undefined} onPress={() => act.moveMode(false)} />]) : null}
       </Box>
     )
   }
@@ -856,32 +876,49 @@ export function drawControls(T: Table, view: View, act: Actions): RenderElement 
   return (
     <Box flexDirection="column" gap="xs">
       <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-        <Button key="back" label="‹ All topics" hotkey={hk(view, 'b')} onPress={() => act.allTopics()} />
-        {steps.map((s, i) => (
-          <Button
-            key={`s:${s.id}`}
-            hotkey={hk(view, i < 9 ? String(i + 1) : undefined)}
-            plain
-            variant={ui.selected === s.id ? 'primary' : undefined}
-            onPress={() => (s.isYou ? act.selectSession(null) : act.selectSession(ui.selected === s.id ? null : s.id))}
-          >
-            {`${i + 1} `}
-            {s.isYou ? 'This session · you' : clip(s.session?.title ?? '', 26)}
-          </Button>
-        ))}
+        {outline(T, view, 'bb:back', [<Button key="back" label="‹ All topics" hotkey={hk(view, 'b')} plain={framed || undefined} onPress={() => act.allTopics()} />])}
+        {steps.map((s, i) => {
+          const isSelected = ui.selected === s.id
+          // Steps 1–9 show their number as the hotkey's key cap; past nine, or in a chat row, it is a dim number.
+          const hotkey = hk(view, i < 9 ? String(i + 1) : undefined)
+          return chip(T, view, `sb:${s.id}`, focus.color, isSelected ? 'strong' : 'quiet', [
+            hotkey ? null : (
+              <Text dimColor mono size="footnote">
+                {String(i + 1)}
+              </Text>
+            ),
+            <Button
+              key={`s:${s.id}`}
+              label={s.isYou ? 'This session' : clip(s.session?.title ?? '', 26)}
+              hotkey={hotkey}
+              plain
+              variant={!framed && isSelected ? 'primary' : undefined}
+              onPress={() => (s.isYou ? act.selectSession(null) : act.selectSession(isSelected ? null : s.id))}
+            />,
+            s.isYou || s.session?.status === 'active' ? (
+              <Text color={ACCENT} size="footnote">
+                {s.isYou ? 'you' : 'live'}
+              </Text>
+            ) : null,
+          ])
+        })}
       </Box>
       {rel.length > 0 ? (
         <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-          <Text dimColor size="footnote" mono>
-            RELATED
+          <Text dimColor size="footnote">
+            related
           </Text>
           {rel.map(r => {
             const rt = model.topicById[r.id]
-            return rt ? (
-              <Button key={`a:${rt.id}`} plain dimColor onPress={() => act.focusTopic(rt.id)}>
-                <Text color={rt.color}>●</Text> {clip(rt.name, 22)} <Text dimColor mono>{r.via}</Text>
-              </Button>
-            ) : null
+            return rt
+              ? chip(T, view, `ab:${rt.id}`, rt.color, 'quiet', [
+                  <Text color={rt.color}>●</Text>,
+                  <Button key={`a:${rt.id}`} label={clip(rt.name, 22)} plain dimColor onPress={() => act.focusTopic(rt.id)} />,
+                  <Text dimColor mono size="footnote">
+                    {r.via}
+                  </Text>,
+                ])
+              : null
           })}
         </Box>
       ) : null}
@@ -898,16 +935,19 @@ export function drawRecent(T: Table, view: View, act: Actions): RenderElement | 
   if (recent.length === 0) return null
   return (
     <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-      <Text dimColor size="footnote" mono>
-        JUMP BACK IN
+      <Text dimColor size="footnote">
+        Jump back in
       </Text>
       {recent.map(s => {
-        const t = model.topicById[s.topicId]
-        return (
-          <Button key={`r:${s.id}`} plain onPress={() => act.jumpTo(s.id)}>
-            <Text color={t?.color ?? ACCENT}>{statusGlyph(s)}</Text> {clip(s.title, 32)} <Text dimColor mono>{ageOf(s.lastAt, now)}</Text>
-          </Button>
-        )
+        const color = model.topicById[s.topicId]?.color ?? ACCENT
+        // The chip carries its topic's colour; the glyph turns to the accent while the session runs.
+        return chip(T, view, `rb:${s.id}`, color, 'quiet', [
+          <Text color={s.status === 'active' ? ACCENT : color}>{statusGlyph(s)}</Text>,
+          <Button key={`r:${s.id}`} label={clip(s.title, 32)} plain onPress={() => act.jumpTo(s.id)} />,
+          <Text dimColor mono size="footnote">
+            {ageOf(s.lastAt, now)}
+          </Text>,
+        ])
       })}
     </Box>
   )
@@ -1150,6 +1190,44 @@ export function drawSettings(T: Table, view: View, act: Actions): RenderElement 
     </Text>,
   )
   return card(T, rows)
+}
+
+/** A chip's fill, hairline, and both on hover: quiet (a minor or unpicked thing), normal, strong (chosen), accent (the current view). */
+const TINT = { quiet: [0.05, 0.2, 0.12, 0.5], normal: [0.1, 0.35, 0.18, 0.7], strong: [0.18, 1, 0.26, 1], accent: [0.16, 0.55, 0.22, 0.8] } as const
+
+/**
+ * A Box tinted in `color` around a plain Button and its parts: the Desktop flattens a Button's children into
+ * one label in the button's own colours, so a dot, a dim count or an accent word sits beside the Button.
+ * A border costs the terminal two rows: there the chips go borderless.
+ */
+function chip(T: Table, view: View, key: string, color: string, level: keyof typeof TINT, children: (RenderElement | null | false)[]): RenderElement {
+  const { Box } = T
+  const [fill, line, hoverFill, hoverLine] = TINT[level]
+  return (
+    <Box
+      key={key}
+      flexDirection="row"
+      alignItems="center"
+      gap="sm"
+      paddingX={1}
+      borderStyle={view.surface !== 'terminal' ? 'round' : undefined}
+      borderColor={rgba(color, line)}
+      backgroundColor={rgba(color, fill)}
+      hover={{ backgroundColor: rgba(color, hoverFill), borderColor: rgba(color, hoverLine) }}
+    >
+      {children.filter(c => c !== null && c !== false)}
+    </Box>
+  )
+}
+
+/** A secondary action: a neutral outline that lifts on hover. */
+function outline(T: Table, view: View, key: string, children: (RenderElement | null | false)[]): RenderElement {
+  const { Box } = T
+  return (
+    <Box key={key} flexDirection="row" alignItems="center" gap="sm" paddingX={1} borderStyle={view.surface !== 'terminal' ? 'round' : undefined} borderColor={rgba(MUTED, 0.45)} hover={{ borderColor: rgba(MUTED, 0.85), backgroundColor: rgba(MUTED, 0.1) }}>
+      {children.filter(c => c !== null && c !== false)}
+    </Box>
+  )
 }
 
 function card(T: Table, children: (RenderElement | null | false)[], borderColor = CARD_BORDER): RenderElement {
@@ -1465,9 +1543,7 @@ export function drawInlineRow(T: Table, raw: View, act: Actions): RenderElement 
   return (
     <Box flexDirection="column" gap="xs">
       <Box flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
-        <Text weight="semibold" mono>
-          CONSTELLATION
-        </Text>
+        <Text weight="medium">Constellation</Text>
         <Text dimColor size="footnote">{`${me.folder || 'folder'} · ${statsOf(model)} · /map opens the live pane`}</Text>
       </Box>
       {drawRecent(T, view, act)}

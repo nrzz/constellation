@@ -7,7 +7,7 @@ import type { Timer } from 'claude-code'
 import { cancelReclaim, notePaneFocus, scheduleReclaim } from '../hooks/actions'
 import type { ReclaimIo } from '../hooks/actions'
 import { READS_PER_PASS } from '../hooks/scan'
-import { CHECKOUT, CWD, IDS, ME, NOW, bandOn, paneOn, run, stubEngine, submit, turn, userRow, assistantRow } from './helpers'
+import { CHECKOUT, CWD, IDS, ME, NOW, bandOn, boxesOf, kids, paneOn, run, stubEngine, submit, turn, userRow, assistantRow } from './helpers'
 import type { FakeFile } from './helpers'
 
 const ROW = {
@@ -199,6 +199,12 @@ test('the chat row offers no hotkeys, since no site holds the focus there; the p
   expect(await row.find({ type: 'Button', key: 'tc:focus' })).toBeDefined()
   expect(await row.find({ type: 'Button', key: `s:${IDS.tests}` })).toBeDefined()
   await row.unmount()
+  // On the Desktop the row draws the chain's buttons: with no key cap to carry it, each step's number shows as dim mono text in its chip.
+  const desk = await $.ui.mount({ ...ROW, surface: 'desktop' })
+  const steps = await boxesOf(desk, 'sb:')
+  expect(steps.length).toBeGreaterThan(1)
+  steps.forEach(({ box }, i) => expect(kids(box).find(k => k.type === 'Text' && k.text === String(i + 1))?.props.mono).toBe(true))
+  await desk.unmount()
   const pane = await $.ui.mount(paneOn('terminal'))
   expect((await pane.find({ type: 'Button', key: 'tc:focus' }))?.props.hotkey).toBe('f')
   expect((await pane.find({ type: 'Button', key: `s:${IDS.tests}` }))?.props.hotkey).toBe('2')

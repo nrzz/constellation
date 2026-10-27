@@ -2,7 +2,7 @@
 // store and env, and a stub for every other call the mod makes, each
 // recording what it was asked so a test can assert on it.
 import { mock } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, FoundElement } from 'claude-code/testing'
 import type { FsEntry, On, UiPane } from 'claude-code'
 
 import { transcripts } from './fixtures/transcripts'
@@ -249,4 +249,48 @@ export function userRow(id: string, uuid: string, at: string, content: unknown, 
 
 export function assistantRow(id: string, uuid: string, at: string, content: unknown[]): string {
   return line({ parentUuid: null, type: 'assistant', message: { role: 'assistant', model: 'claude-opus-5-5', content }, uuid, timestamp: at, cwd: CWD, sessionId: id, version: '2.1.310', gitBranch: 'main' })
+}
+
+/** The rgb triple of a `#rrggbb` or an `rgba(...)`, to compare a tint with the colour it came from. */
+export function rgbOf(color: unknown): string {
+  const s = String(color)
+  const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(s)
+  if (m) return `${m[1]},${m[2]},${m[3]}`
+  const hex = s.replace('#', '')
+  const n = Number.parseInt(hex.slice(0, 6), 16)
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
+}
+
+export function alphaOf(color: unknown): number {
+  const m = /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(String(color))
+  return m ? Number(m[1]) : 1
+}
+
+type Raw = { type: string; props?: Record<string, unknown>; children?: unknown[] }
+
+/** An element's child elements, read as `find` reads elements: children arrive as raw descriptions. */
+export function kids(el: FoundElement | undefined): FoundElement[] {
+  return (el?.children ?? [])
+    .filter((c): c is Raw => typeof c === 'object' && c !== null && 'type' in c)
+    .map(c => {
+      const props = c.props ?? {}
+      const strings = (c.children ?? []).filter((x): x is string => typeof x === 'string').join('')
+      return { type: c.type, key: typeof props.key === 'string' ? props.key : undefined, props, text: strings || (typeof props.label === 'string' ? props.label : ''), children: c.children ?? [] }
+    })
+}
+
+/** The Boxes whose key starts with `prefix`, from the drawing itself: `find` leaves out an element's `hover`, which sits beside its props. */
+export async function boxesOf(ui: { drawn: () => Promise<unknown> }, prefix: string): Promise<{ id: string; box: FoundElement }[]> {
+  const out: { id: string; box: FoundElement }[] = []
+  const walk = (n: unknown): void => {
+    if (typeof n !== 'object' || n === null) return
+    const el = n as Raw & { hover?: unknown }
+    const key = el.props?.key
+    if (el.type === 'Box' && typeof key === 'string' && key.startsWith(prefix)) {
+      out.push({ id: key.slice(prefix.length), box: { type: 'Box', key, props: { ...el.props, hover: el.hover }, text: '', children: el.children ?? [] } })
+    }
+    for (const c of el.children ?? []) walk(c)
+  }
+  walk(await ui.drawn())
+  return out
 }

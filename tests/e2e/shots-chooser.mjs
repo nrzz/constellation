@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// The join chooser as the Desktop draws it: the band and the pane's chooser, each in the dark and the light
-// theme, built by the mod's own drawChooser over a folder like the owner's (three topics, one suggested).
+// The pane's element trees as the Desktop draws them, each in the dark and the light theme, built by the mod's
+// own draw functions over a folder like the owner's (three major topics, one minor, one suggested, one running):
+//   chooser   the band and the pane's chooser (the default)
+//   map       the pane's header, "Jump back in" and the buttons under the map, and a merge pick
+//   focus     the header and the buttons under a focused topic's chain, a step selected
 //
-//   node tests/e2e/shots-chooser.mjs <out.png>     # needs tsc (npx typescript@5.9.3) and Edge or Chrome
+//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
 //
 // The Desktop draws a Button's children as one flat label in the button's own colours (a `primary` one a
 // light slab, a default one a grey chip, a `plain` one as text), a hotkey as a small key cap after the
@@ -15,7 +18,8 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const OUT = path.resolve(process.argv[2] ?? path.join(REPO, 'chooser.png'))
+const WHICH = process.argv[3] ?? 'chooser'
+const OUT = path.resolve(process.argv[2] ?? path.join(REPO, `${WHICH}.png`))
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cst-chooser-'))
 
 // The hooks as plain ES modules: tsc emits them, the relative imports gain their extension.
@@ -39,16 +43,25 @@ const draw = await import(pathToFileURL(path.join(tmp, 'hooks', 'draw.js')).href
 const NOW = Date.parse('2026-10-27T18:00:00.000Z')
 const MIN = 60_000
 const DAY = 86_400_000
-const topicOf = (id, name, color, count, ago) => ({ id, name, color, lastAt: NOW - ago, sessions: Array.from({ length: count }, (_, i) => ({ id: `${id}-${i}`, lastAt: NOW - ago - i * DAY, status: 'idle' })) })
+const TITLES = ['Live pane hover tracing', 'Join card redesign', 'Idle cycle soft fade', 'Running topic ring', 'Gates on the branch', 'Installer fixes']
+const sessionOf = (id, i, ago) => ({ id: `${id}-${i}`, topicId: id, title: `${TITLES[i % TITLES.length]}${i >= TITLES.length ? ` ${i}` : ''}`, lastAt: NOW - ago - i * DAY, startedAt: NOW - ago - (10 - i) * DAY, isInRange: true, status: id === 't1' && i === 0 ? 'active' : 'idle', turns: 12, branch: 'main' })
+const topicOf = (id, name, color, count, ago, isMajor = true) => ({ id, name, color, isMajor, lastAt: NOW - ago, sessions: Array.from({ length: count }, (_, i) => sessionOf(id, i, ago)) })
 const topics = [
   topicOf('t1', 'Constellation Build', '#E9A23B', 10, 3 * MIN),
   topicOf('t2', 'Claudetools Tools', '#58A6FF', 11, 8 * DAY),
   topicOf('t3', 'Api Trading', '#3FB950', 2, 22 * DAY),
 ]
-const model = { topics, sessions: topics.flatMap(t => t.sessions), byId: {}, topicById: Object.fromEntries(topics.map(t => [t.id, t])) }
-const view = { model, me: { folder: 'Projects', suggested: 't1', topicId: null, isNewTopic: false }, now: NOW, surface: 'desktop', settings: {}, ui: {} }
+if (WHICH !== 'chooser') topics.push(topicOf('t4', 'Notes', '#B58CFF', 1, 30 * DAY, false))
+if (WHICH === 'focus') topics[0].sessions = topics[0].sessions.slice(0, 5)
+const sessions = topics.flatMap(t => t.sessions).sort((a, b) => b.lastAt - a.lastAt)
+const model = { topics, sessions, links: [], byId: Object.fromEntries(sessions.map(s => [s.id, s])), topicById: Object.fromEntries(topics.map(t => [t.id, t])) }
+const ui = { view: 'map', query: '', focusTopic: null, selected: null, mergeFrom: null, moveMode: false, showSettings: false, showHelp: false }
+const settings = { rangeDays: 30, numbering: 'oldestFirst', showRelated: true }
+const view = WHICH === 'chooser'
+  ? { model, me: { folder: 'Projects', suggested: 't1', topicId: null, isNewTopic: false }, now: NOW, surface: 'desktop', settings: {}, ui: {} }
+  : { model, me: { folder: 'Projects', suggested: null, topicId: 't1', isNewTopic: false }, now: NOW, surface: 'desktop', settings, ui }
 const act = new Proxy({}, { get: () => () => undefined })
-const T = { Box: 'Box', Text: 'Text', Button: 'Button' }
+const T = { Box: 'Box', Text: 'Text', Button: 'Button', Input: 'Input', Select: 'Select' }
 
 const SPACE = { xs: 4, sm: 8, md: 12, lg: 16 }
 const px = v => (typeof v === 'number' ? v * 8 : (SPACE[v] ?? 0))
@@ -79,9 +92,11 @@ function html(n) {
     return `<div style="${css.filter(Boolean).join(';')}">${kids}</div>`
   }
   if (n.type === 'Text') {
-    const css = [p.color ? `color:${p.color}` : '', p.dimColor ? 'opacity:.55' : '', p.mono ? 'font-family:Consolas,monospace' : '', p.weight === 'medium' ? 'font-weight:600' : '', p.size === 'footnote' ? 'font-size:12.5px' : '']
+    const css = [p.color ? `color:${p.color}` : '', p.dimColor ? 'opacity:.55' : '', p.mono ? 'font-family:Consolas,monospace' : '', p.weight === 'medium' ? 'font-weight:600' : p.weight === 'semibold' ? 'font-weight:700' : '', p.size === 'footnote' ? 'font-size:12.5px' : '']
     return `<span style="${css.filter(Boolean).join(';')}">${kids}</span>`
   }
+  if (n.type === 'Input') return `<span class="input">${escape(p.value || p.placeholder || '')}</span>`
+  if (n.type === 'Select') return `<span class="input">${escape(p.options?.find(o => o.value === p.value)?.label ?? p.value ?? '')} ▾</span>`
   if (n.type === 'Button') {
     const label = escape(p.label ?? flat(n).trim())
     const key = p.hotkey ? `<span class="key">${escape(p.hotkey)}</span>` : ''
@@ -91,9 +106,20 @@ function html(n) {
   return kids
 }
 
+const column = (...kids) => h('Box', { flexDirection: 'column', gap: 'xs' }, ...kids)
+const field = label => h('Box', { paddingY: 'lg' }, h('Text', { dimColor: true }, label))
+const focused = { ...view, model: { ...model, links: [{ a: 't1', b: 't2', via: 'draw.tsx' }] }, ui: { ...ui, focusTopic: 't1', selected: 't1-2' } }
+const SCENES = {
+  chooser: [['band', () => draw.drawChooser(T, view, act, 'band')], ['pane chooser', () => draw.drawChooser(T, view, act, 'pane')]],
+  map: [
+    ['map', () => column(draw.drawHeader(T, view, act), draw.drawRecent(T, view, act), field('[ the field ]'), draw.drawControls(T, view, act))],
+    ['merge pick', () => draw.drawControls(T, { ...view, ui: { ...ui, mergeFrom: 't2' } }, act)],
+  ],
+  focus: [['focus', () => column(draw.drawHeader(T, focused, act), field('[ the chain ]'), draw.drawControls(T, focused, act))]],
+}
 const panels = []
-for (const [where, label] of [['band', 'band'], ['pane', 'pane chooser']]) {
-  for (const theme of ['dark', 'light']) panels.push(`<div class="panel ${theme}"><div class="tag">${label} · ${theme}</div>${html(draw.drawChooser(T, view, act, where))}</div>`)
+for (const [label, build] of SCENES[WHICH]) {
+  for (const theme of ['dark', 'light']) panels.push(`<div class="panel ${theme}"><div class="tag">${label} · ${theme}</div>${html(build())}</div>`)
 }
 const page = `<!doctype html><meta charset="utf-8"><style>
 body{margin:0;background:#888;font:14px 'Segoe UI',system-ui,sans-serif}
@@ -105,6 +131,7 @@ body{margin:0;background:#888;font:14px 'Segoe UI',system-ui,sans-serif}
 .dark .btn{background:#3a3a3a;color:#ececec}.light .btn{background:#e7e7e4;color:#1f1f1f}
 .dark .btn.primary{background:#f2f2f2;color:#1a1a1a}.light .btn.primary{background:#1f1f1f;color:#fafafa}
 .btn.plain{background:none!important;padding:0 2px;color:inherit}
+.input{display:inline-flex;padding:4px 10px;border:1px solid var(--line);border-radius:6px;opacity:.8}
 .key{font:11px Consolas,monospace;border:1px solid currentColor;border-radius:3px;padding:0 4px;opacity:.55}
 .hov{font:11px Consolas,monospace;background:#222;color:#bbb;padding:8px 18px;white-space:pre-wrap}
 </style><body><div id="shot" style="width:1000px">${panels.join('')}<div class="hov">${hovers.length ? `hover: ${escape([...new Set(hovers)].join('\n       '))}` : 'hover: none'}</div></div></body>`
