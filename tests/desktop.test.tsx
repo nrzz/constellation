@@ -10,7 +10,7 @@ const ROW = {
   plugin: 'constellation',
   component: 'CommandOutput',
   requestId: 'msg-1',
-  props: { command: 'map', args: 'here', text: 'Constellation map (as of now). /map opens the live pane.', isErrored: false },
+  props: { command: 'map', args: 'here', text: 'Constellation map (as of now) · web-app · 1 topics · 3 sessions · 0 active', isErrored: false },
 } as const
 
 test('openOnStart pane: the pane opens for a Desktop or VS Code surface although the engine starts it headless', { options: { openOnStart: 'pane' } }, async ($, on) => {
@@ -93,15 +93,15 @@ test('a session.end that is not a clear or a resume starts nothing over', async 
   expect(stubs.status[stubs.status.length - 1]).toContain('step 3')
 })
 
-test('/map here prints a picture sized for the transcript, and the header shows the gear', async ($, on) => {
+test('/map here prints the picture as an image that takes the transcript’s width, and the header shows the gear', async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   await run($, 'map', 'here')
   const row = await $.ui.mount({ ...ROW, surface: 'desktop' })
   const svg = await row.find({ type: 'Svg' })
-  // 100 columns at 7.2 px.
-  expect(svg?.props.width).toBe(720)
-  expect(svg?.props.height).toBe(435)
+  expect(svg).toBeDefined()
+  expect(svg?.props.width).toBeUndefined()
+  expect(svg?.props.isInteractive).toBeUndefined()
   expect(await row.find({ type: 'Client' })).toBeUndefined()
   await row.unmount()
   const pane = await $.ui.mount(paneOn('desktop'))

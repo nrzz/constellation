@@ -4,14 +4,19 @@
 // `~/.claude/projects/<slug>/`, into small per-session summaries and keeps them
 // in `$.store` (`cache:<slug>`, keyed by session id, each with the file's
 // `size` and `mtimeMs`) so a rescan reads only the files that changed. It never
-// writes a transcript. `$.fs.read` is capped at 4 MiB: a larger transcript
-// keeps its cached summary flagged `large`, or becomes a stub.
+// writes a transcript. `$.fs.read` is capped at 4 MiB: a larger transcript is
+// read in slices through the shell (its head, its title rows, its tail), and
+// where that fails keeps its cached summary flagged `large`, or becomes a stub.
 import type { EngineInterface, FsEntry } from 'claude-code'
 
 import type { SessionSummary } from '../types'
 
 /** `$.fs.read` rejects a file over this many bytes. */
 export const LARGE_BYTES = 4 * 1024 * 1024
+/** Bytes of a large transcript's head and of its tail that the slices read; its title rows are searched whole. */
+export const SLICE_BYTES = 300_000
+
+type Seed = { id: string; slug: string; size: number; mtimeMs: number }
 const TITLE_CHARS = 60
 const PROMPT_CHARS = 200
 const ANSWER_CHARS = 300
@@ -229,8 +234,54 @@ export function parseTranscript(
   }
 }
 
-/** The stub for a transcript over 4 MiB with no cached summary. */
-export function largeStub(seed: { id: string; slug: string; size: number; mtimeMs: number }): SessionSummary {
+/**
+ * The command that slices a transcript too large for `$.fs.read`: its head
+ * (the first prompt, the start time), every title row, and its tail (the
+ * last activity, the last answer). `sh` with head, grep and tail on macOS and
+ * Linux; PowerShell reading bytes on Windows. Cut lines are skipped by the
+ * parser; the whole output stays well under the 4 MiB a run may print.
+ */
+export function sliceCommand(path: string, isWindows: boolean): string[] {
+  if (isWindows) {
+    const quoted = path.replace(/'/g, "''")
+    const script =
+      `$f = '${quoted}'; $s = [System.IO.File]::OpenRead($f); $n = [int][Math]::Min(${SLICE_BYTES}, $s.Length); $b = New-Object byte[] $n; ` +
+      `[void]$s.Read($b, 0, $n); [Console]::Out.Write([System.Text.Encoding]::UTF8.GetString($b)); [Console]::Out.Write("\`n"); ` +
+      `if ($s.Length -gt $n) { [void]$s.Seek(-$n, 'End'); [void]$s.Read($b, 0, $n); [Console]::Out.Write([System.Text.Encoding]::UTF8.GetString($b)) }; ` +
+      `$s.Close(); [Console]::Out.Write("\`n"); ` +
+      `Select-String -LiteralPath $f -Pattern '"type":"(custom-title|ai-title|summary)"' | ForEach-Object { [Console]::Out.Write($_.Line + "\`n") }`
+    return ['powershell', '-NoProfile', '-NonInteractive', '-Command', script]
+  }
+  const script = `head -c ${SLICE_BYTES} -- "$1"; printf '\n'; grep -E '"type":"(custom-title|ai-title|summary)"' -- "$1"; printf '\n'; tail -c ${SLICE_BYTES} -- "$1"`
+  return ['sh', '-c', script, 'constellation-slice', path]
+}
+
+/**
+ * A transcript over 4 MiB read in slices through the shell: the summary it
+ * yields is flagged `large` (its turn count is a floor). `undefined` when the
+ * shell is not there, the run fails, or the slices hold no conversation row.
+ */
+export async function sliceTranscript($: EngineInterface, path: string, seed: Seed): Promise<SessionSummary | undefined> {
+  let isWindows = false
+  try {
+    isWindows = /windows/i.test((await $.env.get('OS')) ?? '')
+  } catch {
+    isWindows = false
+  }
+  let text = ''
+  try {
+    const run = await $.process.run(sliceCommand(path, isWindows), { timeoutMs: 20000 })
+    if (!run.stdout) return undefined
+    text = run.stdout
+  } catch {
+    return undefined
+  }
+  const parsed = parseTranscript(text, seed)
+  return parsed ? { ...parsed, large: true } : undefined
+}
+
+/** The stub for a transcript over 4 MiB that could not be sliced and has no cached summary. */
+export function largeStub(seed: Seed): SessionSummary {
   return {
     id: seed.id,
     cwd: '',
@@ -287,11 +338,6 @@ export async function scanSlug(
       continue
     }
     const cached = isSummary(known) ? known : undefined
-    if (entry.size > LARGE_BYTES) {
-      isChanged = true
-      next[id] = cached ? { ...cached, size: entry.size, mtimeMs: entry.mtimeMs, large: true } : largeStub(seed)
-      continue
-    }
     if (reads >= maxReads) {
       isPartial = true
       if (known) next[id] = known
@@ -299,6 +345,12 @@ export async function scanSlug(
     }
     reads += 1
     isChanged = true
+    if (entry.size > LARGE_BYTES) {
+      // Too big for `$.fs.read`: slices through the shell, else the cached summary (flagged), else a stub.
+      const sliced = await sliceTranscript($, `${dir}/${entry.name}`, seed)
+      next[id] = sliced ?? (cached ? { ...cached, size: entry.size, mtimeMs: entry.mtimeMs, large: true } : largeStub(seed))
+      continue
+    }
     let text: string
     try {
       text = await $.fs.read(`${dir}/${entry.name}`)

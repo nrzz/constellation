@@ -19,7 +19,8 @@ Desktop sidebar and nothing is lost between them.
   model was asked.
 
 Status: built in Claude Code 2.1.310. `claude plugin validate --strict`,
-`claude plugin test` (109 tests, including an edge-case suite) and `tsc` pass. The rendered field was checked
+`claude plugin test` (112 tests, including an edge-case suite), `tsc` and an end-to-end run of the real Claude Code TUI
+(`tests/e2e/tui.sh`) pass. The rendered field was checked
 against the approved prototype
 ([preview](https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u),
 [prototype](https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0));
@@ -62,7 +63,7 @@ developing: `claude --plugin-dir <path to this repo>`.
 | Command | What it does |
 | --- | --- |
 | `/map` | Opens or closes the Constellation pane (the live sidebar) |
-| `/map here` | Prints the map, its buttons and the chooser as a row in the main chat, as of that moment |
+| `/map here` | Prints the map in the main chat, as of that moment: the picture, its buttons and the chooser as a row where the surface draws trees in the transcript (the Desktop), a numbered text outline of the topics in a terminal |
 | `/map <topic>` | Opens the pane focused on a topic: its number in the `/topic` list, its name, or the start of its name |
 | `/map find <text>` | Opens the pane searching titles, first prompts, notes, files and branches |
 | `/map settings` | Opens the pane on its settings view |
@@ -158,9 +159,7 @@ major-topic rules and the Desktop hit layer), folded until asked for.
 | `useModelForTitles` | true, false | false | Name auto topics with one short haiku call instead of their most frequent words |
 | `openOnStart` | band, pane, none | band | What a new session shows: the chooser band, the pane, or nothing. A Desktop or VS Code session counts as able to show the pane, though the engine starts it headless |
 | `fieldBackground` | transparent, night | transparent | transparent sits on the pane's own surface and follows light or dark; night is the prototype's solid ground |
-| `pictureClicks` | on, outline, off | on | The Desktop's pointer layer over the picture: on; drawn with its outline and readings, to check it sits on the picture; or off (the buttons under the map remain) |
-| `cellWidthPx` | 4–14 | 7.2 | CSS pixels per character cell across on the Desktop; the picture and its pointer layer are both sized from it |
-| `cellHeightPx` | 8–36 | 17 | CSS pixels per character cell down on the Desktop |
+| `pictureClicks` | on, outline, off | on | The Desktop's pointer layer over the picture: on; drawn with its outline and readings; or off (the buttons under the map do the same work) |
 
 ## Model use and cost
 
@@ -200,24 +199,17 @@ cluster holds up to three, a third of them beyond), so one shared word never
 chains a folder into a single blob. Joining, moving, renaming or `/topic`
 makes a topic explicit, and explicit sessions never move.
 
-## Matching the pointer layer to the picture (Desktop)
+## Clicks on the picture (Desktop)
 
-The Desktop draws the field as a picture no click can reach, so Constellation
-lays an invisible Client over it to take the clicks. Both are sized from two
-numbers in the Advanced settings, `cellWidthPx` and `cellHeightPx`, because
-the Desktop never reports its cell size. To check them once on a machine:
-
-1. In the pane's settings, under Advanced, set **Clicks on the picture** to
-   **Outline**. An orange frame shows where the layer is, with a line that
-   reads `layer <cols>×<rows> cells · field 860×520 · <last pointer event>`.
-2. Move the pointer over the picture. If the line stays at "no pointer event
-   yet", the Desktop sends this Client no pointer events; set the option to
-   **Off** and use the buttons under the map, which do everything a click would.
-3. If the frame falls short of the picture's right edge, raise the cell
-   width; if it runs past, lower it. The same at the bottom edge with the cell
-   height. The `+` marks where the layer last saw the pointer and should sit
-   under it.
-4. Set the option back to **On**. The settings are saved.
+The Desktop draws the field as an image, which takes the pane's width at its
+own aspect and passes no click on. Constellation lays an invisible Client
+over it, inset to the picture's own box, so the two share one geometry on any
+machine and nothing needs tuning. A click on a pill focuses the topic, on a
+satellite or a step opens that session, on an anchor focuses the related
+topic, on ‹ All topics goes back. `pictureClicks: outline` draws the layer's
+edge, its size in cells and the last pointer event, for anyone curious; `off`
+removes the layer. Either way the buttons under the field do everything a
+click on the picture does.
 
 ## Known limits
 
@@ -228,12 +220,10 @@ the Desktop never reports its cell size. To check them once on a machine:
 - A node on the map can never switch the Desktop app to an existing session;
   Claude Code has no API for it. A node can message that session while it
   runs, pick up its note into this chat, or start a new session from it.
-- On the Desktop the SVG is a sandboxed picture: no click on it reaches a
-  mod. The pointer layer over it (above) takes the clicks, at a size matched
-  to the picture by the cell-size settings; where the Desktop sends a Client
-  no pointer events, the buttons under the field remain the way to pick, and
-  moving a session is "Move to topic" then a pick. The terminal's text-mode
-  map takes clicks and drags itself.
+- On the Desktop the SVG is a picture: no click on it reaches a mod. The
+  pointer layer over it (above) takes the clicks; the buttons under the field
+  do the same work, and moving a session is "Move to topic" then a pick. The
+  terminal's text-mode map takes clicks and drags itself.
 - The engine starts a Desktop or VS Code session headless (`isInteractive`
   false). Constellation treats those surfaces, and a `CLAUDE_CODE_ENTRYPOINT`
   of `claude-desktop` or `claude-vscode`, as able to show the pane, and opens
@@ -262,6 +252,8 @@ the Desktop never reports its cell size. To check them once on a machine:
 claude plugin validate --strict .
 claude plugin test .
 npx -y typescript@5.9.3 tsc -p .          # needs .claude-plugin/types laid by the engine or the plugin-authoring skill
+bash tests/e2e/tui.sh                    # the real Claude Code TUI in tmux, end to end (about three minutes, one model turn)
+E2E_SKIP_MODEL=1 bash tests/e2e/tui.sh   # the same without the model turn
 node tests/fixtures/sync.mjs             # after editing a *.jsonl fixture
 node tests/preview/render.mjs            # SVGs of the field for demo data, under tests/out
 node tests/preview/shots.mjs             # PNGs of them (Playwright)
@@ -274,7 +266,12 @@ Tests: `tests/scan.test.ts` (parsing, cache, large files), `tests/cluster.test.t
 (the terminal map and the Desktop pointer layer, its outline and sizing),
 `tests/desktop.test.tsx` (headless Desktop starts, a later attach, `/clear`
 and a resume without `classic.SessionStart`, Windows-resolved paths in the
-stubs), `tests/interact.test.tsx` (the
+stubs), `tests/e2e/tui.sh` (the real engine: it starts Claude Code in tmux
+with the mod loaded from the checkout, in its own config directory seeded
+with the fixture transcripts, answers the first-run dialogs, and checks the
+band, `/map`, the pane's hotkeys, `/map help`, a join by digit, `/pickup
+list`, `/park`, `/topic`, `/map find`, `/map close`, a real model turn that
+quotes the injected handoff note, and `/clear`), `tests/interact.test.tsx` (the
 help card, Jump back in, my topic, the search clear, Refresh, the band's cap,
 the numbered commands, the session card's rows, the settings groups) and
 `tests/edge.test.tsx` (empty

@@ -58,11 +58,8 @@ export type MapSettings = {
   useModelForTitles: boolean
   openOnStart: 'band' | 'pane' | 'none'
   fieldBackground: 'transparent' | 'night'
-  /** The Desktop's pointer layer over the picture: on, drawn with its outline to check it sits on the picture, or off. */
+  /** The Desktop's pointer layer over the picture: on, drawn with its outline, or off. */
   pictureClicks: 'on' | 'outline' | 'off'
-  /** CSS pixels per character cell on the Desktop, which size the picture and its pointer layer alike. */
-  cellWidthPx: number
-  cellHeightPx: number
 }
 
 export type ToastState = { text: string; hasUndo: boolean }

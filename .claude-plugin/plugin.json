@@ -132,29 +132,13 @@
     "pictureClicks": {
       "type": "string",
       "title": "Clicks on the picture (Desktop)",
-      "description": "on lays an invisible pointer layer over the map so clicks on the picture trace, pick and move; outline draws that layer's edge and its readings, to check it sits on the picture; off keeps only the buttons under the map",
+      "description": "on lays an invisible pointer layer over the map so clicks on the picture pick and move; outline draws that layer's edge and its readings; off keeps only the buttons under the map, which do the same work",
       "options": [
         "on",
         "outline",
         "off"
       ],
       "default": "on"
-    },
-    "cellWidthPx": {
-      "type": "number",
-      "title": "Desktop cell width (px)",
-      "description": "CSS pixels per character cell across, which size the picture and its pointer layer alike; raise it if the outline falls short of the picture, lower it if it runs past",
-      "default": 7.2,
-      "min": 4,
-      "max": 14
-    },
-    "cellHeightPx": {
-      "type": "number",
-      "title": "Desktop cell height (px)",
-      "description": "CSS pixels per character cell down; tune it the same way",
-      "default": 17,
-      "min": 8,
-      "max": 36
     },
     "fieldBackground": {
       "type": "string",

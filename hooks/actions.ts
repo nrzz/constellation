@@ -1031,6 +1031,26 @@ export async function listSteps($: EngineInterface): Promise<string> {
   return [`${topic.name}: ${chain.length} step${chain.length === 1 ? '' : 's'}. /pickup <n> puts a step’s note beside your next prompt.`, ...lines].join('\n')
 }
 
+/** What `/map here` prints; the row's tree replaces it where a surface draws trees in the transcript (the Desktop), and a terminal shows it as is. */
+export const INLINE_TEXT = 'Constellation map (as of now)'
+
+/** `/map here` as text: every topic with its count and latest session, numbered as `/map n` takes them, then Unsorted. */
+export async function inlineMapText($: EngineInterface): Promise<string> {
+  const snap = await snapshot($)
+  const { model } = snap
+  const lines = [`${INLINE_TEXT} · ${snap.me.folder || 'folder'} · ${statsOf(model)}`]
+  listedTopics(model).forEach((t, i) => {
+    const latest = latestOf(t.sessions)
+    const mine = snap.me.topicId === t.id ? ' · you' : ''
+    lines.push(`${i + 1}. ${t.name} (${t.sessions.length}${mine})${latest ? ` · latest: ${clip(latest.title, 48)} · ${ageOf(latest.lastAt, snap.now)} ago` : ''}${t.goal ? ` · goal: ${clip(t.goal, 60)}` : ''}`)
+  })
+  const unsorted = model.topicById[UNSORTED_ID]
+  if (unsorted && unsorted.sessions.length) lines.push(`Unsorted (${unsorted.sessions.length})${unsorted.sessions[0] ? ` · latest: ${clip(unsorted.sessions[0].title, 48)}` : ''}`)
+  if (model.sessions.length === 0) lines.push('No sessions on this map yet; /topic names this one.')
+  lines.push('/map opens the live pane · /map <n> opens it on a topic · /map find <text> searches.')
+  return lines.join('\n')
+}
+
 /** `/map export [path]`: the folder's topics, goals and notes as Markdown, for a handover to a person. */
 export async function exportMarkdown($: EngineInterface, rawPath: string): Promise<string> {
   const snap = await snapshot($)
@@ -1100,8 +1120,9 @@ export async function onClientMessage($: EngineInterface, data: unknown): Promis
   if (data.type === 'back') await back($)
 }
 
-/** Opens the pane (focused, Escape closes it), rescans, and writes the "since your last look" digest. */
-export async function openMapPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: string }> {
+/** Opens the pane (focused, Escape closes it) on the map or the focused chain, never on a card left open (unless the settings are asked for); rescans; writes the "since your last look" digest. */
+export async function openMapPane($: EngineInterface, options: { settings?: boolean } = {}): Promise<{ isPlaced: boolean; reason?: string }> {
+  await patchUi($, { showSettings: options.settings === true, showHelp: false, editing: null, messageMode: false, moveMode: false, mergeFrom: null, ...(options.settings ? { selected: null } : {}) })
   const placed = await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
   await rescan($)
   await openDigest($)

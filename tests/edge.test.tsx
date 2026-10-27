@@ -520,14 +520,17 @@ const ROW = {
   plugin: 'constellation',
   component: 'CommandOutput',
   requestId: 'msg-1',
-  props: { command: 'map', args: 'here', text: 'Constellation map (as of now). /map opens the live pane.', isErrored: false },
+  props: { command: 'map', args: 'here', text: 'Constellation map (as of now) · web-app · 1 topics · 3 sessions · 0 active', isErrored: false },
 } as const
 
 test('/map here prints the field as a row in the main chat: Svg and buttons on desktop, the outline on the terminal, plain text for other args', async ($, on) => {
   const stubs = stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const printed = await run($, 'map', 'here')
-  expect(printed.text).toContain('Constellation map')
+  expect(printed.text).toContain('Constellation map (as of now) · web-app · 1 topics · 3 sessions · 0 active')
+  expect(printed.text).toContain('1. Checkout Cart (2) · latest: Fix flaky cart wait · 55m ago')
+  expect(printed.text).toContain('Unsorted (1) · latest: Cursor pagination API')
+  expect(printed.text).toContain('/map <n> opens it on a topic')
   expect(stubs.opened).toBe(0)
   const row = await $.ui.mount({ ...ROW, surface: 'desktop' })
   expect(await row.find({ type: 'Svg' })).toBeDefined()
@@ -542,7 +545,11 @@ test('/map here prints the field as a row in the main chat: Svg and buttons on d
   expect(await terminal.find({ type: 'Client' })).toBeUndefined()
   expect(await terminal.find({ type: 'Button', key: `t:${CHECKOUT}` })).toBeDefined()
   await terminal.unmount()
-  const plain = await $.ui.mount({ ...ROW, surface: 'desktop', props: { ...ROW.props, args: '' } })
+  // A surface that passes no arguments: the row is still known by its text; another text is left to the engine.
+  const noArgs = await $.ui.mount({ ...ROW, surface: 'terminal', props: { ...ROW.props, args: '' } })
+  expect(await noArgs.find({ type: 'Button', key: `t:${CHECKOUT}` })).toBeDefined()
+  await noArgs.unmount()
+  const plain = await $.ui.mount({ ...ROW, surface: 'desktop', props: { ...ROW.props, args: '', text: 'Constellation closed.' } })
   expect((await plain.find({ type: 'Text' }))?.text).toBe('engine')
   await plain.unmount()
 })

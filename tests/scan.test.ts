@@ -3,6 +3,7 @@ import type { EngineInterface, FsEntry } from 'claude-code'
 
 import {
   LARGE_BYTES,
+  SLICE_BYTES,
   basenameOf,
   isNoiseFile,
   isTranscript,
@@ -10,6 +11,7 @@ import {
   parseTranscript,
   relativeTo,
   scanSlug,
+  sliceCommand,
   slugOf,
 } from '../hooks/scan'
 import type { ScanCache } from '../hooks/scan'
@@ -92,10 +94,20 @@ describe('parseTranscript', () => {
 })
 
 type FakeFile = { size: number; mtimeMs: number; text?: string }
+type FakeShell = { os?: string; slices?: string | Error; exitCode?: number }
 
-/** A `$` with only the file system, counting reads, for scanSlug. */
-function fakeFs(files: Record<string, FakeFile>): { $: EngineInterface; reads: string[] } {
+/** A `$` with the file system, the environment and the shell, counting reads and runs, for scanSlug. */
+function fakeFs(files: Record<string, FakeFile>, shell: FakeShell = {}): { $: EngineInterface; reads: string[]; ran: string[][] } {
   const reads: string[] = []
+  const ran: string[][] = []
+  const env = { get: async (key: string) => (key === 'OS' ? shell.os : undefined) }
+  const process = {
+    run: async (argv: string[]) => {
+      ran.push([...argv])
+      if (shell.slices instanceof Error) throw shell.slices
+      return { exitCode: shell.exitCode ?? 0, stdout: shell.slices ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
+    },
+  }
   const fs = {
     list: async () =>
       Object.entries(files).map(([name, f]): FsEntry => ({ name, kind: name.endsWith('/') ? 'dir' : 'file', size: f.size, mtimeMs: f.mtimeMs, isLink: false })),
@@ -107,7 +119,7 @@ function fakeFs(files: Record<string, FakeFile>): { $: EngineInterface; reads: s
       return file.text
     },
   }
-  return { $: { fs } as unknown as EngineInterface, reads }
+  return { $: { fs, env, process } as unknown as EngineInterface, reads, ran }
 }
 
 describe('scanSlug and its cache', () => {
@@ -156,11 +168,12 @@ describe('scanSlug and its cache', () => {
     expect(r.sessions[0]?.mtimeMs).toBe(9000)
   })
 
-  test('a transcript over 4 MiB becomes a stub, or keeps its cached summary flagged large', async () => {
+  test('a transcript over 4 MiB that the shell cannot slice becomes a stub, or keeps its cached summary flagged large', async () => {
     const big: Record<string, FakeFile> = { 'bigbig.jsonl': { size: LARGE_BYTES + 1, mtimeMs: 123456 } }
-    const { $, reads } = fakeFs(big)
+    const { $, reads, ran } = fakeFs(big)
     const r = await scanSlug($, '/root/x', 'x', {})
     expect(reads.length).toBe(0)
+    expect(ran.length).toBe(1)
     expect(r.sessions.length).toBe(1)
     const stub = r.sessions[0]
     expect(stub?.title).toBe('(large transcript)')
@@ -176,6 +189,62 @@ describe('scanSlug and its cache', () => {
     expect(again.sessions[0]?.title).toBe('Fix flaky cart wait')
     expect(again.sessions[0]?.large).toBe(true)
     expect(again.sessions[0]?.size).toBe(LARGE_BYTES + 1)
+  })
+
+  test('a transcript over 4 MiB is read in slices: head, title rows and tail through the shell, flagged large', async () => {
+    const lines = CHECKOUT.split('\n').filter(l => l.trim() !== '')
+    // The head holds the queue rows and the first exchange; the tail the last answer (the summary row at the very end is cut).
+    const head = lines.slice(0, 4).join('\n')
+    const tail = lines[9] ?? ''
+    const title = JSON.stringify({ type: 'custom-title', customTitle: 'The long cart session' })
+    // The head is cut mid-line, as `head -c` cuts; the tail starts mid-line, as `tail -c` does.
+    const slices = `${head}\n{"type":"assistant","mess\n${title}\nld","timestamp":"broken"}\n${tail}\n`
+    const big: Record<string, FakeFile> = { 'bigbig.jsonl': { size: LARGE_BYTES + 1, mtimeMs: 123456 } }
+    const { $, reads, ran } = fakeFs(big, { slices })
+    const r = await scanSlug($, '/root/x', 'x', {})
+    expect(reads.length).toBe(0)
+    expect(ran.length).toBe(1)
+    expect(ran[0]?.[0]).toBe('sh')
+    expect(ran[0]?.[2]).toContain(`head -c ${SLICE_BYTES}`)
+    expect(ran[0]?.[2]).toContain('custom-title|ai-title|summary')
+    expect(ran[0]?.[4]).toBe('/root/x/bigbig.jsonl')
+    const s = r.sessions[0]
+    expect(s?.large).toBe(true)
+    expect(s?.title).toBe('The long cart session')
+    expect(s?.firstPrompt).toBe('fix the flaky cart wait in the checkout tests')
+    expect(new Date(s?.startedAt ?? 0).toISOString()).toBe('2026-10-20T09:00:00.200Z')
+    expect(new Date(s?.lastAt ?? 0).toISOString()).toBe('2026-10-20T09:05:00.000Z')
+    expect(s?.size).toBe(LARGE_BYTES + 1)
+    expect(s?.mtimeMs).toBe(123456)
+    expect(r.isChanged).toBe(true)
+    // Cached and unchanged: no second run. Changed: sliced again.
+    const again = fakeFs(big, { slices })
+    const r2 = await scanSlug(again.$, '/root/x', 'x', r.cache)
+    expect(again.ran.length).toBe(0)
+    expect(r2.sessions[0]?.title).toBe('The long cart session')
+    const grown = fakeFs({ 'bigbig.jsonl': { size: LARGE_BYTES + 99, mtimeMs: 123999 } }, { slices })
+    const r3 = await scanSlug(grown.$, '/root/x', 'x', r.cache)
+    expect(grown.ran.length).toBe(1)
+    expect(r3.sessions[0]?.size).toBe(LARGE_BYTES + 99)
+  })
+
+  test('on Windows the slices come from PowerShell reading bytes, with the path quoted; a failing shell leaves a stub', async () => {
+    const big: Record<string, FakeFile> = { 'bigbig.jsonl': { size: LARGE_BYTES + 1, mtimeMs: 5 } }
+    const win = fakeFs(big, { os: 'Windows_NT', slices: CHECKOUT })
+    const r = await scanSlug(win.$, "C:\\Users\\n's\\.claude\\projects\\x", 'x', {})
+    expect(win.ran[0]?.[0]).toBe('powershell')
+    expect(win.ran[0]?.slice(1, 4)).toEqual(['-NoProfile', '-NonInteractive', '-Command'])
+    const script = win.ran[0]?.[4] ?? ''
+    expect(script).toContain("$f = 'C:\\Users\\n''s\\.claude\\projects\\x/bigbig.jsonl'")
+    expect(script).toContain('OpenRead')
+    expect(script).toContain('custom-title|ai-title|summary')
+    expect(r.sessions[0]?.title).toBe('Fix flaky cart wait')
+    expect(r.sessions[0]?.large).toBe(true)
+    const failing = fakeFs(big, { slices: new Error('spawn sh ENOENT') })
+    expect((await scanSlug(failing.$, '/root/x', 'x', {})).sessions[0]?.title).toBe('(large transcript)')
+    const empty = fakeFs(big, { slices: '', exitCode: 1 })
+    expect((await scanSlug(empty.$, '/root/x', 'x', {})).sessions[0]?.title).toBe('(large transcript)')
+    expect(sliceCommand('/a/b.jsonl', false)[4]).toBe('/a/b.jsonl')
   })
 
   test('a folder that cannot be listed scans as empty', async () => {

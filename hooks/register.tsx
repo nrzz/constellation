@@ -13,7 +13,9 @@ import {
   backedOut,
   describeTopics,
   ensureSession,
+  INLINE_TEXT,
   exportMarkdown,
+  inlineMapText,
   joinOrCreate,
   listSteps,
   onClientMessage,
@@ -31,9 +33,8 @@ import {
   suggestFor,
   viewOf,
 } from './actions'
-import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, pictureSize, svgOf } from './draw'
+import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, svgOf } from './draw'
 import type { Table } from './draw'
-import { BASE } from './layout'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
 // The atoms are declared where they are read, as `claude plugin validate` asks.
@@ -125,25 +126,24 @@ export const register: Register = (on, options) => {
     if (arg === 'export') return { text: await exportMarkdown($, rest.join(' ')) }
     if (arg === 'find') return { text: await openMapFind($, rest.join(' ')) }
     if (arg === 'here') {
-      // The CommandOutput hook below draws this row as the field; the text stands where a surface draws no tree.
+      // The CommandOutput hook below draws this row as the field where the surface draws trees; a terminal shows the text.
       await rescan($)
-      return { text: 'Constellation map (as of now). /map opens the live pane.' }
+      return { text: await inlineMapText($) }
     }
     const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
     if (arg === 'close') {
       if (isOpen) await $.ui.close({ id: PANE })
       return { text: 'Constellation closed.' }
     }
-    if (arg === 'settings') {
-      await update($, uiAtom, u => ({ ...u, showSettings: true, showHelp: false, selected: null }))
-    } else if (args) {
+    if (arg !== 'settings' && args) {
       // Anything else names a topic: its number in /topic's list, its name, or the start of one.
       return { text: await openMapAt($, args) }
-    } else if (isOpen) {
+    }
+    if (arg !== 'settings' && isOpen) {
       await $.ui.close({ id: PANE })
       return { text: 'Constellation closed.' }
     }
-    const placed = await openMapPane($)
+    const placed = await openMapPane($, { settings: arg === 'settings' })
     return { text: placed.isPlaced ? 'Constellation opened. /map here prints the map in the chat; /map help lists the commands and keys.' : `Constellation is open but not drawn: ${placed.reason ?? 'no surface'}` }
   })
 
@@ -201,28 +201,30 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal') {
       // No Svg here: the text-mode map Client stands in for the field, with pointer and arrow keys.
       const { Client } = $.ui.resolve({ ...e, surface: 'terminal' as const })
-      const rows = Math.max(14, Math.min(26, Math.floor((e.props.scroll.bodyRows || 40) * 0.55)))
+      // About half the window the pane gets: a docked pane has forty rows or more, one above the prompt may have fourteen.
+      const rows = Math.max(8, Math.min(26, Math.floor((e.props.scroll.bodyRows || 40) * 0.5)))
       const field = <Client key="map" module="../client/map.js" props={fieldOf(view)} height={rows} />
       return drawPane(tableOf($, e), view, actionsFor($), field)
     }
-    // The picture is sized from the pane's width, since an interactive Svg keeps a browser's 300×150 otherwise.
-    const picture = pictureSize(e.props.bodyColumns, view.settings, view.ui.focusTopic ? BASE : view.field)
     if (e.surface === 'desktop' && view.settings.pictureClicks !== 'off') {
-      // The Svg never passes a click on; the same Client as the terminal's map, drawing nothing (or its outline), lies over it
-      // at the same size in cells, and reports hovers and picks on the picture.
+      // The Svg is drawn as an image: it takes the slot's width at its own aspect, and passes no click on. The same Client
+      // as the terminal's map lies over it, drawing nothing (or its outline), and fills the picture's box through the box's
+      // own geometry (a relative parent, an inset child) rather than any pixel size, so it needs no tuning; it reports
+      // the picks on the picture, and the buttons under the field do the same work without it.
       const { Box, Client, Svg } = $.ui.resolve({ ...e, surface: 'desktop' as const })
       const field = (
-        <Box key="field" flexDirection="column" alignSelf="flex-start" width={picture.cols} height={picture.rows}>
-          <Svg source={svgOf(view)} alt={altOf(view)} isInteractive width={picture.w} height={picture.h} />
-          <Box position="absolute" top={0} left={0} width={picture.cols} height={picture.rows}>
-            <Client key="map" module="../client/map.js" props={{ ...fieldOf(view), hits: true, outline: view.settings.pictureClicks === 'outline' }} width={picture.cols} height={picture.rows} />
+        <Box key="field" position="relative" flexDirection="column" alignSelf="flex-start">
+          <Svg source={svgOf(view)} alt={altOf(view)} />
+          <Box key="layer" position="absolute" top={0} left={0} right={0} bottom={0}>
+            <Client key="map" module="../client/map.js" props={{ ...fieldOf(view), hits: true, outline: view.settings.pictureClicks === 'outline' }} width="100%" height="100%" />
           </Box>
         </Box>
       )
       return drawPane(tableOf($, e), view, actionsFor($), field)
     }
+    // Elsewhere the picture alone, as an image that takes the slot's width; the buttons under it pick.
     const T = tableOf($, e)
-    const field = T.Svg ? <T.Svg source={svgOf(view)} alt={altOf(view)} isInteractive width={picture.w} height={picture.h} /> : undefined
+    const field = T.Svg ? <T.Svg source={svgOf(view)} alt={altOf(view)} /> : undefined
     return drawPane(T, view, actionsFor($), field)
   })
 
@@ -233,10 +235,11 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'CommandOutput', props: { command: 'map' } }, async ($, e, next) => {
+    // The row of `/map here`: by its arguments where the surface passes them, else by the text the command printed.
     const word = e.props.args.trim().split(/\s+/)[0]?.toLowerCase()
-    if (word !== 'here') return next(e)
+    if (word !== 'here' && !e.props.text.startsWith(INLINE_TEXT)) return next(e)
     const view = await viewOf($, e.surface)
-    return drawInlineRow(tableOf($, e), view, actionsFor($), e.viewport?.columns ?? 100)
+    return drawInlineRow(tableOf($, e), view, actionsFor($))
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

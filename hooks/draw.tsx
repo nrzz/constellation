@@ -99,7 +99,8 @@ export function relatedOf(links: readonly Link[], topicId: string): { id: string
 export function sessionMeta(s: SessionView, now: number, extra = ''): string {
   const parts = [`${ageOf(s.lastAt, now)} ago`]
   if (s.branch) parts.push(s.branch)
-  parts.push(`${s.turns} turns`)
+  // A large transcript was read in slices: its turn count is a floor.
+  parts.push(`${s.turns}${s.large ? '+' : ''} turns`)
   if (extra) parts.push(extra)
   return parts.join(' · ')
 }
@@ -818,9 +819,7 @@ const SETTING_GROUPS: { title: string; rows: SettingRow[]; isAdvanced?: true }[]
       { key: 'majorRule', label: 'Major topic rule', help: 'what gets a labelled pill', options: [{ value: 'either', label: 'Either' }, { value: 'count', label: 'Count' }, { value: 'recent', label: 'Recent' }] },
       { key: 'majorMinSessions', label: 'Count threshold', help: 'sessions to count as major', options: [{ value: 2, label: '2' }, { value: 3, label: '3' }, { value: 5, label: '5' }] },
       { key: 'recentDays', label: 'Recent days', help: 'activity that keeps a topic major', options: [{ value: 3, label: '3d' }, { value: 7, label: '7d' }, { value: 14, label: '14d' }, { value: 30, label: '30d' }] },
-      { key: 'pictureClicks', label: 'Clicks on the picture', help: 'the Desktop’s pointer layer; outline shows where it sits', options: [{ value: 'on', label: 'On' }, { value: 'outline', label: 'Outline' }, { value: 'off', label: 'Off' }] },
-      { key: 'cellWidthPx', label: 'Cell width (px)', help: 'raise it if the outline falls short of the picture, lower it if it runs past', options: [{ value: 6.5, label: '6.5' }, { value: 7.2, label: '7.2' }, { value: 8, label: '8' }, { value: 9, label: '9' }] },
-      { key: 'cellHeightPx', label: 'Cell height (px)', help: 'the same, down', options: [{ value: 15, label: '15' }, { value: 17, label: '17' }, { value: 19, label: '19' }, { value: 22, label: '22' }] },
+      { key: 'pictureClicks', label: 'Clicks on the picture', help: 'the Desktop’s pointer layer over the picture; outline draws its edge', options: [{ value: 'on', label: 'On' }, { value: 'outline', label: 'Outline' }, { value: 'off', label: 'Off' }] },
     ],
   },
 ]
@@ -854,7 +853,7 @@ export function drawSettings(T: Table, view: View, act: Actions): RenderElement 
         {group.isAdvanced ? <Button key="set:advanced" label={isFolded ? 'Show ▸' : 'Hide ▾'} plain dimColor onPress={() => act.toggleAdvanced()} /> : null}
         {isFolded ? (
           <Text dimColor size="footnote">
-            what earns a labelled pill, and the Desktop’s pointer layer with its cell size
+            what earns a labelled pill, and the Desktop’s pointer layer
           </Text>
         ) : null}
       </Box>,
@@ -1134,21 +1133,6 @@ export function drawCard(T: Table, view: View, act: Actions): RenderElement {
 }
 
 /**
- * The picture's pixel size from the pane's width in cells, and the pointer
- * layer's size in cells to match it. An interactive Svg keeps a browser's
- * 300×150 unless told its size, and the Desktop never says how many pixels a
- * cell is, so both come from the cell size settings; the outline mode shows
- * whether they agree with the picture.
- */
-export function pictureSize(columns: number, settings: MapSettings, size: FieldSize): { w: number; h: number; cols: number; rows: number } {
-  const cellW = settings.cellWidthPx > 0 ? settings.cellWidthPx : 7.2
-  const cellH = settings.cellHeightPx > 0 ? settings.cellHeightPx : 17
-  const w = Math.max(320, Math.min(size.w, Math.floor(Math.max(20, columns) * cellW)))
-  const h = Math.round((w * size.h) / size.w)
-  return { w, h, cols: Math.max(10, Math.round(w / cellW)), rows: Math.max(4, Math.round(h / cellH)) }
-}
-
-/**
  * The pane: header, the field, its controls, the card and the toast. The field
  * is the Svg where the surface has one, or what the entry point hands in: the
  * terminal's text-mode map, or the Desktop's Svg with the hit layer over it.
@@ -1162,7 +1146,7 @@ export function drawPane(T: Table, view: View, act: Actions, field?: RenderEleme
     <Box flexDirection="column" gap="xs">
       {drawHeader(T, view, act)}
       {drawRecent(T, view, act)}
-      {isMap ? (field ?? (Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null)) : null}
+      {isMap ? (field ?? (Svg ? <Svg source={svgOf(view)} alt={altOf(view)} /> : null)) : null}
       {isMap ? drawControls(T, view, act) : drawList(T, view, act)}
       {!isMap && ui.view === 'map' ? (
         <Text dimColor size="footnote">
@@ -1180,10 +1164,9 @@ export function drawPane(T: Table, view: View, act: Actions, field?: RenderEleme
  * conversation. The row is as wide as the transcript, scrolls with the chat,
  * and redraws while it is on screen; the pane stays the live sidebar.
  */
-export function drawInlineRow(T: Table, view: View, act: Actions, columns = 100): RenderElement {
+export function drawInlineRow(T: Table, view: View, act: Actions): RenderElement {
   const { Box, Text, Svg } = T
   const { model, me } = view
-  const picture = pictureSize(columns, view.settings, view.ui.focusTopic ? BASE : view.field)
   return (
     <Box flexDirection="column" gap="xs">
       <Box flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
@@ -1193,7 +1176,7 @@ export function drawInlineRow(T: Table, view: View, act: Actions, columns = 100)
         <Text dimColor size="footnote">{`${me.folder || 'folder'} · ${statsOf(model)} · /map opens the live pane`}</Text>
       </Box>
       {drawRecent(T, view, act)}
-      {Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive width={picture.w} height={picture.h} /> : null}
+      {Svg ? <Svg source={svgOf(view)} alt={altOf(view)} /> : null}
       {Svg ? drawControls(T, view, act) : drawList(T, view, act)}
       {drawCard(T, view, act)}
     </Box>

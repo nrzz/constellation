@@ -11,7 +11,7 @@ const ROW = {
   plugin: 'constellation',
   component: 'CommandOutput',
   requestId: 'msg-1',
-  props: { command: 'map', args: 'here', text: 'Constellation map (as of now). /map opens the live pane.', isErrored: false },
+  props: { command: 'map', args: 'here', text: 'Constellation map (as of now) · web-app · 1 topics · 3 sessions · 0 active', isErrored: false },
 } as const
 
 function chipsOf(buttons: { key?: string; props: { hotkey?: unknown } }[]) {
@@ -179,6 +179,21 @@ test('/topic lists the topics numbered and /topic n joins one; /map <topic> open
   expect((await run($, 'map', 'find')).text).toContain('Usage: /map find')
 })
 
+test('/map after /map settings and /map close opens on the map again, not on the settings card', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  await run($, 'map', 'settings')
+  const first = await $.ui.mount(paneOn('desktop'))
+  expect(await first.find({ type: 'Button', key: 'settings:done' })).toBeDefined()
+  await first.unmount()
+  await run($, 'map', 'close')
+  await run($, 'map', '')
+  const again = await $.ui.mount(paneOn('desktop'))
+  expect(await again.find({ type: 'Button', key: 'settings:done' })).toBeUndefined()
+  expect(await again.find({ type: 'Button', key: `r:${IDS.tests}` })).toBeDefined()
+  await again.unmount()
+})
+
 test('a session card: Message is dim unless the session is active, the resume command reads under the buttons; a topic with nothing to tidy shows no tidy button', async ($, on) => {
   stubEngine(on, { store: { topics: { 'topic:docs': { name: 'Docs', createdAt: 1 } } } })
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
@@ -222,7 +237,7 @@ test('settings come in MAP, SESSION and ADVANCED groups, without row numbers; th
   await ui.press({ key: 'set:advanced' })
   expect(await ui.find({ type: 'Button', key: 'set:majorRule:count' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'set:pictureClicks:outline' })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'set:cellWidthPx:7.2' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'set:pictureClicks:off' })).toBeDefined()
   await ui.press({ key: 'set:majorRule:count' })
   expect((await ui.find({ type: 'Button', key: 'set:majorRule:count' }))?.props.variant).toBe('primary')
   await ui.press({ key: 'set:advanced' })
