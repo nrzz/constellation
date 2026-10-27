@@ -1224,7 +1224,7 @@ export async function onClientMessage($: EngineInterface, data: unknown): Promis
   }
 }
 
-/** The pane, opened or raised, asking for the keyboard; Escape hands the keyboard back and raises the close (see `escape`). */
+/** The pane, opened or raised, asking for the keyboard; Escape hands the keyboard back and raises the close (see `closePane`). */
 function showPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: string }> {
   return $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
 }
@@ -1240,12 +1240,31 @@ function showPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: str
  * empty prompt raises the same close; then the pane never had the keyboard
  * and must not take it, or the person's next words would fire hotkeys. The
  * engine grants the keyboard only over an empty composer in any case.
- * Returns whether it backed out.
+ *
+ * A close the plugin or an unload raised, or one with nothing left to back
+ * out of, cancels a pending reclaim (it would reopen the pane) and goes on.
+ * `hadKeys` is read before anything is awaited. Returns whether the close goes
+ * on; register.tsx hands in the engine, a test its own `back` and clock.
  */
-export async function escape($: EngineInterface, hadKeys: boolean): Promise<boolean> {
-  if (!(await back($))) return false
-  if (hadKeys) reclaimKeys($)
-  return true
+export async function closePane(close: { byPerson: boolean; hadKeys: boolean }, io: CloseIo): Promise<boolean> {
+  if (!close.byPerson) {
+    cancelReclaim()
+    return true
+  }
+  await io.ensure()
+  if (!(await io.back())) {
+    cancelReclaim()
+    return true
+  }
+  if (close.hadKeys) scheduleReclaim(io.reclaim)
+  return false
+}
+
+/** What the close needs from the engine: the session check, one level back, and the reclaim's clock and panes. */
+export type CloseIo = { ensure: () => Promise<unknown>; back: () => Promise<boolean>; reclaim: ReclaimIo }
+
+export function closeIoOf($: EngineInterface): CloseIo {
+  return { ensure: () => ensureSession($), back: () => back($), reclaim: reclaimIoOf($) }
 }
 
 /** Per surface: did the pane hold the keyboard at its last drawing? The engine raises Escape's close before it redraws the pane without the keyboard, so this says who had it. */
@@ -1264,18 +1283,19 @@ let reclaimTimer: Timer | undefined
 /** Bumped by each schedule and cancel: an ask already waiting on the engine when the pane closes sees it changed and stops. */
 let reclaimRun = 0
 /**
- * The engine hands the keyboard to the prompt once Escape's close hook has
- * returned, so a request made inside the hook is lost to that handoff. Ask a
+ * The reclaim on the engine's clock and panes. The engine hands the keyboard
+ * to the prompt once Escape's close hook has returned, so a request made
+ * inside the hook is lost to that handoff. Ask a
  * moment after, and once more if the pane still shows no keyboard then (a
  * slower machine); the engine grants it only over an empty composer.
  */
-function reclaimKeys($: EngineInterface): void {
-  scheduleReclaim({
+function reclaimIoOf($: EngineInterface): ReclaimIo {
+  return {
     after: (ms, fn) => $.clock.after(ms, fn),
     panes: () => $.ui.panes(),
     show: () => showPane($),
     log: text => $.ui.log(text, { to: 'debug' }),
-  })
+  }
 }
 
 /** What a reclaim needs from the engine; a test hands in its own clock and panes. */

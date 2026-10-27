@@ -172,6 +172,13 @@ keys Escape
 expect_text whole "\[ Help \]" "Esc closes the help first"
 keys Escape; sleep 2
 expect_absent whole "Jump back in" "Esc with nothing left closes the pane"
+# A quick second Esc: the reclaim the first one armed (60 and 360 ms on) must not bring back the pane the second closed.
+# `keys` waits 1.5 s, past every ask, so the two presses go out by hand. Help is one level to back out of.
+type_line "/map" 5
+keys h
+expect_text whole "Close help" "the pane again, with its help open"
+tmux send-keys -t "$S" Escape; sleep 0.2; tmux send-keys -t "$S" Escape; sleep 1.5
+expect_absent whole "Jump back in" "Esc, 0.2 s, Esc: the help, then the pane, which stays closed"
 
 type_line "/map help" 4
 expect_text whole "/pickup list" "/map help prints the commands"
