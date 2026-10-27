@@ -87,10 +87,10 @@ test('Undo reverses only what the undone action changed: a note written since st
   // A turn completes and the auto note is written after the archive.
   await turn($)
   await stubs.clock.advance(2000)
-  expect(stubs.status[stubs.status.length - 1]).toContain('note ✓')
+  expect(stubs.status[stubs.status.length - 1]).toContain('note saved')
   await ui.press({ key: 'toast:undo' })
   expect(await ui.find({ type: 'Text', text: /^IDLE$/ })).toBeDefined()
-  expect(stubs.status[stubs.status.length - 1]).toContain('note ✓')
+  expect(stubs.status[stubs.status.length - 1]).toContain('note saved')
   await ui.unmount()
 })
 

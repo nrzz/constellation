@@ -21,7 +21,7 @@ test('an empty folder: the empty state on every surface, a chooser with only New
   await desktop.unmount()
   const terminal = await $.ui.mount(paneOn('terminal'))
   expect(await terminal.find({ type: 'Client', key: 'map' })).toBeDefined()
-  expect(await terminal.find({ in: 'map', type: 'Text', text: /Hover or focus/ })).toBeDefined()
+  expect(await terminal.find({ in: 'map', type: 'Text', text: /Click or Tab to a topic/ })).toBeDefined()
   await terminal.unmount()
   const band = await $.ui.mount(bandOn('terminal'))
   expect(await band.find({ type: 'Button', key: 'j:new' })).toBeDefined()

@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   openOnStart: 'band',
   fieldBackground: 'transparent',
   pictureClicks: 'on',
+  layerHeight: 0,
 }
 
 export const EMPTY_STORE: StoreData = { topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {}, goals: {}, seen: {} }
@@ -75,12 +76,14 @@ const CHOICES: { [K in keyof MapSettings]: readonly MapSettings[K][] | 'number' 
   openOnStart: ['band', 'pane', 'none'],
   fieldBackground: ['transparent', 'night'],
   pictureClicks: ['on', 'outline', 'off'],
+  layerHeight: 'number',
 }
 
 const RANGES: Partial<Record<keyof MapSettings, [number, number]>> = {
   majorMinSessions: [1, 20],
   recentDays: [1, 90],
   rangeDays: [1, 45],
+  layerHeight: [-3, 3],
 }
 
 /** One setting's value from an untyped source, or `undefined` when it does not fit. */

@@ -140,6 +140,14 @@
       ],
       "default": "on"
     },
+    "layerHeight": {
+      "type": "number",
+      "title": "Layer height (Desktop)",
+      "description": "Fine-tunes how tall the pointer layer draws over the picture, from -3 (shorter) to 3 (taller); 0 fits Claude Desktop's own font. With Clicks on the picture set to Outline, its edge should end at the picture's bottom",
+      "min": -3,
+      "max": 3,
+      "default": 0
+    },
     "fieldBackground": {
       "type": "string",
       "title": "Field background",

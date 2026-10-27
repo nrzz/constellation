@@ -10,7 +10,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
-import { BASE, FOCUS_PILL, anchorPositions, chainLabelChars, chainPositions, chainRows, pillWidth, satellitePosition, starPath, unitEdge } from './layout'
+import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainPositions, chainRows, focusSize, pillWidth, satellitePosition, starPath, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
@@ -176,7 +176,9 @@ export function pointerHint(view: Pick<View, 'surface' | 'placement' | 'settings
   if (view.surface === 'terminal') {
     // The fullscreen renderer reports the mouse, docked or (under 110 columns) inline; the classic one never does.
     const hasMouse = view.isFullscreen ?? view.placement !== 'inline'
-    return hasMouse ? 'Hover or focus a topic to trace it · Enter or click to focus' : 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen'
+    // Terminals differ in what they pass on: clicks and motion, clicks only (Windows' console host), or neither. The hint promises
+    // only clicks, and always names the keys.
+    return hasMouse ? 'Click or Tab to a topic · Enter focuses' : 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen'
   }
   if (view.surface === 'mobile') return 'Tap a topic under the map to focus it'
   if (view.surface === 'desktop' && view.settings.pictureClicks !== 'off') return 'Hover or focus a topic to trace it · Enter or click to focus'
@@ -200,6 +202,68 @@ export function themeCss(background: MapSettings['fieldBackground']): string {
   )
 }
 
+/**
+ * Marks the pane prints as text. A terminal's font may lack some: Windows'
+ * console host draws ⚙, ↻, ▸, ▾ and ★ as empty boxes. The terminal gets plain
+ * stand-ins from the WGL4 set every console font carries; the other surfaces
+ * draw the marks with the app's own fonts.
+ */
+export function marks(view: Pick<View, 'surface'>): { gear: string; refresh: string; open: string; shut: string; pin: string } {
+  return view.surface === 'terminal'
+    ? { gear: '', refresh: '', open: '▼', shut: '►', pin: '*' }
+    : { gear: '⚙ ', refresh: '↻ ', open: '▾', shut: '▸', pin: '★' }
+}
+
+/** The field a drawing draws: the map's, or a focused topic's (as wide as the map's, the base height). */
+export function sizeOf(view: View): FieldSize {
+  return view.ui.focusTopic && view.model.topicById[view.ui.focusTopic] ? focusSize(view.field) : view.field
+}
+
+/** The focused topic's pill: its count ("3 of 4", "· you" on your own topic) and its width, the same in the picture and the pointer layer. */
+export function focusPillOf(view: View, focus: Topic): { count: string; w: number } {
+  const steps = chainOf(view, focus)
+  const count = `${steps.filter(s => !s.isYou).length} of ${focus.sessions.length}${view.me.topicId === focus.id ? ' · you' : ''}`
+  return { count, w: pillWidth(focus.name, count) }
+}
+
+/** One related anchor under a focused chain, as the picture draws it and the pointer layer hit-tests it. */
+export type Anchor = { topic: Topic; via: string; x: number; y: number; w: number; name: string; file: string }
+
+/**
+ * The related anchors under a focused chain: the most recently active related
+ * topics, as many as the field's width holds, each label cut to its room so no
+ * two meet and none leaves the field.
+ */
+export function anchorsOf(view: View, focus: Topic, size: FieldSize): Anchor[] {
+  if (!view.settings.showRelated) return []
+  const related = relatedOf(view.model.links, focus.id)
+    .map(r => ({ ...r, topic: view.model.topicById[r.id] }))
+    .filter((r): r is { id: string; via: string; topic: Topic } => r.topic !== undefined)
+    .sort((a, b) => b.topic.lastAt - a.topic.lastAt || a.topic.name.localeCompare(b.topic.name))
+  const { positions, slot } = anchorSlots(related.length, size)
+  // A 40-unit pill (dot, padding) and 6.4 units a character, inside the slot less 12 of air.
+  const chars = Math.max(6, Math.floor((slot - 52) / 6.4))
+  return positions.flatMap((pos, i) => {
+    const r = related[i]
+    if (!r) return []
+    const name = clip(r.topic.name, Math.min(20, Math.max(4, chars - (chars >= 14 ? 8 : 0))))
+    const room = chars - name.length - 2
+    const file = room >= 4 ? clip(r.via, Math.min(18, room)) : ''
+    const w = 40 + (name.length + (file ? file.length + 2 : 0)) * 6.4
+    return [{ topic: r.topic, via: r.via, x: pos.x, y: pos.y, w, name, file }]
+  })
+}
+
+/** The hint pill's text, cut to the room the field leaves it (beside the back pill, in focus mode). */
+export function hintFitted(view: View, size: FieldSize): string {
+  const hint = hintOf(view)
+  const isFocus = size !== view.field
+  // Centred, so the back pill (14 to 110, with 8 of air) takes the same room on both sides.
+  const room = isFocus ? size.w - 2 * 118 : size.w - 28
+  const chars = Math.max(8, Math.floor((room - 24) / 6.3))
+  return clip(hint, chars)
+}
+
 /** The whole field as an SVG document, under the 131072-character cap. */
 export function svgOf(view: View, options: SvgOptions = {}): string {
   const withTooltips = options.withTooltips ?? true
@@ -207,8 +271,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   // The same budget the pointer layer takes, so what is drawn is what is clickable.
   const maxSessions = options.maxSessions ?? satellitesPerTopic(model.topics.length)
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
-  const size = focus ? BASE : view.field
-  const anchorY = BASE.h - 50
+  const size = sizeOf(view)
   const query = ui.query.trim()
   const parts: string[] = []
   const css: string[] = [
@@ -242,8 +305,8 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   if (view.settings.fieldBackground === 'night') parts.push(`<rect width="${size.w}" height="${size.h}" fill="${BG}"/>`)
   parts.push(`<rect width="${size.w}" height="${size.h}" fill="url(#glow)"/>`)
   parts.push(`<rect width="${size.w}" height="${size.h}" fill="url(#grid)"/>`)
-  parts.push(`<path d="${starPath(Math.round((70 * size.h) / BASE.h), 137.5, 11, size)}" style="stroke:var(--star)" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.8"/>`)
-  parts.push(`<path d="${starPath(Math.round((18 * size.h) / BASE.h), 211.7, 53, size)}" style="stroke:var(--star2)" stroke-width="2.4" stroke-linecap="round" fill="none" opacity="0.8"/>`)
+  parts.push(`<path d="${starPath(Math.round((70 * size.w * size.h) / (BASE.w * BASE.h)), 137.5, 11, size)}" style="stroke:var(--star)" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.8"/>`)
+  parts.push(`<path d="${starPath(Math.round((18 * size.w * size.h) / (BASE.w * BASE.h)), 211.7, 53, size)}" style="stroke:var(--star2)" stroke-width="2.4" stroke-linecap="round" fill="none" opacity="0.8"/>`)
 
   if (!focus) {
     const traced = ui.hover && model.topicById[ui.hover] ? ui.hover : null
@@ -336,7 +399,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     }
   } else {
     const steps = chainOf(view, focus)
-    const positions = chainPositions(steps.length)
+    const positions = chainPositions(steps.length, size)
     const latest = latestOf(focus.sessions)
     const color = focus.color === MINOR_COLOR ? ACCENT : focus.color
     // Each step to the next: a segment from circle edge to circle edge, its arrow at the next circle's rim.
@@ -349,8 +412,8 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const uy = (b.y - a.y) / d
       parts.push(`<line x1="${(a.x + ux * 19).toFixed(1)}" y1="${(a.y + uy * 19).toFixed(1)}" x2="${(b.x - ux * 21).toFixed(1)}" y2="${(b.y - uy * 21).toFixed(1)}" stroke="${color}" stroke-width="1.6" marker-end="url(#arrow)" opacity="0.9"/>`)
     }
-    const chars = chainLabelChars(steps.length)
-    const { upper } = chainRows()
+    const chars = chainLabelChars(steps.length, size)
+    const { upper } = chainRows(size)
     steps.forEach((step, i) => {
       const pt = positions[i]
       if (!pt) return
@@ -395,9 +458,9 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       g.push('</g>')
       parts.push(g.join(''))
     })
-    const countLabel = `${steps.filter(s => !s.isYou).length} of ${focus.sessions.length}${view.me.topicId === focus.id ? ' · you' : ''}`
-    const w = pillWidth(focus.name, countLabel)
-    const x = FOCUS_PILL.x - w / 2
+    const { count: countLabel, w } = focusPillOf(view, focus)
+    const pillX = size.w / 2
+    const x = pillX - w / 2
     const y = FOCUS_PILL.y - 19
     parts.push(
       `<rect x="${(x - 6).toFixed(1)}" y="${y - 6}" width="${(w + 12).toFixed(1)}" height="50" rx="25" fill="${rgba(color, 0.2)}"/>`,
@@ -408,33 +471,25 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     )
     if (focus.goal) {
       // Under the topic's pill, above the chain's upper labels.
-      parts.push(`<text x="${FOCUS_PILL.x}" y="${FOCUS_PILL.y + 46}" font-size="11.5" style="fill:var(--lb)" text-anchor="middle"><tspan class="mono" style="fill:var(--mu)">GOAL</tspan>  ${esc(clip(focus.goal, 96))}</text>`)
+      parts.push(`<text x="${pillX}" y="${FOCUS_PILL.y + 46}" font-size="11.5" style="fill:var(--lb)" text-anchor="middle"><tspan class="mono" style="fill:var(--mu)">GOAL</tspan>  ${esc(clip(focus.goal, Math.floor((size.w - 80) / 6.2)))}</text>`)
     }
     if (steps.length === 0) {
-      parts.push(`<text x="430" y="262" font-size="12.5" style="fill:var(--mu)" text-anchor="middle">No sessions in the time range. Widen the range, or pin one.</text>`)
+      parts.push(`<text x="${size.w / 2}" y="262" font-size="12.5" style="fill:var(--mu)" text-anchor="middle">${esc(clip('No sessions in the time range. Widen the range, or pin one.', Math.floor((size.w - 40) / 6.6)))}</text>`)
     }
-    if (view.settings.showRelated) {
-      const rel = relatedOf(model.links, focus.id)
-      const apos = anchorPositions(rel.length)
-      rel.forEach((r, i) => {
-        const rt = model.topicById[r.id]
-        const ap = apos[i]
-        if (!rt || !ap) return
-        const label = `${clip(rt.name, 20)}  ${clip(r.via, 18)}`
-        const aw = 40 + label.length * 6.4
-        parts.push(
-          `<g class="hit" opacity="0.9"><rect x="${(ap.x - aw / 2).toFixed(1)}" y="${anchorY - 16}" width="${aw.toFixed(1)}" height="32" rx="16" style="fill:var(--glass)" stroke="${rt.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
-          `<circle cx="${(ap.x - aw / 2 + 15).toFixed(1)}" cy="${anchorY}" r="3.5" fill="${rt.color}"/>`,
-          `<text x="${(ap.x - aw / 2 + 25).toFixed(1)}" y="${anchorY + 4}" font-size="12" style="fill:var(--lb)">${esc(clip(rt.name, 20))} <tspan class="mono" font-size="10.5" style="fill:var(--mu)">${esc(clip(r.via, 18))}</tspan></text></g>`,
-        )
-      })
+    for (const a of anchorsOf(view, focus, size)) {
+      const left = a.x - a.w / 2
+      parts.push(
+        `<g class="hit" opacity="0.9"><rect x="${left.toFixed(1)}" y="${a.y - 16}" width="${a.w.toFixed(1)}" height="32" rx="16" style="fill:var(--glass)" stroke="${a.topic.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
+        `<circle cx="${(left + 15).toFixed(1)}" cy="${a.y}" r="3.5" fill="${a.topic.color}"/>`,
+        `<text x="${(left + 25).toFixed(1)}" y="${a.y + 4}" font-size="12" style="fill:var(--lb)">${esc(a.name)}${a.file ? ` <tspan class="mono" font-size="10.5" style="fill:var(--mu)">${esc(a.file)}</tspan>` : ''}</text></g>`,
+      )
     }
     parts.push(
       `<g class="hit"><rect x="14" y="12" width="96" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/><text x="30" y="31" font-size="12" style="fill:var(--lb)">‹ All topics</text></g>`,
     )
   }
 
-  const hint = hintOf(view)
+  const hint = hintFitted(view, size)
   const hw = 24 + hint.length * 6.3
   parts.push(
     `<rect x="${(size.w / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/>`,
@@ -585,15 +640,15 @@ export function drawHeader(T: Table, view: View, act: Actions): RenderElement {
         {Select ? <Select key="range" options={RANGE_OPTIONS} value={String(view.settings.rangeDays)} onSelect={v => act.setRange(Number(v))} /> : null}
         <Button key="view:map" label="Map" hotkey={hk(view, 'm')} variant={ui.view === 'map' ? 'primary' : 'secondary'} onPress={() => act.setView('map')} />
         <Button key="view:list" label="List" hotkey={hk(view, 'l')} variant={ui.view === 'list' ? 'primary' : 'secondary'} onPress={() => act.setView('list')} />
-        <Button key="settings" label={ui.showSettings ? '⚙ Done' : '⚙ Settings'} hotkey={hk(view, 's')} onPress={() => act.toggleSettings()} />
+        <Button key="settings" label={`${marks(view).gear}${ui.showSettings ? 'Done' : 'Settings'}`} hotkey={hk(view, 's')} onPress={() => act.toggleSettings()} />
         <Button key="help" label={ui.showHelp ? 'Close help' : 'Help'} hotkey={hk(view, 'h')} onPress={() => act.toggleHelp()} />
         {view.me.topicId ? (
           <Button key="mine" hotkey={hk(view, 'y')} plain onPress={() => act.myTopic()}>
-            <Text color={ACCENT}>◆</Text> my topic
+            <Text color={ACCENT}>♦</Text> my topic
           </Button>
         ) : null}
         {ui.query.trim() ? <Button key="q:clear" label="× clear search" plain dimColor onPress={() => act.setQuery('')} /> : null}
-        <Button key="refresh" label="↻ refresh" plain dimColor onPress={() => act.refresh()} />
+        <Button key="refresh" label={`${marks(view).refresh}refresh`} plain dimColor onPress={() => act.refresh()} />
       </Box>
       {ui.digest ? (
         <Box flexDirection="row" gap="sm" alignItems="center">
@@ -780,7 +835,8 @@ export function drawHelp(T: Table, act: Actions): RenderElement {
 }
 
 function statusGlyph(s: SessionView): string {
-  return s.status === 'active' ? '●' : s.status === 'archived' ? '◌' : '○'
+  // ◦ rather than ◌ for shipped: every console font has it.
+  return s.status === 'active' ? '●' : s.status === 'archived' ? '◦' : '○'
 }
 
 /** The outline: every surface's list view and the terminal's map. */
@@ -802,7 +858,7 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
             <Button key={`t:${t.id}`} plain onPress={() => (ui.mergeFrom !== null ? act.mergeInto(t.id) : ui.moveMode ? act.moveTo(t.id) : act.focusTopic(isOpen ? null : t.id))}>
               <Text color={t.color}>●</Text> <Text weight="medium">{clip(t.name, 40)}</Text>{' '}
               <Text dimColor mono>
-                {`${t.id === UNSORTED_ID ? 'unsorted' : t.isMajor ? 'major' : 'minor'} · ${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.sessions.length ? ` · ${ageOf(t.lastAt, now)} ago` : ''}${view.me.topicId === t.id ? ' · you' : ''} ${isOpen ? '▾' : '▸'}`}
+                {`${t.id === UNSORTED_ID ? 'unsorted' : t.isMajor ? 'major' : 'minor'} · ${t.sessions.length} session${t.sessions.length === 1 ? '' : 's'}${t.sessions.length ? ` · ${ageOf(t.lastAt, now)} ago` : ''}${view.me.topicId === t.id ? ' · you' : ''} ${isOpen ? marks(view).open : marks(view).shut}`}
               </Text>
             </Button>
             {isOpen && t.goal ? (
@@ -821,10 +877,10 @@ export function drawList(T: Table, view: View, act: Actions): RenderElement {
                 <Text color={t.color} mono>
                   {String(i + 1)}
                 </Text>{' '}
-                {s.isYou ? <Text color={ACCENT}>◆ This session · you</Text> : `${statusGlyph(s.session as SessionView)} ${clip(s.session?.title ?? '', 48)}`}{' '}
+                {s.isYou ? <Text color={ACCENT}>♦ This session · you</Text> : `${statusGlyph(s.session as SessionView)} ${clip(s.session?.title ?? '', 48)}`}{' '}
                 <Text dimColor mono>
                   {s.isYou ? 'now' : ageOf(s.session?.lastAt ?? now, now)}
-                  {s.session?.isPinned ? ' ★' : ''}
+                  {s.session?.isPinned ? ` ${marks(view).pin}` : ''}
                 </Text>
               </Button>
             ))}
@@ -868,6 +924,7 @@ const SETTING_GROUPS: { title: string; rows: SettingRow[]; isAdvanced?: true }[]
       { key: 'majorMinSessions', label: 'Count threshold', help: 'sessions to count as major', options: [{ value: 2, label: '2' }, { value: 3, label: '3' }, { value: 5, label: '5' }] },
       { key: 'recentDays', label: 'Recent days', help: 'activity that keeps a topic major', options: [{ value: 3, label: '3d' }, { value: 7, label: '7d' }, { value: 14, label: '14d' }, { value: 30, label: '30d' }] },
       { key: 'pictureClicks', label: 'Clicks on the picture', help: 'the Desktop’s pointer layer over the picture; outline draws its edge', options: [{ value: 'on', label: 'On' }, { value: 'outline', label: 'Outline' }, { value: 'off', label: 'Off' }] },
+      { key: 'layerHeight', label: 'Layer height', help: 'with Outline on, its edge should end at the picture’s bottom', options: [-3, -2, -1, 0, 1, 2, 3].map(v => ({ value: v, label: v === 0 ? '0' : v > 0 ? `+${v}` : `−${-v}` })) },
     ],
   },
 ]
@@ -898,7 +955,7 @@ export function drawSettings(T: Table, view: View, act: Actions): RenderElement 
         <Text dimColor mono size="footnote">
           {group.title}
         </Text>
-        {group.isAdvanced ? <Button key="set:advanced" label={isFolded ? 'Show ▸' : 'Hide ▾'} plain dimColor onPress={() => act.toggleAdvanced()} /> : null}
+        {group.isAdvanced ? <Button key="set:advanced" label={isFolded ? `Show ${marks(view).shut}` : `Hide ${marks(view).open}`} plain dimColor onPress={() => act.toggleAdvanced()} /> : null}
         {isFolded ? (
           <Text dimColor size="footnote">
             what earns a labelled pill, and the Desktop’s pointer layer
@@ -1306,10 +1363,10 @@ export const FIELD_CHARS = 90000
 export function fieldOf(view: View): FieldProps {
   const { model, ui, placed } = view
   const focus = ui.focusTopic ? model.topicById[ui.focusTopic] : undefined
-  const size = focus ? BASE : view.field
+  const size = sizeOf(view)
   const nodes: FieldNode[] = []
   const links: FieldProps['links'] = []
-  const legend = '● active  ○ idle  ◌ shipped  ◆ you'
+  const legend = '● active  ○ idle  ◦ shipped  ♦ you'
   const perTopic = satellitesPerTopic(model.topics.length)
   if (!focus) {
     // The focus ring may rest on a chip that is no topic (+ New topic): that traces nothing.
@@ -1333,9 +1390,10 @@ export function fieldOf(view: View): FieldProps {
     }
   } else {
     const steps = chainOf(view, focus)
-    const positions = chainPositions(steps.length)
-    const focusCount = `${steps.filter(s => !s.isYou).length} of ${focus.sessions.length}`
-    nodes.push(node({ id: focus.id, kind: 'topic', x: FOCUS_PILL.x, y: FOCUS_PILL.y, w: Math.round(pillWidth(focus.name, focusCount)), label: `${clip(focus.name, 24)} ${focusCount}`, color: focus.color, isMajor: true, title: focus.name }))
+    const positions = chainPositions(steps.length, size)
+    // The pill as the picture draws it, "· you" and all, so its whole width takes a click.
+    const pill = focusPillOf(view, focus)
+    nodes.push(node({ id: focus.id, kind: 'topic', x: size.w / 2, y: FOCUS_PILL.y, w: Math.round(pill.w), label: `${clip(focus.name, 24)} ${pill.count}`, color: focus.color, isMajor: true, title: focus.name }))
     // The "‹ All topics" pill at the top left: a press on it goes back to every topic.
     nodes.push(node({ id: 'back', kind: 'back', x: 62, y: 27, w: 96, label: '‹ All topics', color: ACCENT }))
     steps.forEach((step, i) => {
@@ -1358,17 +1416,11 @@ export function fieldOf(view: View): FieldProps {
         topicId: focus.id,
       }))
     })
-    if (view.settings.showRelated) {
-      const rel = relatedOf(model.links, focus.id)
-      const apos = anchorPositions(rel.length)
-      rel.forEach((r, i) => {
-        const rt = model.topicById[r.id]
-        const ap = apos[i]
-        if (rt && ap) nodes.push(node({ id: rt.id, kind: 'topic', x: ap.x, y: ap.y, w: 40 + (clip(rt.name, 20).length + clip(r.via, 18).length + 2) * 6.4, label: `${clip(rt.name, 14)} · ${clip(r.via, 10)}`, color: rt.color, isMajor: false, isDim: true, isAnchor: true, title: rt.name }))
-      })
+    for (const a of anchorsOf(view, focus, size)) {
+      nodes.push(node({ id: a.topic.id, kind: 'topic', x: a.x, y: a.y, w: Math.round(a.w), label: `${clip(a.topic.name, 14)} · ${clip(a.via, 10)}`, color: a.topic.color, isMajor: false, isDim: true, isAnchor: true, title: a.topic.name }))
     }
   }
-  const field: FieldProps = { mode: focus ? 'focus' : 'map', hint: hintOf(view), nodes, links, legend, fieldW: size.w, fieldH: size.h }
+  const field: FieldProps = { mode: focus ? 'focus' : 'map', hint: view.surface === 'terminal' ? hintOf(view) : hintFitted(view, size), nodes, links, legend, fieldW: size.w, fieldH: size.h }
   if (JSON.stringify(field).length > FIELD_CHARS) field.nodes = nodes.filter(n => n.kind !== 'session')
   return field
 }

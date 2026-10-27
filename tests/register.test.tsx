@@ -342,7 +342,7 @@ test('manual notes never call the model; ask mode offers a band field after the 
   await band.unmount()
   expect(stubs.status[stubs.status.length - 1]).toBeUndefined()
   await run($, 'topic', 'Checkout tests')
-  expect(stubs.status[stubs.status.length - 1]).toContain('note ✓')
+  expect(stubs.status[stubs.status.length - 1]).toContain('note saved')
 })
 
 test('a topic card renames, sets a goal that travels with the handoff, and the settings buttons save', async ($, on) => {

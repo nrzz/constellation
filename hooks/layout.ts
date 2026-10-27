@@ -1,7 +1,8 @@
 // Constellation: positions on the field.
 //
-// The field is 860 wide and at least 520 tall; a crowded map grows taller
-// rather than letting pills touch. Topics are packed into rows in hash order
+// The field is 860 wide (narrower in a narrow pane, so its text stays legible
+// there) and at least 520 tall; a crowded map grows taller rather than letting
+// pills touch. Topics are packed into rows in hash order
 // (so the picture is stable for one set of topics), each row's slack spread as
 // gaps with a seeded jitter inside the slack, so no two boxes can overlap and
 // every box stays inside the field. Sessions orbit their topic as satellites.
@@ -18,6 +19,36 @@ export type Point = { x: number; y: number }
 export type FieldSize = { w: number; h: number }
 /** The base field: focus mode, and a map that needs no more room. */
 export const BASE: FieldSize = { w: FIELD_W, h: FIELD_H }
+
+/**
+ * One cell of the Desktop's panes, measured on Claude Desktop 3.6556 (Windows,
+ * 96 DPI): a 300 px picture spans 39 columns and six rows span 119 px. The
+ * pointer layer's rows follow from it (client/map.js), and so does the field's
+ * width in a narrow pane.
+ */
+export const DESKTOP_CELL = { w: 7.7, h: 19.8 }
+/** The field's narrowest width: the focused chain, the hint and the back pill still fit. */
+export const MIN_FIELD_W = 520
+
+/**
+ * The field's width for a pane `columns` cells wide. The picture is drawn at
+ * the pane's width, so an 860-unit field in a 300 px pane draws 13 px text at
+ * 4.5 px. Below about 83 columns the field narrows (to 520 at most) so its text
+ * draws at 7 px or more; a wider pane, or none known, gets the full 860.
+ */
+export function fieldWidthFor(columns?: number): number {
+  if (!columns || !Number.isFinite(columns) || columns <= 0) return FIELD_W
+  // The picture's slot: the pane's body less its padding.
+  const slotPx = columns * DESKTOP_CELL.w - 40
+  // Field units the slot may hold for 13-unit text to draw at about 9 px.
+  const w = Math.round((slotPx * 1.45) / 20) * 20
+  return Math.max(MIN_FIELD_W, Math.min(FIELD_W, w))
+}
+
+/** A focused topic's field: as wide as the map's, the base height. */
+export function focusSize(map: FieldSize): FieldSize {
+  return { w: map.w, h: FIELD_H }
+}
 /**
  * A topic's place: its anchor (the pill's centre, or a minor topic's dot), its
  * box (the drawn unit and the halo its satellites orbit in), the box's
@@ -92,8 +123,9 @@ const MAX_H = 4000
  * between the rows, each row's slack spread as even gaps, and a seeded jitter
  * inside those gaps. Deterministic, and no two boxes can overlap.
  */
-export function placeTopics(topics: ReadonlyArray<TopicSpec>): Placement {
-  const usableW = FIELD_W - 2 * PAD_X
+export function placeTopics(topics: ReadonlyArray<TopicSpec>, width: number = FIELD_W): Placement {
+  const fieldW = Math.max(MIN_FIELD_W, Math.min(FIELD_W, width))
+  const usableW = fieldW - 2 * PAD_X
   type Item = { t: TopicSpec; w: number; h: number }
   const items: Item[] = [...topics]
     .sort((a, b) => hashOf(a.id) - hashOf(b.id) || a.id.localeCompare(b.id))
@@ -145,8 +177,8 @@ export function placeTopics(topics: ReadonlyArray<TopicSpec>): Placement {
     }
     y += rowTall + GAP_Y * squeeze + rowGap
   })
-  const placed = topics.map(t => byId.get(t.id) ?? { id: t.id, x: FIELD_W / 2, y: FIELD_H / 2, w: 40, h: 30, ox: 0, uw: 40, isMajor: t.isMajor })
-  return { placed, size: { w: FIELD_W, h } }
+  const placed = topics.map(t => byId.get(t.id) ?? { id: t.id, x: fieldW / 2, y: FIELD_H / 2, w: 40, h: 30, ox: 0, uw: 40, isMajor: t.isMajor })
+  return { placed, size: { w: fieldW, h } }
 }
 
 /** The centre of a topic's drawn unit (the pill's centre; for a minor topic, the middle of its dot and label). */
@@ -231,10 +263,27 @@ export function chainLabelChars(n: number, size: FieldSize = BASE): number {
 }
 
 /** The related-topic anchors along the bottom of a focused chain. */
+/** The narrowest room an anchor gets: its name, part of the shared file, and its dashed pill. */
+export const ANCHOR_MIN_SLOT = 150
+
+/**
+ * The related anchors along the bottom of a focused chain: as many of `n` as
+ * the field's width holds at `ANCHOR_MIN_SLOT` each, centred, `ANCHOR_GAP`
+ * apart where there is room and closer where not. `slot` is each one's room:
+ * an anchor drawn at most `slot - 12` wide never meets its neighbour or the
+ * field's edge.
+ */
+export function anchorSlots(n: number, size: FieldSize = BASE): { positions: Point[]; slot: number } {
+  const room = size.w - 40
+  const count = Math.max(0, Math.min(n, Math.floor(room / ANCHOR_MIN_SLOT)))
+  const slot = Math.min(ANCHOR_GAP, room / Math.max(1, count))
+  const positions: Point[] = []
+  for (let i = 0; i < count; i += 1) positions.push({ x: size.w / 2 + (i - (count - 1) / 2) * slot, y: size.h - 50 })
+  return { positions, slot }
+}
+
 export function anchorPositions(n: number, size: FieldSize = BASE): Point[] {
-  const out: Point[] = []
-  for (let i = 0; i < n; i += 1) out.push({ x: size.w / 2 + (i - (n - 1) / 2) * ANCHOR_GAP, y: size.h - 50 })
-  return out
+  return anchorSlots(n, size).positions
 }
 
 /** Star dots for the field, as the prototype draws them: `count` points stepping across. */

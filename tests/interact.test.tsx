@@ -234,7 +234,8 @@ test('settings come in MAP, SESSION and ADVANCED groups, without row numbers; th
   expect(await ui.find({ type: 'Button', key: 'set:fieldBackground:night' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'set:majorRule:count' })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'set:pictureClicks:outline' })).toBeUndefined()
-  expect((await ui.find({ type: 'Button', key: 'set:advanced' }))?.props.label).toBe('Show ▸')
+  // The terminal's fold marks come from the WGL4 set every console font has.
+  expect((await ui.find({ type: 'Button', key: 'set:advanced' }))?.props.label).toBe('Show ►')
   await ui.press({ key: 'set:advanced' })
   expect(await ui.find({ type: 'Button', key: 'set:majorRule:count' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'set:pictureClicks:outline' })).toBeDefined()
@@ -252,7 +253,7 @@ test('the terminal map’s hint: hover and click on a docked pane; Tab, Enter an
   const docked = await $.ui.mount(paneOn('terminal'))
   const hintOf = async (ui: { find: (q: { type?: string; key?: string }) => Promise<{ props: Record<string, unknown> } | undefined> }) =>
     String(((await ui.find({ type: 'Client', key: 'map' }))?.props.props as { hint?: string } | undefined)?.hint ?? '')
-  expect(await hintOf(docked)).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  expect(await hintOf(docked)).toBe('Click or Tab to a topic · Enter focuses')
   await docked.unmount()
   const base = paneOn('terminal')
   const inline = await $.ui.mount({ ...base, props: { ...base.props, placement: 'inline' } })
@@ -267,7 +268,7 @@ test('the terminal map’s hint: hover and click on a docked pane; Tab, Enter an
 
 test('the resting hint on each surface says how picking works there, in the picture and the Client alike', async () => {
   const settings = { ...DEFAULT_SETTINGS }
-  expect(pointerHint({ surface: 'terminal', placement: 'dock', settings })).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  expect(pointerHint({ surface: 'terminal', placement: 'dock', settings })).toBe('Click or Tab to a topic · Enter focuses')
   expect(pointerHint({ surface: 'terminal', placement: 'inline', settings })).toBe('Tab to a topic · Enter focuses · the mouse works in /tui fullscreen')
   expect(pointerHint({ surface: 'desktop', placement: 'dock', settings })).toBe('Hover or focus a topic to trace it · Enter or click to focus')
   expect(pointerHint({ surface: 'desktop', placement: 'dock', settings: { ...settings, pictureClicks: 'outline' } })).toBe('Hover or focus a topic to trace it · Enter or click to focus')
@@ -276,7 +277,7 @@ test('the resting hint on each surface says how picking works there, in the pict
   expect(pointerHint({ surface: 'vscode', placement: 'dock', settings })).toBe('Tab onto a topic to trace it · Enter or its button under the map focuses')
   expect(pointerHint({ surface: 'mobile', placement: 'dock', settings })).toBe('Tap a topic under the map to focus it')
   // The fullscreen renderer reports the mouse even where it seats the pane inline (under 110 columns); the classic one never.
-  expect(pointerHint({ surface: 'terminal', placement: 'inline', isFullscreen: true, settings })).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  expect(pointerHint({ surface: 'terminal', placement: 'inline', isFullscreen: true, settings })).toBe('Click or Tab to a topic · Enter focuses')
   expect(pointerHint({ surface: 'terminal', placement: 'inline', isFullscreen: false, settings })).toBe('Tab to a topic · Enter focuses · the mouse works in /tui fullscreen')
   // A /map here snapshot in the transcript is a picture, with nothing live under it.
   expect(pointerHint({ surface: 'desktop', placement: 'dock', isRow: true, settings })).toBe('A snapshot · /map opens the live map')

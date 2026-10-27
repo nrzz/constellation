@@ -37,6 +37,7 @@ import {
 } from './actions'
 import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, svgOf } from './draw'
 import type { Table, View } from './draw'
+import { DESKTOP_CELL } from './layout'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
 // The atoms are declared where they are read, as `claude plugin validate` asks.
@@ -92,6 +93,11 @@ async function canOpenPane($: EngineInterface, e: { surface: string | null; isIn
   } catch {
     return false
   }
+}
+
+/** A Desktop cell's width over its height for the pointer layer: the measured 7.7 × 19.8 px, fine-tuned by the Layer height setting in steps of 0.02. */
+export function layerAspect(layerHeight: number): number {
+  return DESKTOP_CELL.w / DESKTOP_CELL.h + 0.02 * Math.max(-3, Math.min(3, Math.round(layerHeight || 0)))
 }
 
 export const register: Register = (on, options) => {
@@ -207,7 +213,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     // Whether the person has given the pane the keyboard, as of its last drawing on each surface (see the close below).
     notePaneFocus(e.surface, e.props.isFocused === true)
-    const view: View = { ...(await viewOf($, e.surface)), placement: e.props.placement, ...(e.viewport ? { isFullscreen: e.viewport.isFullscreen } : {}) }
+    const view: View = { ...(await viewOf($, e.surface, e.props.bodyColumns)), placement: e.props.placement, ...(e.viewport ? { isFullscreen: e.viewport.isFullscreen } : {}) }
     if (e.surface === 'terminal') {
       // No Svg here: the text-mode map Client stands in for the field and takes the pointer; the pane's ring takes the keys.
       const { Client } = $.ui.resolve({ ...e, surface: 'terminal' as const })
@@ -226,7 +232,7 @@ export const register: Register = (on, options) => {
         <Box key="field" position="relative" flexDirection="column" alignSelf="flex-start">
           <Svg source={svgOf(view)} alt={altOf(view)} />
           <Box key="layer" position="absolute" top={0} left={0} right={0} bottom={0}>
-            <Client key="map" module="../client/map.js" props={{ ...fieldOf(view), hits: true, outline: view.settings.pictureClicks === 'outline' }} width="100%" height="100%" />
+            <Client key="map" module="../client/map.js" props={{ ...fieldOf(view), hits: true, outline: view.settings.pictureClicks === 'outline', cellAspect: layerAspect(view.settings.layerHeight) }} width="100%" height="100%" />
           </Box>
         </Box>
       )
@@ -248,7 +254,7 @@ export const register: Register = (on, options) => {
     // The row of `/map here`: by its arguments where the surface passes them, else by the text the command printed.
     const word = e.props.args.trim().split(/\s+/)[0]?.toLowerCase()
     if (word !== 'here' && !e.props.text.startsWith(INLINE_TEXT)) return next(e)
-    const view = await viewOf($, e.surface)
+    const view = await viewOf($, e.surface, e.viewport?.columns)
     return drawInlineRow(tableOf($, e), view, actionsFor($))
   })
 

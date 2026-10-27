@@ -11,7 +11,7 @@ import { UNSORTED_ID, ageOf, buildModel, chainSteps, cleanName, latestOf, orderC
 import type { Model, SessionView, Topic } from './cluster'
 import { clip, matches, noteText, statsOf } from './draw'
 import type { Actions, View } from './draw'
-import { placeTopics } from './layout'
+import { fieldWidthFor, placeTopics } from './layout'
 import type { FieldSize, PlacedTopic } from './layout'
 import { basenameOf, resetScanMemory, scanProject, slugOf } from './scan'
 import { DEFAULT_SETTINGS, EMPTY_STORE, INITIAL_ME, INITIAL_SCAN, INITIAL_UI, INITIAL_USAGE, PANE, resolveSettings, settingValue } from './state'
@@ -159,10 +159,10 @@ export function modelOf(sessions: readonly SessionSummary[], store: StoreData, s
 }
 
 /** Where every topic sits and how tall the field is. The count label is part of the drawn pill, so the box is sized for the wider of its two forms: the count (with "· you"), or a search's match count. */
-export function placementOf(model: Model, meTopicId: string | null = null): { placed: Record<string, PlacedTopic>; size: FieldSize } {
+export function placementOf(model: Model, meTopicId: string | null = null, width?: number): { placed: Record<string, PlacedTopic>; size: FieldSize } {
   // The plain count: a search's longer "N match" grows a pill into its halo, which keeps neighbours clear of it.
   const specs = model.topics.map(t => ({ id: t.id, name: t.name, isMajor: t.isMajor, count: `${t.sessions.length}${meTopicId === t.id ? ' · you' : ''}` }))
-  const { placed, size } = placeTopics(specs)
+  const { placed, size } = placeTopics(specs, width)
   const out: Record<string, PlacedTopic> = {}
   for (const p of placed) out[p.id] = p
   return { placed: out, size }
@@ -184,10 +184,15 @@ export async function snapshot($: EngineInterface): Promise<Snapshot> {
 }
 
 /** What a render hook draws from; the reads subscribe the drawing. */
-export async function viewOf($: EngineInterface, surface: string): Promise<View> {
+/**
+ * What a drawing needs. `columns` is the pane's body width in cells where the
+ * picture is drawn at it (Desktop, VS Code, mobile): a narrow pane gets a
+ * narrower field, so the picture's text stays legible (see fieldWidthFor).
+ */
+export async function viewOf($: EngineInterface, surface: string, columns?: number): Promise<View> {
   const snap = await snapshot($)
   const myNote = snap.store.notes[snap.me.sessionId]
-  const placement = placementOf(snap.model, snap.me.topicId)
+  const placement = placementOf(snap.model, snap.me.topicId, surface === 'terminal' ? undefined : fieldWidthFor(columns))
   return {
     model: snap.model,
     placed: placement.placed,
@@ -233,7 +238,7 @@ export async function refreshStatus($: EngineInterface): Promise<void> {
   }
   const chain = orderChain(topic.sessions.filter(s => s.isInRange), snap.settings.numbering)
   const step = snap.settings.numbering === 'newestFirst' ? 1 : chain.length + 1
-  $.ui.status(`◆ ${clip(topic.name, 24)} · step ${step}${snap.store.notes[snap.me.sessionId] ? ' · note ✓' : ''}`)
+  $.ui.status(`♦ ${clip(topic.name, 24)} · step ${step}${snap.store.notes[snap.me.sessionId] ? ' · note saved' : ''}`)
 }
 
 let scanTimer: Timer | undefined

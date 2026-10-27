@@ -84,7 +84,7 @@ expect_text whole "Checkout Cart" "the band offers the folder's topic"
 type_line "/map" 6
 expect_text whole "CONSTELLATION" "/map opens the pane"
 expect_text whole "JUMP BACK IN" "the pane shows the recent sessions"
-expect_text right "Hover or focus a topic to trace it" "the docked terminal map draws its hint"
+expect_text right "Click or Tab to a topic" "the docked terminal map draws its hint"
 expect_text right "○ Checkout Cart 2" "the terminal map draws the topic"
 expect_eq "$(mouse_flags)" "11" "the fullscreen renderer has the terminal reporting the mouse (SGR, any motion)"
 
@@ -94,7 +94,7 @@ if read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"; then
   hover $((TC+5)) "$TR"
   expect_text right "Checkout Cart · 2 sessions · Enter to focus" "hovering a topic traces it (the hint names it)"
   hover 30 30
-  expect_text right "Hover or focus a topic to trace it" "the pointer leaving the map clears the trace"
+  expect_text right "Click or Tab to a topic" "the pointer leaving the map clears the trace"
   click $((TC+5)) "$TR"
   expect_text right "‹ All topics" "a click on a topic focuses it: the back pill"
   expect_text right "1 Checkout total" "…and its chain, numbered in time order"
@@ -180,14 +180,14 @@ expect_text whole "1. Checkout Cart (2)" "…as a numbered outline in a terminal
 
 settle 10 >/dev/null || true
 clear_input; tmux send-keys -t "$S" "1"; sleep 6
-expect_text whole "◆ Checkout Cart · step 3" "a bare digit in the empty prompt joins through the band; the status line follows"
+expect_text whole "♦ Checkout Cart · step 3" "a bare digit in the empty prompt joins through the band; the status line follows"
 
 type_line "/pickup list" 5
 expect_text whole "1. Checkout total rounding" "/pickup list numbers the chain"
 expect_text whole "2. Fix flaky cart wait" "…and its latest step"
 type_line "/park Replaced the wait with findByText; the CI re-run is still pending." 5
 expect_text whole "Parked: “Replaced the wait with findByText" "/park saves the note"
-expect_text whole "note ✓" "the status line shows the note"
+expect_text whole "note saved" "the status line shows the note"
 type_line "/topic" 4
 expect_text whole "This session is in Checkout Cart" "/topic knows the topic"
 type_line "/map find cursor" 6

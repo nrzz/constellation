@@ -255,7 +255,7 @@ try {
   await frame(null, null, 2.2)
   // A topic: hovered (its trace), clicked (its chain), a step clicked (its card), Escape, the back pill.
   // The busiest major topic on the map: a filled dot, its name, its count.
-  const hint = locate('Hover or focus a topic', 1, ROWS)
+  const hint = locate('Click or Tab to a topic', 1, ROWS)
   const topic = find('● ([A-Z][A-Za-z0-9 ]+?) 1?[0-9]\\b', left + 1, hint.row + 1, ROWS)
   await hover(topic.col + 3, topic.row)
   await frame(null, { col: topic.col + 3, row: topic.row }, 1.6)

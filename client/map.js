@@ -7,9 +7,17 @@
 //   traces a topic, a click picks a topic or a session, and dragging a
 //   session onto a topic moves it.
 // - On the Desktop (`hits`), where the Svg is a picture that passes no click
-//   on, it lies over the picture at the same size, draws nothing (or, with
-//   `outline`, its edge and its readings, so the two can be matched up), and
-//   reports the same hovers and picks in the picture's own units.
+//   on, it lies over the picture, draws nothing (or, with `outline`, its edge
+//   and its readings, so the two can be matched up), and reports the same
+//   hovers and picks in the picture's own units.
+//
+//   The Desktop gives a Client the width of its box (the picture's) and the
+//   height of what it draws: a layer that drew six rows covered the top six
+//   rows of an eighteen-row picture, and every click landed rows below where it
+//   was aimed. So the layer draws the picture's own height, worked out from its
+//   width in columns, the field's proportions and a cell's width-to-height
+//   ratio (`cellAspect`, 0.39 for the Desktop's code font, fine-tuned by the
+//   Layer height setting), and maps the pointer by the same measure.
 //
 // Everything it learns goes back to the hooks module as a post; the hooks
 // answer by handing it fresh props.
@@ -23,9 +31,11 @@
 // Props (JSON): { mode: 'map' | 'focus', hint, nodes: [{ id, kind, x, y, w,
 // label, label2, title, color, isMajor, isDim, isSelected, isArchived,
 // isActive, topicId }], links: [{ x1, y1, x2, y2 }], legend, fieldW, fieldH,
-// hits?, outline? }.
+// hits?, outline?, cellAspect? }.
 
 const ACCENT = '#F2A33A'
+/** A Desktop cell's width over its height: 7.7 px by 19.8 px, measured on Claude Desktop 3.6556 (hooks/layout.ts, DESKTOP_CELL). */
+export const DESKTOP_ASPECT = 7.7 / 19.8
 const MUTED = '#8B95A5'
 const DIM = '#6F7988'
 
@@ -33,22 +43,53 @@ const DIM = '#6F7988'
 const latest = new WeakMap()
 
 /**
- * The cell grid over the field. On the Desktop (`hits`) the whole region is the
- * picture, so a cell maps to the field in proportion. On the terminal the text
- * map's rows span the nodes, not the whole field: a tall field's empty top and
- * bottom would waste a pane's few rows. Row 0 holds the hint, the last row the
- * legend.
+ * The pointer layer's grid over the picture (the Desktop). Columns are the
+ * host's: the layer spans the picture's width. Rows are the layer's own: the
+ * picture is `columns × fieldH / fieldW × cellAspect` rows tall, and the layer
+ * draws that many (whole rows, so it never reaches past the picture onto the
+ * buttons under it). A host that sizes the layer by its box instead reports
+ * more rows than were drawn; its own count is the better measure then.
+ */
+export function layerFor(columns0, rows0, props) {
+  const columns = columns0 > 0 ? columns0 : 100
+  const fieldW = props.fieldW > 0 ? props.fieldW : 860
+  const fieldH = props.fieldH > 0 ? props.fieldH : 520
+  const aspect = props.cellAspect > 0 ? props.cellAspect : DESKTOP_ASPECT
+  const exact = (columns * fieldH * aspect) / fieldW
+  const drawn = Math.max(1, Math.floor(exact))
+  const reported = rows0 > 0 ? rows0 : 0
+  const byBox = reported > drawn + 1
+  const span = byBox ? reported : exact
+  return {
+    columns,
+    rows: drawn,
+    reported,
+    byBox,
+    fieldW,
+    fieldH,
+    aspect,
+    col: x => Math.max(0, Math.min(columns - 1, Math.floor((x / fieldW) * columns))),
+    row: y => Math.max(0, Math.min(drawn - 1, Math.floor((y / fieldH) * span))),
+    fieldX: e => ((e.fine ? e.fine.x : e.x + 0.5) / columns) * fieldW,
+    fieldY: e => ((e.fine ? e.fine.y : e.y + 0.5) / span) * fieldH,
+  }
+}
+
+/**
+ * The text map's cell grid over the field (the terminal). The map's rows span
+ * the nodes, not the whole field: a tall field's empty top and bottom would
+ * waste a pane's few rows. Row 0 holds the hint, the last row the legend.
  */
 export function scaleFor(columns0, rows0, props) {
+  if (props.hits === true) return layerFor(columns0, rows0, props)
   const columns = Math.max(20, columns0 || 100)
   const rows = Math.max(6, rows0 || 24)
   const fieldW = props.fieldW > 0 ? props.fieldW : 860
   const fieldH = props.fieldH > 0 ? props.fieldH : 520
-  const hits = props.hits === true
   const ys = (Array.isArray(props.nodes) ? props.nodes : []).map(n => n.y).filter(Number.isFinite)
   let yLo = 0
   let span = fieldH
-  if (!hits && ys.length > 0) {
+  if (ys.length > 0) {
     // Fit the nodes, but zoom in no further than 20 field units a row, or a few topics' satellites drift rows away from them.
     const lo = Math.max(0, Math.min(...ys) - 20)
     const hi = Math.min(fieldH, Math.max(...ys) + 20)
@@ -63,20 +104,19 @@ export function scaleFor(columns0, rows0, props) {
     fieldH,
     col: x => Math.max(0, Math.min(columns - 1, Math.round((x / fieldW) * (columns - 1)))),
     row: y => Math.max(1, Math.min(rows - 2, Math.round(((y - yLo) / span) * (rows - 3)) + 1)),
-    // A pointer position back to field units: the whole region is the picture on the Desktop; the text grid elsewhere.
-    fieldX: e => {
-      const x = e.fine ? e.fine.x : e.x + 0.5
-      return hits ? (x / columns) * fieldW : ((e.fine ? e.fine.x : e.x) / Math.max(1, columns - 1)) * fieldW
-    },
-    fieldY: e => {
-      const y = e.fine ? e.fine.y : e.y + 0.5
-      return hits ? (y / rows) * fieldH : yLo + (((e.fine ? e.fine.y : e.y) - 1) / Math.max(1, rows - 3)) * span
-    },
+    fieldX: e => ((e.fine ? e.fine.x : e.x) / Math.max(1, columns - 1)) * fieldW,
+    fieldY: e => yLo + (((e.fine ? e.fine.y : e.y) - 1) / Math.max(1, rows - 3)) * span,
   }
 }
 
 function scale(surface, props) {
   return scaleFor(surface.columns, surface.rows, props)
+}
+
+/** A line cut to `room` cells with an ellipsis. */
+export function fitText(text, room) {
+  if (room <= 0) return ''
+  return text.length <= room ? text : room >= 3 ? `${text.slice(0, room - 1)}…` : text.slice(0, room)
 }
 
 /** What the text map draws for a node: its glyph, with its label where one is drawn beside it (a topic's, a step's, the back pill's own). */
@@ -173,7 +213,14 @@ function outside(p, left, top, right, bottom) {
  * or a step's circle. A little slack around each, since the layer's cells are
  * coarser than the picture. A satellite inside a pill's glow wins over the pill.
  */
-function nodeAtPoint(nodes, p) {
+export function nodeAtPoint(nodes, p) {
+  // Inside a topic's own drawn box (its pill, its dot and label, an anchor, the back pill) the box wins: a satellite's
+  // generous slack must not take a press on the pill's edge. Only a press on a satellite's visible dot beats it.
+  const inside = nodes.find(n => isInsideDrawn(n, p))
+  if (inside) {
+    const dot = nodes.find(n => n.kind === 'session' && Math.hypot(p.x - n.x, p.y - n.y) <= 8)
+    return dot || inside
+  }
   let best = null
   let bestD = Number.POSITIVE_INFINITY
   for (const n of nodes) {
@@ -204,10 +251,24 @@ function nodeAtPoint(nodes, p) {
   return best
 }
 
+/** Whether a point lies on a topic's or the back pill's box as the picture draws it. */
+function isInsideDrawn(n, p) {
+  if (n.kind === 'back') {
+    const w = n.w > 0 ? n.w : 96
+    return outside(p, n.x - w / 2, n.y - 15, n.x + w / 2, n.y + 15) === 0
+  }
+  if (n.kind !== 'topic') return false
+  const w = n.w > 0 ? n.w : 60
+  if (n.isAnchor) return outside(p, n.x - w / 2, n.y - 16, n.x + w / 2, n.y + 16) === 0
+  if (n.isMajor) return outside(p, n.x - w / 2, n.y - 19, n.x + w / 2, n.y + 19) === 0
+  // A minor topic: its dot's glow (11 to the left) and its label to the right.
+  return outside(p, n.x - 11, n.y - 11, n.x + w, n.y + 11) === 0
+}
+
 function glyphOf(n) {
-  if (n.kind === 'you') return '◆'
+  if (n.kind === 'you') return '♦'
   if (n.kind === 'step') return String(n.label)
-  if (n.kind === 'session') return n.isArchived ? '◌' : n.isActive ? '●' : '○'
+  if (n.kind === 'session') return n.isArchived ? '◦' : n.isActive ? '●' : '○'
   if (n.kind === 'back') return '‹'
   return n.isMajor ? '●' : '○'
 }
@@ -269,26 +330,30 @@ export default function ConstellationMap(props, surface) {
   }
 
   if (hits) {
+    // The picture's own height: the Desktop sizes the layer to what it draws.
     if (!props.outline) return Box({ flexDirection: 'column', width: '100%', height: s.rows, children: [] })
-    // The outline: the layer's edge, its size and the last pointer event, and a mark where the pointer was.
+    // The outline: the layer's edge, its size and the last pointer event, a mark where the pointer was, and how to fit it.
+    const host = s.byBox ? ` (the host's ${s.reported})` : ''
     const children = [
       Box({
         position: 'absolute',
         top: 0,
         left: 1,
-        children: [Text({ color: ACCENT, children: `layer ${s.columns}×${s.rows} cells · field ${s.fieldW}×${s.fieldH} · ${state.last || 'no pointer event yet'}` })],
+        children: [Text({ color: ACCENT, wrap: 'truncate', children: `layer ${s.columns}×${s.rows}${host} · field ${s.fieldW}×${s.fieldH} · cell ${s.aspect.toFixed(2)} · ${state.last || 'no pointer yet'}` })],
       }),
-      Box({ position: 'absolute', top: s.rows - 1, left: 1, children: [Text({ color: ACCENT, children: 'this edge sits on the picture; if a click on the picture does nothing, set Clicks on the picture to Off and use the buttons under it' })] }),
+      Box({ position: 'absolute', top: Math.max(1, s.rows - 1), left: 1, children: [Text({ color: ACCENT, wrap: 'truncate', children: 'this edge should meet the picture’s bottom; if not, Settings › Advanced › Layer height' })] }),
     ]
     if (state.at) children.push(Box({ position: 'absolute', top: Math.max(0, Math.min(s.rows - 1, state.at.y)), left: Math.max(0, Math.min(s.columns - 1, state.at.x)), children: [Text({ color: ACCENT, children: '+' })] }))
     return Box({ flexDirection: 'column', width: '100%', height: s.rows, borderStyle: 'round', borderColor: ACCENT, children })
   }
 
   const children = []
-  children.push(Box({ position: 'absolute', top: 0, left: Math.max(0, Math.floor((s.columns - String(props.hint || '').length) / 2)), children: [Text({ dimColor: true, children: String(props.hint || '') })] }))
+  // The hint on row 0, cut to the region's width: wrapped, its second line would run into the map's first row.
+  const hint = fitText(String(props.hint || ''), s.columns - 2)
+  children.push(Box({ position: 'absolute', top: 0, left: Math.max(0, Math.floor((s.columns - hint.length) / 2)), children: [Text({ dimColor: true, wrap: 'truncate', children: hint })] }))
   for (const l of links) {
     // One dim dot midway marks a link between topics; the text grid has no lines.
-    children.push(Box({ position: 'absolute', top: s.row((l.y1 + l.y2) / 2), left: s.col((l.x1 + l.x2) / 2), children: [Text({ color: DIM, children: '┄' })] }))
+    children.push(Box({ position: 'absolute', top: s.row((l.y1 + l.y2) / 2), left: s.col((l.x1 + l.x2) / 2), children: [Text({ color: DIM, children: '·' })] }))
   }
   const laid = layoutText(nodes, s, props.mode)
   for (const n of inDrawingOrder(nodes)) {
@@ -312,7 +377,7 @@ export default function ConstellationMap(props, surface) {
       }),
     )
   }
-  children.push(Box({ position: 'absolute', top: s.rows - 1, left: 0, children: [Text({ color: MUTED, children: String(props.legend || '● active  ○ idle  ◌ shipped  ★ pinned') })] }))
+  children.push(Box({ position: 'absolute', top: s.rows - 1, left: 0, children: [Text({ color: MUTED, children: String(props.legend || '● active  ○ idle  ◦ shipped  ♦ you') })] }))
   if (state.drag) {
     const d = nodes.find(n => n.id === state.drag)
     children.push(Box({ position: 'absolute', top: s.rows - 1, left: Math.max(0, s.columns - 40), children: [Text({ color: ACCENT, children: `moving “${String(d ? d.title || d.id : '').slice(0, 24)}”` })] }))

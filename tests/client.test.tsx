@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry, On } from 'claude-code'
 
-import MapModule, { layoutText, nodeAtCell, placeText, scaleFor, textOf } from '../client/map.js'
+import MapModule, { layerFor, layoutText, nodeAtCell, nodeAtPoint, placeText, scaleFor, textOf } from '../client/map.js'
 import { transcripts } from './fixtures/transcripts'
 import { pathOf } from './helpers'
 
@@ -36,8 +36,26 @@ async function at(ui: { find: (q: { type?: string; key?: string }) => Promise<{ 
   return { x: s.col(n.x) + dx, y: s.row(n.y) }
 }
 /** The pointer layer's mapping: the whole region is the picture. */
-const hcol = (x: number, fieldW = 860) => Math.max(0, Math.min(COLUMNS - 1, Math.floor((x / fieldW) * COLUMNS)))
-const hrow = (y: number, fieldH = 520) => Math.max(0, Math.min(ROWS - 1, Math.floor((y / fieldH) * ROWS)))
+/** A cell of Claude Desktop's panes, measured on Windows: 7.7 × 19.8 px. */
+const CELL = { w: 7.7, h: 19.8 }
+/** The cell the Desktop hands the layer for a point of the picture: the picture spans the layer's columns, at the Desktop's cell size. */
+function dcell(field: { fieldW?: number }, x: number, y: number, columns = COLUMNS): { x: number; y: number } {
+  const pxPerUnit = (columns * CELL.w) / (field.fieldW ?? 860)
+  return { x: Math.floor((x * pxPerUnit) / CELL.w), y: Math.floor((y * pxPerUnit) / CELL.h) }
+}
+type Mounted = { find: (q: { in?: string; type?: string; key?: string }) => Promise<{ props: Record<string, unknown> } | undefined>; resize: (r: { columns: number; rows: number; in: string }) => Promise<void> }
+/** Sizes the layer as the Desktop does: its box's width, and the height of what it draws (it starts at one row). */
+async function fitLikeDesktop(ui: Mounted, columns = COLUMNS): Promise<number> {
+  let rows = 1
+  await ui.resize({ columns, rows, in: 'map' })
+  for (let i = 0; i < 4; i += 1) {
+    const drawn = (await ui.find({ in: 'map', type: 'Box' }))?.props.height
+    if (typeof drawn !== 'number' || drawn === rows) break
+    rows = drawn
+    await ui.resize({ columns, rows, in: 'map' })
+  }
+  return rows
+}
 
 function stubEngine(on: On): { toasts: string[] } {
   const toasts: string[] = []
@@ -92,8 +110,8 @@ test('the terminal pane draws the text-mode map with every topic and session', a
   expect(nodes.filter(n => n.kind === 'topic').map(n => n.id).sort()).toEqual([CHECKOUT, 'topic:docs', 'unsorted'].sort())
   expect(nodes.filter(n => n.kind === 'session').length).toBe(3)
   expect(await ui.find({ in: 'map', type: 'Text', text: /Checkout/ })).toBeDefined()
-  expect(await ui.find({ in: 'map', type: 'Text', text: /Hover or focus a topic/ })).toBeDefined()
-  expect(await ui.find({ in: 'map', type: 'Text', text: /◆ you/ })).toBeDefined()
+  expect(await ui.find({ in: 'map', type: 'Text', text: /Click or Tab to a topic/ })).toBeDefined()
+  expect(await ui.find({ in: 'map', type: 'Text', text: /♦ you/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -272,9 +290,38 @@ test('the text map cuts a label short of the next step on its row, lets a topic�
   // …but never zooms in past 20 field units a row: two topics close together keep their satellites near them.
   const few = scaleFor(100, 24, { fieldW: 860, fieldH: 520, nodes: [{ y: 240 }, { y: 260 }, { y: 210 }, { y: 290 }] })
   expect(Math.abs(few.row(290) - few.row(240))).toBeLessThanOrEqual(3)
-  // The Desktop layer keeps the picture's own mapping, whatever the nodes.
-  const hits = scaleFor(100, 24, { fieldW: 860, fieldH: 1200, hits: true, nodes: [{ y: 300 }, { y: 700 }] })
-  expect(hits.fieldY({ x: 0, y: 12 })).toBe((12.5 / 24) * 1200)
+})
+
+test('the Desktop layer: it draws the picture’s own height from its width, maps the pointer by the cell’s shape, trusts a host that sizes it by its box, and lets a pill’s edge beat a satellite’s slack', async () => {
+  const aspect = CELL.w / CELL.h
+  // A tall map in a 39-column layer (the Windows report: 300 px wide, 860 × 1040 field): about 18 rows, not 6.
+  const tall = layerFor(39, 6, { fieldW: 860, fieldH: 1040, hits: true })
+  expect(tall.rows).toBe(Math.floor((39 * 1040 * aspect) / 860))
+  expect(tall.rows).toBe(18)
+  // Its pointer maps through the cell's shape, not the rows the host first reported: the cell a point is drawn in
+  // maps back to within a cell of that point, at the top of the picture and at its bottom alike.
+  for (const y of [40, 300, 700, 1000]) {
+    const cell = dcell({ fieldW: 860 }, 430, y, 39)
+    expect(Math.abs(tall.fieldY(cell) - y)).toBeLessThan((860 / (39 * CELL.w)) * CELL.h)
+  }
+  // The focused field (860 × 520) in the same layer: 9 rows.
+  expect(layerFor(39, 18, { fieldW: 860, fieldH: 520, hits: true }).rows).toBe(9)
+  // A host that sizes the layer by its box reports more rows than were drawn: its count is the measure then.
+  const byBox = layerFor(39, 24, { fieldW: 860, fieldH: 1040, hits: true })
+  expect(byBox.byBox).toBe(true)
+  expect(byBox.fieldY({ x: 0, y: 12 })).toBe((12.5 / 24) * 1040)
+  // Layer height +2 (a font with wider cells): the layer draws taller, and maps by the same shape.
+  const wider = layerFor(39, 0, { fieldW: 860, fieldH: 1040, hits: true, cellAspect: aspect + 0.04 })
+  expect(wider.rows).toBe(Math.floor((39 * 1040 * (aspect + 0.04)) / 860))
+  expect(wider.rows).toBeGreaterThan(tall.rows)
+  // A press on a pill's top edge, right under one of its satellites (29 units off its centre), is the pill's; a press
+  // on the satellite's dot is the satellite's.
+  const pill = { id: 't', kind: 'topic', x: 300, y: 300, w: 160, isMajor: true, label: 'Orders List 9' }
+  const sat = { id: 's', kind: 'session', x: 300, y: 271, label: '', topicId: 't' }
+  expect(nodeAtPoint([sat, pill], { x: 300, y: 284 })?.id).toBe('t')
+  expect(nodeAtPoint([sat, pill], { x: 302, y: 273 })?.id).toBe('s')
+  // Off the pill, the satellite's slack still helps a coarse cell reach it.
+  expect(nodeAtPoint([sat, pill], { x: 300, y: 258 })?.id).toBe('s')
 })
 
 test('the Desktop pointer layer is on by default: a picture sized from the pane, a Client of the same size over it that draws nothing, traces on hover and picks on a click; a step and the back pill pick too', async ($, on) => {
@@ -297,37 +344,39 @@ test('the Desktop pointer layer is on by default: a picture sized from the pane,
   expect(client?.props.width).toBe('100%')
   expect(client?.props.height).toBe('100%')
   expect(await ui.find({ in: 'map', type: 'Text' })).toBeUndefined()
-  await ui.resize({ columns: COLUMNS, rows: ROWS, in: 'map' })
   const field = await fieldOfMount(ui)
+  // Sized as the Desktop sizes it, the layer settles at the picture's own height: 100 columns of 7.7 px over an
+  // 860 × 520 field is a 770 × 466 px picture, 23 rows of 19.8 px.
+  expect(await fitLikeDesktop(ui)).toBe(Math.floor((COLUMNS * (field.fieldH ?? 520) * (CELL.w / CELL.h)) / (field.fieldW ?? 860)))
   expect(field.hits).toBe(true)
   expect(field.outline).toBe(false)
   expect(field.fieldW).toBe(860)
-  const fieldH = field.fieldH ?? 520
   const topic = (field.nodes ?? []).find(n => n.id === CHECKOUT)
   expect(topic).toBeDefined()
   if (!topic) return
-  await ui.pointer({ type: 'move', x: hcol(topic.x), y: hrow(topic.y, fieldH), in: 'map' })
+  await ui.pointer({ type: 'move', ...dcell(field, topic.x, topic.y), in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'tc:focus' })).toBeDefined()
   expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('Enter to focus')
   // Off the pill: the trace clears.
-  await ui.pointer({ type: 'move', x: 0, y: hrow(topic.y, fieldH), in: 'map' })
+  await ui.pointer({ type: 'move', x: 0, y: dcell(field, topic.x, topic.y).y, in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'tc:focus' })).toBeUndefined()
-  await ui.pointer({ type: 'down', x: hcol(topic.x), y: hrow(topic.y, fieldH), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: hcol(topic.x), y: hrow(topic.y, fieldH), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'down', ...dcell(field, topic.x, topic.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', ...dcell(field, topic.x, topic.y), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
   // In focus: a click on a step opens its card; a click on the back pill goes straight back to every topic.
-  await ui.resize({ columns: COLUMNS, rows: ROWS, in: 'map' })
   const focused = await fieldOfMount(ui)
+  // The focused field is shorter: the layer redraws at its height, and the Desktop follows.
+  expect(await fitLikeDesktop(ui)).toBe(Math.floor((COLUMNS * (focused.fieldH ?? 520) * (CELL.w / CELL.h)) / (focused.fieldW ?? 860)))
   const step = (focused.nodes ?? []).find(n => n.kind === 'step' && n.id === IDS.tests)
   const back = (focused.nodes ?? []).find(n => n.kind === 'back')
   expect(step).toBeDefined()
   expect(back).toBeDefined()
   if (!step || !back) return
-  await ui.pointer({ type: 'down', x: hcol(step.x), y: hrow(step.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: hcol(step.x), y: hrow(step.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'down', ...dcell(focused, step.x, step.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', ...dcell(focused, step.x, step.y), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
-  await ui.pointer({ type: 'down', x: hcol(back.x), y: hrow(back.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: hcol(back.x), y: hrow(back.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'down', ...dcell(focused, back.x, back.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', ...dcell(focused, back.x, back.y), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeUndefined()
   await ui.unmount()
@@ -337,9 +386,10 @@ test('the outline mode draws the layer’s edge and readings over the picture; o
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.resize({ columns: COLUMNS, rows: ROWS, in: 'map' })
+  expect(await fitLikeDesktop(ui)).toBe(23)
   expect((await fieldOfMount(ui)).outline).toBe(true)
-  expect(await ui.find({ in: 'map', type: 'Text', text: /^layer 100×24 cells · field 860×520 · no pointer event yet$/ })).toBeDefined()
+  expect(await ui.find({ in: 'map', type: 'Text', text: /^layer 100×23 · field 860×520 · cell 0\.39 · no pointer yet$/ })).toBeDefined()
+  expect(await ui.find({ in: 'map', type: 'Text', text: /should meet the picture’s bottom; if not, Settings › Advanced › Layer height/ })).toBeDefined()
   await ui.pointer({ type: 'move', x: 7, y: 3, in: 'map' })
   expect(await ui.find({ in: 'map', type: 'Text', text: /move at 7,3/ })).toBeDefined()
   expect(await ui.find({ in: 'map', type: 'Text', text: /^\+$/ })).toBeDefined()

@@ -62,6 +62,8 @@ export type MapSettings = {
   fieldBackground: 'transparent' | 'night'
   /** The Desktop's pointer layer over the picture: on, drawn with its outline, or off. */
   pictureClicks: 'on' | 'outline' | 'off'
+  /** Fine-tunes the layer's height over the picture, -3 to 3: each step is 0.02 of a cell's width-to-height ratio (0.39 at 0). */
+  layerHeight: number
 }
 
 export type ToastState = { text: string; hasUndo: boolean }
