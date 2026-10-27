@@ -28,7 +28,8 @@ at_least() {
 unix_path() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s' "$1"; fi
 }
-# Every Claude Code the Claude Desktop app keeps for its Code tab: <its data>/claude-code/<version>/<build>/claude.
+# Every Claude Code the Claude Desktop app keeps for its Code tab: <its data>/claude-code/<version>/<build>/claude
+# (on a Mac, when the build comes as a bundle: <build>/claude.app/Contents/MacOS/claude).
 bundled() {
   app_data=""
   [ -n "${APPDATA:-}" ] && app_data="$(unix_path "$APPDATA")/Claude/claude-code"
@@ -37,7 +38,7 @@ bundled() {
   config=${XDG_CONFIG_HOME:-}
   if [ -z "$config" ] && [ -n "$home" ]; then config="$home/.config"; fi
   for root in ${home:+"$home/Library/Application Support/Claude/claude-code"} ${config:+"$config/Claude/claude-code"} ${app_data:+"$app_data"}; do
-    for c in "$root"/*/*/claude "$root"/*/*/claude.exe; do
+    for c in "$root"/*/*/claude "$root"/*/*/claude.app/Contents/MacOS/claude "$root"/*/*/claude.exe; do
       if [ -f "$c" ]; then printf '%s\n' "$c"; fi
     done
   done
