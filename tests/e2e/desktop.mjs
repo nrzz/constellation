@@ -13,9 +13,10 @@
 // hands it pointer events on the cells over the picture, and forwards its posts, so a click here goes through
 // every piece of code a click on the Desktop does, save the Desktop's own layout and pixels.
 //
-// Four folders, each its own fresh config dir: the three fixture transcripts; a generated folder of about 140
-// sessions in a dozen themes with one transcript over 4 MiB; an empty folder; and the fixtures again, to see the
-// pane open on its own when "On session start" is Pane. Prints PASS/FAIL per check, exits 1 on any failure.
+// Five folders, each its own fresh config dir: the three fixture transcripts; a generated folder of about 140
+// sessions in a dozen themes with one transcript over 4 MiB; an empty folder; the fixtures again, to see the
+// pane open on its own when "On session start" is Pane; and the big folder with one session running, drawn as the
+// live picture. The first three set Picture: Clicks (they test the image and its pointer layer). Prints PASS/FAIL per check, exits 1 on any failure.
 // Needs Node 18+ and `claude` on PATH (or CLAUDE_BIN).
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -941,6 +942,62 @@ async function openOnStartChecks() {
   }
 }
 
+// ---------------------------------------------------------------- 5. the live picture
+
+async function livePictureChecks() {
+  console.log('== 5: the live picture (the default) on a big folder with a running session')
+  const pre = seed([], 'storefront')
+  const now = Date.now()
+  const { sessions } = bigFolder(pre.cwd, now)
+  // One session written half a minute ago: running, as statusOf calls a session written in the last five minutes.
+  const live = sessions[0]
+  live.mtime = now - 30_000
+  const dir = path.join(pre.cfg, 'projects', pre.cwd.replace(/[^a-zA-Z0-9]/g, '-'))
+  for (const s of sessions) {
+    const file = path.join(dir, `${s.id}.jsonl`)
+    fs.writeFileSync(file, s.text)
+    fs.utimesSync(file, new Date(s.mtime), new Date(s.mtime))
+  }
+  const engine = new Engine(pre)
+  const desk = new Desktop(engine)
+  try {
+    await engine.request({ subtype: 'initialize' }, 90_000)
+    await desk.attach()
+    const t0 = Date.now()
+    let r = await desk.pane()
+    const counted = tree => [...(svgOfTree(tree)?.props.alt ?? '').matchAll(/\((\d+)\)/g)].reduce((a, m) => a + Number(m[1]), 0)
+    while (counted(r.tree) < sessions.length && Date.now() - t0 < 60_000) {
+      await sleep(250)
+      r = await desk.pane()
+    }
+    const svg = svgOfTree(r.tree)
+    const source = svg?.props.source ?? ''
+    check(counted(r.tree) === sessions.length, `the live map holds all ${sessions.length} sessions`, `${counted(r.tree)} counted`)
+    check(svg?.props.isInteractive === true, 'with no setting, the Desktop’s Svg arrives interactive (the live picture)', svg?.props && { isInteractive: svg.props.isInteractive })
+    check(!find(r.tree, n => n.type === 'Client'), '…and no Client layer is mounted over it')
+    check(findAll(r.tree, n => n.type === 'Button' && /^t:/.test(n.props?.key ?? '')).length > 0, '…the topic buttons under it pick instead')
+    check(/Hover a topic to trace it · its button below focuses it/.test(source), '…and its hint says so')
+    const drawn = [...source.matchAll(/<g class="t t-(\d+)/g)].map(m => Number(m[1]))
+    // The live trace per topic: its spokes lit over the drawing's inline styles, and its caption in the hint's place.
+    const unhovered = drawn.filter(i => !source.includes(`.t-${i}:hover .ln{stroke:`) || !source.includes(`.f:has(.t-${i}:hover) .c-${i}{opacity:1}`))
+    check(drawn.length >= 8 && unhovered.length === 0, `a :hover trace and caption for each of the ${drawn.length} drawn topics`, unhovered)
+    check(!/<script/i.test(source) && !/\son[a-z]+\s*=/i.test(source), '…and no script or event-handler attribute in the source')
+    check(source.length < 131_072 && Buffer.byteLength(source) < SVG_MAX_BYTES, `the big live map stays within the engine’s ${SVG_MAX_BYTES / 1024} KiB`, `${source.length} chars, ${Buffer.byteLength(source)} bytes`)
+    // L3a: the running session's topic wears its ring; the session ripples; an idle topic has neither.
+    const groups = source.split(/(?=<g class="t t-\d+)/).filter(g => /^<g class="t t-\d+/.test(g))
+    const running = groups.filter(g => /^<g class="t t-\d+ run/.test(g))
+    check(running.length >= 1 && running.every(g => g.includes('class="rg"')), 'the running session’s topic carries the run class and its ring', running.map(g => g.slice(0, 40)))
+    check(groups.some(g => !/^<g class="t t-\d+ run/.test(g) && !g.includes('class="rg"')), '…an idle topic neither')
+    check(running.some(g => g.includes('<circle class="rp" ')), '…and the running session ripples', (source.match(/<circle class="rp" /g) ?? []).length)
+    saveShot('desktop-live.svg', svg)
+    check(desk.faults.length === 0, 'the module never faulted', desk.faults)
+  } catch (error) {
+    check(false, 'the live picture run', String(error?.stack ?? error))
+  } finally {
+    await engine.close()
+  }
+}
+
 // ----------------------------------------------------------------
 
 /** Removes the run's folders; Windows may hold one a moment after its process ends, so it retries, and only warns. */
@@ -965,6 +1022,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
   if (wanted(2)) await bigFolderChecks()
   if (wanted(3)) await emptyFolderChecks()
   if (wanted(4)) await openOnStartChecks()
+  if (wanted(5)) await livePictureChecks()
   console.log(`== ${passed} passed, ${failed} failed`)
   if (!failed && !process.env.E2E_KEEP) cleanUp()
   process.exit(failed ? 1 : 0)
