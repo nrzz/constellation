@@ -77,14 +77,14 @@ test('the settings view offers Picture: Live / Clicks under ADVANCED, and a pres
 })
 
 /** Three major topics (one with a goal, one with a parked note, one with neither), the first two sharing a file. */
-function liveView(settings = DEFAULT_SETTINGS) {
+function liveView(settings = DEFAULT_SETTINGS, running: readonly string[] = []) {
   const sessions: SessionSummary[] = []
   const store = { ...EMPTY_STORE, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string>, goals: { 'topic:a': 'Ship the <live> pane' } as Record<string, string>, notes: { 'b-0': { text: 'Left off at the caption', at: NOW, source: 'manual' as const } } }
   for (const [t, name, file] of [['a', 'Alpha work', 'src/shared.ts'], ['b', 'Beta work', 'src/shared.ts'], ['c', 'Gamma work', 'src/own.ts']] as const) {
     store.topics[`topic:${t}`] = { name, createdAt: 0 }
     for (let k = 0; k < 3; k += 1) {
       const id = `${t}-${k}`
-      const lastAt = NOW - (k + 1) * 3600_000
+      const lastAt = running.includes(id) ? NOW - 60_000 : NOW - (k + 1) * 3600_000
       sessions.push({ id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: `Session ${id}`, startedAt: lastAt - 3600_000, lastAt, turns: 2, filesTouched: [k === 0 ? file : `src/${t}${k}.ts`], lastAssistantText: 'done', size: 1, mtimeMs: lastAt })
       store.assign[id] = `topic:${t}`
     }
@@ -98,7 +98,7 @@ test('live: each topic is one group with its pill and satellites, and a hover ru
   const view = liveView()
   const svg = svgOf(view)
   view.model.topics.forEach((t, i) => {
-    const group = svg.split(`<g class="t t-${i}"`)[1]?.split('<g class="t t-')[0] ?? ''
+    const group = svg.split(new RegExp(`<g class="t t-${i}[ "]`))[1]?.split('<g class="t t-')[0] ?? ''
     expect(group).toContain('class="pill')
     expect(group).toContain('class="s ')
     expect(svg).toContain(`.t-${i}:hover .ln{stroke:${t.color}`)
@@ -119,7 +119,7 @@ test('live: each topic is one group with its pill and satellites, and a hover ru
 test('live: the caption is the goal, else the latest note, else the count and last activity; each text from the topic, escaped', () => {
   const view = liveView()
   const svg = svgOf(view)
-  const cap = (id: string) => svg.split(`<g class="cap c-${view.model.topics.findIndex(t => t.id === id)}"`)[1]?.split('</g>')[0] ?? ''
+  const cap = (id: string) => svg.split(new RegExp(`<g class="cap c-${view.model.topics.findIndex(t => t.id === id)}[ "]`))[1]?.split('</g>')[0] ?? ''
   expect(cap('topic:a')).toContain('Ship the &lt;live&gt; pane')
   expect(cap('topic:b')).toContain('Left off at the caption')
   expect(cap('topic:c')).toContain('3 sessions · last 1h ago')
@@ -208,7 +208,7 @@ test('live motion: stars twinkle out of step, each topic sways its satellites an
   expect(twinkles.size).toBeGreaterThanOrEqual(3)
   // One orbit group per drawn topic, holding its spokes and satellites, turning about its unit's centre, directions alternating.
   view.model.topics.forEach((t, i) => {
-    const group = svg.split(`<g class="t t-${i}"`)[1]?.split('<g class="t t-')[0] ?? ''
+    const group = svg.split(new RegExp(`<g class="t t-${i}[ "]`))[1]?.split('<g class="t t-')[0] ?? ''
     const orbit = group.split('<g class="o"')[1] ?? ''
     expect(orbit).toContain('class="ln"')
     expect(orbit).toContain('class="s n hit"')
@@ -227,4 +227,50 @@ test('clicks: no motion at all', () => {
   expect(svg).not.toContain('@keyframes')
   expect(svg).not.toContain('animation')
   expect(svg).not.toContain('class="o"')
+})
+
+test('live motion: running satellites pulse out of step, idle ones keep still, and the latest step’s glow breathes', () => {
+  const view = liveView(DEFAULT_SETTINGS, ['a-0', 'b-1'])
+  const svg = svgOf(view)
+  expect(svg).toContain('@keyframes pu{')
+  // One pulsing halo per running satellite, each on its own delay; none for the seven idle ones.
+  const pulses = svg.match(/<circle class="pu" style="animation-delay:-[\d.]+s"/g) ?? []
+  expect(pulses.length).toBe(2)
+  expect(new Set(pulses).size).toBe(2)
+  const focused = svgOf({ ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:a' } })
+  expect(focused).toContain('@keyframes br{')
+  expect((focused.match(/<circle class="br"/g) ?? []).length).toBe(1)
+  expect(svgOf({ ...view, settings: { ...DEFAULT_SETTINGS, pictureMode: 'clicks' } })).not.toMatch(/class="(pu|br)"/)
+})
+
+test('live idle cycle: with nobody pointing, each major topic is traced in turn, four seconds apart, the caption following', () => {
+  const view = liveView()
+  const svg = svgOf(view)
+  const majors = view.model.topics.map((t, i) => (t.isMajor ? i : -1)).filter(i => i >= 0)
+  expect(majors.length).toBe(3)
+  // The hint has the first slot, then every drawn major topic once.
+  const period = 4 * (majors.length + 1)
+  const delays = majors.map(i => {
+    const m = svg.match(new RegExp(`<g class="t t-${i} cy"[^>]*--d:([\\d.]+)s`))
+    expect(m).not.toBeNull()
+    return Number(m?.[1])
+  })
+  expect([...delays].sort((a, b) => a - b)).toEqual(majors.map((_, k) => 4 * (k + 1)))
+  majors.forEach(i => expect(svg).toMatch(new RegExp(`<g class="cap c-${i} cy" style="--d:[\\d.]+s"`)))
+  // Every cycle rule waits for an unpointed field, so any hover stops it.
+  expect(svg).toContain(`.f:not(:hover) .hint{animation:cv ${period}s linear infinite}`)
+  for (const sel of ['.t.cy .pill', '.t.cy .nm', '.t.cy .glow', '.t.cy .ln', '.cap.cy']) expect(svg).toContain(`.f:not(:hover) ${sel}{animation:`)
+  expect(svg).toContain('@media (prefers-reduced-motion:reduce){.f *{animation:none!important}}')
+  // A focused chain has no cycle, and neither has the click picture.
+  expect(svgOf({ ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:a' } })).not.toContain(' cy"')
+  expect(svgOf({ ...view, settings: { ...DEFAULT_SETTINGS, pictureMode: 'clicks' } })).not.toContain(' cy"')
+})
+
+test('live idle cycle: the four-hundred-session folder keeps its cycle and stays under the cap', () => {
+  const view = bigView(40, 10)
+  const svg = svgOf(view)
+  expect(svg.length).toBeLessThanOrEqual(131072)
+  const drawn = view.model.topics.filter(t => t.isMajor).length
+  expect((svg.match(/<g class="t t-\d+ cy"/g) ?? []).length).toBe(drawn)
+  expect((svg.match(/<g class="cap c-\d+ cy"/g) ?? []).length).toBe(drawn)
 })

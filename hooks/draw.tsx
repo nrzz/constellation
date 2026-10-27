@@ -316,17 +316,20 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       // Motion: calm, out of step, and stopped for a reader who asks for less.
       `@keyframes tw{50%{opacity:.25}}@keyframes rk{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}@keyframes fl{50%{transform:translate(0,-3px)}}`,
       `.tw{animation:tw 5s ease-in-out infinite}.o{transform-box:view-box;animation:rk 60s ease-in-out infinite alternate}.t{animation:fl 8s ease-in-out infinite}`,
+      // A running satellite's halo pulses; the latest step's glow breathes.
+      `@keyframes pu{50%{transform:scale(1.5);opacity:.45}}@keyframes br{50%{opacity:.4}}`,
+      `.pu{transform-box:fill-box;transform-origin:center;animation:pu 2.6s ease-in-out infinite}.br{animation:br 4s ease-in-out infinite}`,
       `@media (prefers-reduced-motion:reduce){.f *{animation:none!important}}`,
     )
   }
   const caps: string[] = []
   // A caption in the hint pill's place, shown while its owner is hovered; in focus mode it keeps clear of the back pill.
-  const capOf = (cls: string, text: string, color: string) => {
+  const capOf = (cls: string, text: string, color: string, style = '') => {
     const room = focus ? size.w - 2 * 118 : size.w - 28
     const cap = clip(text, Math.max(8, Math.floor((room - 24) / 6.3)))
     const cw = 24 + cap.length * 6.3
     caps.push(
-      `<g class="cap ${cls}"><rect x="${(size.w / 2 - cw / 2).toFixed(1)}" y="14" width="${cw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass)" stroke="${color}"/>` +
+      `<g class="cap ${cls}"${style ? ` style="${style}"` : ''}><rect x="${(size.w / 2 - cw / 2).toFixed(1)}" y="14" width="${cw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass)" stroke="${color}"/>` +
         `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--tx)" text-anchor="middle">${esc(cap)}</text></g>`,
     )
   }
@@ -379,6 +382,26 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         `<line class="x x-${ia} x-${ib}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" ${strokeAttr} stroke-width="${isBright ? 1.2 : 1}" stroke-dasharray="2 5" opacity="${isBright ? 0.8 : traced ? 0.35 : 0.8}"/>`,
       )
     }
+    // The idle cycle: with nobody pointing, the hint has the first four seconds, then each major topic is traced in turn,
+    // its caption following; a hover anywhere on the field stops it. The rest is not faded: that would take a timeline
+    // per topic, and a map dimming on its own is not calm.
+    const cycle = new Map<string, number>()
+    if (live) model.topics.filter(t => t.isMajor && placed[t.id]).forEach((t, k) => cycle.set(t.id, 4 * (k + 1)))
+    if (cycle.size > 0) {
+      const period = 4 * (cycle.size + 1)
+      const s = 100 / (cycle.size + 1)
+      const at = (v: number) => `${Number(v.toFixed(2))}%`
+      const frames = (name: string, prop: string, off: string, on: string) => `@keyframes ${name}{0%{${prop}:${off}}${at(s / 8)},${at(s - s / 8)}{${prop}:${on}}${at(s)},100%{${prop}:${off}}}`
+      const run = (name: string) => `{animation:${name} ${period}s linear var(--d) infinite}`
+      css.push(
+        frames('cv', 'opacity', '0', '1'),
+        frames('cp', 'fill', 'var(--pill)', 'var(--tx)'),
+        frames('cn', 'fill', 'var(--tx)', 'var(--inv)'),
+        frames('cl', 'stroke', 'var(--ln)', 'var(--c)'),
+        `.f:not(:hover) .hint{animation:cv ${period}s linear infinite}`,
+        `.f:not(:hover) .t.cy .pill${run('cp')}.f:not(:hover) .t.cy .nm${run('cn')}.f:not(:hover) .t.cy .glow${run('cv')}.f:not(:hover) .t.cy .ln${run('cl')}.f:not(:hover) .cap.cy${run('cv')}`,
+      )
+    }
     for (const t of model.topics) {
       const p = placed[t.id]
       if (!p) continue
@@ -392,11 +415,12 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const isDrop = dropSource !== undefined && dropSource !== t.id
       const countLabel = query ? `${t.sessions.filter(s => matches(query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
       const linked = relatedOf(model.links, t.id)
+      const d = cycle.get(t.id)
       if (live) {
         // Its spokes and its links to other topics in its colour; the rest fades (above), the caption takes the hint's place.
         css.push(`.t-${i}:hover .ln{stroke:${t.color}!important;opacity:.8!important}`, `.t-${i}:hover .sat{r:10px}`, `.f:has(.t-${i}:hover) .c-${i}{opacity:1}`)
         if (linked.length > 0) css.push(`.f:has(.t-${i}:hover) .x-${i}{stroke:${t.color}!important;opacity:.8!important}`)
-        capOf(`c-${i}`, `${clip(t.name, 28)} · ${captionOf(t, now)}`, t.color)
+        capOf(`c-${i}${d ? ' cy' : ''}`, `${clip(t.name, 28)} · ${captionOf(t, now)}`, t.color, d ? `--d:${d}s` : '')
       } else {
         css.push(`.t-${i}:hover .ln{stroke:${t.color}}`, `.t-${i}:hover .sat{r:10px}`)
         for (const r of linked) {
@@ -404,7 +428,9 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
           if (j !== undefined) css.push(`svg:has(.t-${i}:hover) .t-${j}{opacity:.8}`, `svg:has(.t-${i}:hover) .x-${i}{stroke:${t.color};opacity:.8}`)
         }
       }
-      const g: string[] = [`<g class="t t-${i}" opacity="${opacity.toFixed(2)}"${live ? ` style="animation-duration:${7 + (i % 5) * 0.8}s;animation-delay:-${(i * 1.9) % 7}s"` : ''}>`]
+      const cy = d ? ` cy` : ''
+      const cyStyle = d ? `;--d:${d}s;--c:${t.color}` : ''
+      const g: string[] = [`<g class="t t-${i}${cy}" opacity="${opacity.toFixed(2)}"${live ? ` style="animation-duration:${7 + (i % 5) * 0.8}s;animation-delay:-${(i * 1.9) % 7}s${cyStyle}"` : ''}>`]
       const sessions = t.sessions.slice(0, maxSessions)
       if (live && sessions.length > 0) {
         // Its spokes and satellites sway about its centre as one group, a few degrees each way: a full turn would carry
@@ -434,7 +460,9 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         const ringAttr = s.status === 'archived' ? 'style="stroke:var(--dim)"' : `stroke="${t.color}"`
         const dash = s.status === 'archived' ? ' stroke-dasharray="2 2"' : ''
         const glow = isSel || (query && isMatch) ? `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 4}" fill="${rgba(t.color, 0.3)}"/>` : ''
-        const halo = `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 5}" fill="${rgba(t.color, 0.12)}"/>`
+        // A running satellite's halo pulses, each on its own delay so no two beat together.
+        const pulse = live && s.status === 'active' ? ` class="pu" style="animation-delay:-${((i * 1.1 + k * 0.7) % 2.6).toFixed(1)}s"` : ''
+        const halo = `<circle${pulse} cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 5}" fill="${rgba(t.color, 0.12)}"/>`
         const tip = withTooltips ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
         const pin = s.isPinned ? `<text x="${(sp.x + 5).toFixed(1)}" y="${(sp.y - 5).toFixed(1)}" font-size="9" fill="${ACCENT}">★</text>` : ''
         g.push(`<g class="s n hit" opacity="${op.toFixed(2)}">${tip}${halo}${glow}<circle class="sat" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r}" ${fillAttr} ${ringAttr} stroke-width="1.5"${dash}/>${pin}</g>`)
@@ -532,7 +560,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         capOf(`q-${i}`, `${i + 1} · ${isYou ? 'This session · you' : `${clip(title, 40)} · ${s ? sessionMeta(s, now, isLatest ? 'latest' : '') : ''}`}`, isYou ? ACCENT : color)
       }
       const g: string[] = [`<g class="n hit${live ? ` st st-${i}` : ''}" opacity="${op.toFixed(2)}">${tip}`]
-      if (isLatest) g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="21" fill="${rgba(color, 0.22)}"/>`)
+      if (isLatest) g.push(`<circle${live ? ' class="br"' : ''} cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="21" fill="${rgba(color, 0.22)}"/>`)
       g.push(`<circle${live ? ' class="ring"' : ''} cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="16" style="fill:${fill};stroke:${ring}" stroke-width="2"${dash}/>`)
       g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${(pt.y + 4.5).toFixed(1)}" font-size="12.5" font-weight="600" style="fill:${numColor}" text-anchor="middle">${i + 1}</text>`)
       if (s?.isPinned) g.push(`<text x="${(pt.x + 12).toFixed(1)}" y="${(pt.y - 10).toFixed(1)}" font-size="10" fill="${ACCENT}">★</text>`)
