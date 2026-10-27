@@ -293,12 +293,12 @@ let ensuring: Promise<void> | undefined
 let lastOpenedFor: string | null = null
 let isLegacyCleaned = false
 
-/** Once per process: the scan caches of the previous build, under every slug, go (they were never small). */
+/** Once per process: the scan caches of the previous builds, under every slug, go (they were never small). */
 async function cleanLegacyKeys($: EngineInterface): Promise<void> {
   if (isLegacyCleaned) return
   isLegacyCleaned = true
   try {
-    for (const key of await $.store.keys()) if (key.startsWith('cache:')) await $.store.delete(key)
+    for (const key of await $.store.keys()) if (key.startsWith('cache:') || key.startsWith('scan2:')) await $.store.delete(key)
   } catch (error) {
     $.ui.log(`constellation: old caches not cleared: ${String(error)}`, { to: 'debug' })
   }

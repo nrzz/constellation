@@ -112,15 +112,22 @@ export function isNoiseFile(path: string): boolean {
   return /^(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|cargo\.lock|poetry\.lock|go\.sum|composer\.lock|gemfile\.lock|uv\.lock|bun\.lockb?)$/.test(base)
 }
 
-/** A typed user prompt: a string body that is not a meta row and not a slash command's record. */
+/** The Desktop sends a paste wrapped in `<pasted_content id="…">` … `</pasted_content id="…">`: the tags go, the person's text stays. */
+export function unwrapPastes(text: string): string {
+  return text.replace(/<\/?pasted_content\b[^>]*>/g, '')
+}
+
+/** A typed user prompt: a string body that is not a meta row and not a slash command's record. A paste counts. */
 function promptOf(row: Json): string | undefined {
   if (row.isMeta === true) return undefined
   const message = asObject(row.message)
   const content = asString(message?.content)
   if (content === undefined) return undefined
-  const text = content.trim()
-  if (text === '' || text.startsWith('<')) return undefined
-  return text
+  const raw = content.trim()
+  // A body that opens with a tag is a command's record or a system row, unless the tag is a paste's.
+  if (raw.startsWith('<') && !raw.startsWith('<pasted_content')) return undefined
+  const text = unwrapPastes(raw).trim()
+  return text === '' ? undefined : text
 }
 
 /**
@@ -403,8 +410,8 @@ export async function scanProject(
   const sessions: SessionSummary[] = []
   let isPartial = false
   for (const slug of slugs) {
-    // `scan2`: summaries parsed since titles came from the title rows and noise files were dropped (the old `cache:` keys are cleared at start).
-    const key = `scan2:${slug}`
+    // `scan3`: summaries parsed since a pasted prompt counts as one (the older `cache:` and `scan2:` keys are cleared at start).
+    const key = `scan3:${slug}`
     const memoryKey = `${root}/${slug}`
     let cache = memory.get(memoryKey)
     if (!cache) {

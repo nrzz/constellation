@@ -92,6 +92,25 @@ describe('parseTranscript', () => {
     expect(s?.title.endsWith('…')).toBe(true)
     expect(s?.firstPrompt.length).toBeLessThanOrEqual(200)
   })
+
+  test('a pasted prompt is the person’s: it is a turn, and its text without the Desktop’s paste tags is the first prompt', async () => {
+    const human = { origin: { kind: 'human' } }
+    const rows = [
+      // The Desktop sends a paste wrapped in tags that carry an id, the closing one too.
+      userRow('p', 'u1', '2026-10-27T10:00:00.000Z', '\n\n<pasted_content id="1af8">\nYou are continuing the Constellation mod\n</pasted_content id="1af8">\n', human),
+      assistantRow('p', 'a1', '2026-10-27T10:00:05.000Z', [{ type: 'text', text: 'On it.' }]),
+      userRow('p', 'u2', '2026-10-27T10:01:00.000Z', 'Look at <pasted_content id="9c2e">the README</pasted_content id="9c2e"> too', human),
+      userRow('p', 'u3', '2026-10-27T10:02:00.000Z', '<command-name>/map</command-name>\n<command-message>map</command-message>\n<command-args></command-args>'),
+      userRow('p', 'u4', '2026-10-27T10:03:00.000Z', '<pasted_content id="77aa"><div>a pasted page</div></pasted_content id="77aa">', human),
+    ]
+    const s = parseTranscript(rows.join('\n'), seed('p'))
+    expect(s?.firstPrompt).toBe('You are continuing the Constellation mod')
+    expect(s?.title).toBe('You are continuing the Constellation mod')
+    // The two pastes and the line around one; never the command's record.
+    expect(s?.turns).toBe(3)
+    const inline = parseTranscript(rows.slice(2, 3).join('\n'), seed('p'))
+    expect(inline?.firstPrompt).toBe('Look at the README too')
+  })
 })
 
 type FakeFile = { size: number; mtimeMs: number; text?: string }

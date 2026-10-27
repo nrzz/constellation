@@ -6,7 +6,7 @@
 // `/topic`, a move), then auto-clustering of the rest (union-find over shared
 // title tokens, shared files, a shared non-main branch), then "Unsorted".
 // Everything here is pure: the store's data and the clock come in as values.
-import { basenameOf, isNoiseFile } from './scan'
+import { basenameOf, isNoiseFile, unwrapPastes } from './scan'
 import type { SessionSummary } from './scan'
 import type { NoteRecord, StoreData } from '../types'
 
@@ -535,10 +535,10 @@ export type JoinSuggestion = { ranked: JoinScore[]; best?: JoinScore; isClear: b
 /**
  * Scores a prompt against each topic: its titles (x2), notes (x1) and file
  * basenames (x2). Clear when the best is at least 3 and at least twice the
- * second. Unsorted is never suggested.
+ * second. Unsorted is never suggested. A Desktop paste's tags are not words.
  */
 export function scoreJoin(prompt: string, topics: readonly Topic[]): JoinSuggestion {
-  const words = new Set(tokensOf(prompt))
+  const words = new Set(tokensOf(unwrapPastes(prompt)))
   const ranked: JoinScore[] = []
   for (const t of topics) {
     if (t.id === UNSORTED_ID) continue

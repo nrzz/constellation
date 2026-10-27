@@ -260,6 +260,18 @@ describe('join suggestion', () => {
     const files = scoreJoin('orders route handler', m.topics)
     expect(files.best?.topicId).toBe(m.byId.p1?.topicId)
   })
+
+  test('a pasted prompt scores by its text: the Desktop’s paste tags add no words', async () => {
+    const blog = ['Content pipeline for the blog', 'Blog content schema', 'Publish blog content nightly'].map((title, i) =>
+      session({ id: `w${i + 1}`, title, daysAgo: 2 + i, filesTouched: ['blog/content.ts'] }),
+    )
+    const m = buildModel([...folder(), ...blog], EMPTY_STORE, SETTINGS, NOW)
+    expect(m.topics.some(t => t.sessions.some(s => s.id === 'w1') && t.id !== UNSORTED_ID)).toBe(true)
+    const bare = scoreJoin('the checkout cart test is flaky again', m.topics)
+    const pasted = scoreJoin('<pasted_content id="5e1f">\nthe checkout cart test is flaky again\n</pasted_content id="5e1f">', m.topics)
+    expect(pasted.ranked).toEqual(bare.ranked)
+    expect(pasted.best?.topicId).toBe('auto:c4')
+  })
 })
 
 describe('chain order and ages', () => {

@@ -97,13 +97,20 @@ test('Undo reverses only what the undone action changed: a note written since st
   await ui.unmount()
 })
 
-test('the previous build’s cache keys are cleared once at start, for every folder', async ($, on) => {
-  const live: Record<string, unknown> = { 'cache:D--Projects-web-app': { x: 1 }, 'cache:other-folder': { y: 2 }, settings: { rangeDays: 14 } }
+test('the previous builds’ cache keys are cleared once at start, for every folder', async ($, on) => {
+  const live: Record<string, unknown> = {
+    'cache:D--Projects-web-app': { x: 1 },
+    'cache:other-folder': { y: 2 },
+    // Summaries parsed before a pasted prompt counted: re-read once under the new key, never kept beside it.
+    'scan2:D--Projects-web-app': { z: 3 },
+    'scan2:other-folder': { z: 4 },
+    settings: { rangeDays: 14 },
+  }
   stubEngine(on, { liveStore: live })
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
-  expect(Object.keys(live).filter(k => k.startsWith('cache:'))).toEqual([])
+  expect(Object.keys(live).filter(k => k.startsWith('cache:') || k.startsWith('scan2:'))).toEqual([])
   expect(live.settings).toEqual({ rangeDays: 14 })
-  expect(Object.keys(live).some(k => k.startsWith('scan2:'))).toBe(true)
+  expect(Object.keys(live).some(k => k.startsWith('scan3:'))).toBe(true)
 })
 
 test('/map shows a pane the start left unplaced instead of closing it, and the last-look time moves only when the pane was placed', async ($, on) => {
