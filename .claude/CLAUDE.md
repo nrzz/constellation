@@ -37,3 +37,6 @@ is what users read.
   touches the network.
 - On Windows, Bash heredocs collapse `\\` to `\`: write files with the Write
   tool.
+- When the context passes 35 %, finish the step at hand, write the handover
+  (`docs/HANDOVER.md` and its section 10 prompt) and continue in a fresh
+  session from that prompt.

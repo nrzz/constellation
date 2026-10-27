@@ -20,10 +20,10 @@ Desktop sidebar and nothing is lost between them.
 
 ![A folder of 140 sessions on the Desktop: fifteen topics as coloured pills, each with its sessions in orbit](docs/images/desktop-map.png)
 
-Status: built against Claude Code 2.1.310 and run end to end on 2.1.311, every
-picture on this page drawn by the real engine. `claude plugin validate
---strict`, `claude plugin test` (146 tests, including an edge-case suite),
-`tsc` and three end-to-end suites pass:
+Status: built against Claude Code 2.1.310, run end to end on 2.1.311 and
+re-run on Windows 11 with 2.1.308, every picture on this page drawn by the
+real engine. `claude plugin validate --strict`, `claude plugin test` (255
+tests, including an edge-case suite), `tsc` and three end-to-end suites pass:
 
 - `tests/e2e/tui.sh` drives the real Claude Code TUI in tmux with real mouse
   events: hover, clicks on topics, steps, dots and buttons, a drag, the
@@ -39,11 +39,14 @@ picture on this page drawn by the real engine. `claude plugin validate
   44-column pane, with a wider font before and after Layer height +2, over
   the fixture folder, a 140-session folder with a transcript over 4 MiB, an
   empty folder, and new sessions opening the map on Desktop, VS Code and
-  mobile (105 checks).
+  mobile; it checks that the layer matches the picture node for node, and
+  that the live picture arrives in its frame with a hover rule per topic, no
+  script, the running topic's ring and ripple, and under the size cap (265
+  checks).
 - `tests/e2e/installers.sh` runs `install.sh` under sh, dash and bash against
-  stand-in `claude` commands laid out as on macOS, Linux and Windows (54
+  stand-in `claude` commands laid out as on macOS, Linux and Windows (78
   checks); `tests/e2e/installers.ps1` runs the same cases against
-  `install.ps1` on Windows.
+  `install.ps1` on Windows (56 checks).
 
 The previous build was run on Windows 10 with Claude Desktop 3.6556; this one
 fixes what that run found (a pointer layer that covered only the picture's
@@ -53,11 +56,15 @@ console's missing glyphs) and waits on a second look in a real Desktop window.
 
 ## What it looks like
 
-On the Desktop the map is a picture you can click. Point at a topic and it is
-traced; click it and its sessions line up as a numbered chain, the latest
+On the Desktop the map is a live picture that never quite stops moving. Point
+at a topic and it is traced: its pill lights, its sessions and links take its
+colour, the rest fades. With nobody pointing, it traces one topic after
+another by itself. A topic with a session running wears a glowing ring, and
+the running session a bright core and a slow ripple. Its button under the
+map focuses it, and its sessions line up as a numbered chain, the latest
 glowing:
 
-![A topic traced under the pointer: its sessions take its colour, the rest dim](docs/images/desktop-trace.png)
+![A topic traced under the pointer: its pill lit, its sessions in its colour, the rest faded; a running topic ringed](docs/images/desktop-trace.png)
 
 ![The topic focused: eleven sessions as a numbered two-row chain, labels above and below, the latest glowing](docs/images/desktop-focus.png)
 
@@ -65,7 +72,7 @@ In a narrow pane the field narrows with it, so the same chain stays readable
 in a picture of about 300 px (a pane 44 cells wide leaves the picture its
 width less 40 px); each step's line sheds its turn count before its age:
 
-<img src="docs/images/desktop-narrow.png" width="395" alt="The same chain in a pane 44 cells wide: shorter labels, each step's age, nothing overlapping">
+<img src="docs/images/desktop-narrow.png" width="355" alt="The same chain in a pane 44 cells wide: shorter labels, each step's age, nothing overlapping">
 
 In a terminal the same map is drawn in text, beside the transcript, and takes
 the mouse: hover traces, a click focuses, a click on a step opens its card,
@@ -73,8 +80,10 @@ Escape and ‹ All topics go back.
 
 ![The terminal pane: a topic hovered, clicked, a step opened, and back](docs/images/terminal-clicks.gif)
 
-Every new session starts with the band above the prompt, offering the
-folder's topics; a digit or a click joins one:
+Every new session starts with the band above the prompt, "Continue a topic":
+the folder's topics as chips (on the Desktop tinted in their own colours),
+each with its session count and last activity, the best match for your first prompt a
+little stronger and marked "suggested"; a digit or a click joins one:
 
 ![The band: the folder's topics as join buttons, with + New topic and Open map](docs/images/band.png)
 
@@ -111,8 +120,9 @@ Any of these adds this repository as a marketplace and installs the plugin
 for every Claude Code on the machine (they share one plugin store); the next
 session in any folder has the band, `/map` and the rest. The settings keep
 their defaults until you change them (`/plugin configure constellation`,
-`/config`, or the pane's own settings). To remove it: `claude plugin
-uninstall constellation`.
+`/config`, or the pane's own settings). Claude Code says "N userConfig
+options not yet set" after the install: nothing is missing, every option has
+its default. To remove it: `claude plugin uninstall constellation`.
 
 To run it from a checkout while developing: `claude --plugin-dir <path to
 this repo>`, or install from the checkout with `claude plugin install
@@ -121,10 +131,11 @@ constellation --marketplace <path to this repo>`.
 ## How a session joins a topic
 
 1. A new session starts with no topic. A band above the prompt asks
-   "New session in `<folder>` · continuing which topic?" and lists up to nine
-   of the folder's topics by recent activity, on the digit hotkeys, plus
-   **+N more in the map** when there are more, **New topic**, **Open map**
-   (`o`) and **Dismiss**. (The pane's chooser card lists every topic.)
+   **Continue a topic** (with the folder and its topic count) and lists up to
+   nine of the folder's topics by recent activity, on the digit hotkeys, plus
+   **+N more in the map** when there are more, then, apart from the topics,
+   **+ New topic**, **Open map** (`o`) and **Dismiss**. (The pane's chooser
+   card lists every topic, as the same chips.)
 2. If you type a prompt first, Constellation scores it against each topic's
    titles, goal, notes and file names and marks the best match **suggested**.
    With `autoJoin: auto`, a clear match joins at once and the note rides along
@@ -179,31 +190,44 @@ pill's edge, never across its name; a crowded folder gets a taller field (up
 to the engine's 4096 px picture, past which rows close up). Session titles are the ones the Desktop sidebar shows.
 Major topics are labelled pills with a session count
 (and "· you" on your topic), minor topics small dots with a mono label,
-sessions satellites around their topic (filled = active in the last five
-minutes, hollow = idle, dashed = archived, ★ = pinned; in a terminal ● ○ ◦
-and *), dashed lines between
-topics that touched the same file. Tab onto a topic, or point at it on the
-terminal map, and it is traced: its sessions and links take its colour,
-everything else dims, and its card shows under the field. Searching dims
-non-matches and shows match counts on the pills.
+sessions satellites around their topic (filled = running: this session or
+one written in the last five minutes; hollow = idle; dashed = archived, which
+the legend calls shipped; ★ = pinned; in a terminal ● ○ ◦, and pinned
+sessions get * in the List view only), dashed lines between
+topics that touched the same file. Running things are the first thing the
+eye finds: a running topic's pill wears a ring in its colour with a glow
+stronger than any other halo and a small live dot before its name (a running
+minor topic's dot fills instead), each running session a bright core and a
+ripple that widens and fades every few seconds, no two in step, and this
+session the accent colour with the same ripple; its caption starts with
+"● live · N running". The legend's "active" mark is drawn as a running
+satellite. Tab onto a topic, point at it (the live picture or the terminal
+map), and it is traced: its sessions and links take its colour, everything
+else dims, and its card shows under the field. Searching dims non-matches and
+shows match counts on the pills.
 
 **Focus mode**: pick a topic and it alone stays, its in-range sessions laid out
 as a numbered chain on two rows with arrows from step to step, each label above
 or below its step and cut to the room before its neighbour, the latest glowing,
-this session as the dashed accent step. A chain of more than about two dozen
-labels only the latest, the selected step and this session; the tooltips carry
-the rest. Related topics hang along the bottom as anchors; the topic's goal
+this session as the dashed accent step, running steps with the same core and
+ripple as on the map. A crowded chain (more steps than its width can label)
+labels only the selected step, this session, the latest and the first; the
+tooltips carry the rest. Related topics hang along the bottom as anchors; the topic's goal
 reads under the pill. **‹ All topics** (or `b`) goes straight back to every
 topic; Escape backs out one level.
 
-**Cards under the field**, by state:
+**Cards under the field**, by state. Each is a translucent card with a
+hairline in its topic's colour; its main action is a chip tinted in that
+colour, the next ones outlines, the rest plain text, and counts, ages and ids
+read dim and mono. The accent (amber) marks only you, live and the current
+selection:
 
 - No topic yet: the join chooser.
 - Joined: "This session is step N of `<topic>`", the goal, the note in context,
   your own note so far, and **Focus my topic**, **Draft next prompt** (fills the
   composer from the note; you edit and send), **Change topic**, **Park a note**.
 - A topic traced or focused: counts, goal, latest note, related chips, and
-  **Focus**, **Pick up latest**, **Join this topic**, **Archive N idle** (asks per
+  **Focus this topic**, **Pick up latest**, **Join this topic**, **Archive N idle** (asks per
   session; only when there is something to tidy), **Rename**, **Set goal**,
   **Merge into…**, a colour picker.
 - A session selected: step number, title, status, meta with how long it ran,
@@ -232,8 +256,8 @@ pane. The pane's close mark and ctrl+x x do the same as Escape (the platform
 reports all three alike): with something open they back out one level and the
 pane stays. Help lies over an open card and gives it back when it closes. The keys
 fire while the pane or the band has the focus (a click or ctrl+x tab gives
-it); a click on the map never takes the keyboard, so every key works straight
-after one. Escape at an empty prompt backs the pane out too but leaves the
+it); a click on the Clicks picture's layer or the terminal map never takes
+the keyboard, so every key works straight after one. Escape at an empty prompt backs the pane out too but leaves the
 keyboard with the prompt. A bare digit in an empty prompt also answers the
 band.
 
@@ -241,7 +265,7 @@ band.
 
 Set them in `/config`, or live in the pane's settings view (saved to the
 store), where they come in three groups: Map, Session, and Advanced (the
-major-topic rules and the Desktop pointer layer), folded until asked for.
+major-topic rules and the Desktop picture), folded until asked for.
 
 | Setting | Values | Default | What it does |
 | --- | --- | --- | --- |
@@ -258,7 +282,8 @@ major-topic rules and the Desktop pointer layer), folded until asked for.
 | `useModelForTitles` | true, false | false | Name auto topics with one short haiku call instead of their most frequent words |
 | `openOnStart` | band, pane, none | band | What a new session shows: the chooser band, the pane, or nothing. A Desktop or VS Code session counts as able to show the pane, though the engine starts it headless |
 | `fieldBackground` | transparent, night | transparent | transparent sits on the pane's own surface and follows light or dark; night is the prototype's solid ground |
-| `pictureClicks` | on, outline, off | on | The Desktop's pointer layer over the picture: on; drawn with its outline and readings; or off (the buttons under the map do the same work) |
+| `pictureMode` | live, clicks | live | The Desktop's (and VS Code's) picture: live traces under the pointer, moves and shows tooltips, and the buttons under it pick; clicks is a still image with a pointer layer over it, so a click on the picture picks |
+| `pictureClicks` | on, outline, off | on | With `pictureMode: clicks`, the pointer layer over the picture: on; drawn with its outline and readings; or off (the buttons under the map do the same work) |
 | `layerHeight` | −3 to +3 | 0 | The pointer layer's height, for a code font with wider or narrower cells than the Desktop's own: with `pictureClicks: outline` its edge should meet the picture's bottom, and each step moves it about 5 % |
 
 ## Model use and cost
@@ -279,8 +304,8 @@ false`. The mod never approves tool calls and never touches the network.
 
 | | Desktop app (and VS Code) | Terminal |
 | --- | --- | --- |
-| Field | One SVG drawn as an image at the pane's width: pills, satellites, chain, glow; tracing from the focus ring; on the Desktop an invisible pointer layer lies over it | A text-mode map (a Client module) that takes the mouse; its rows fit the topics, its labels never run into each other |
-| Picking | Desktop: a click on a pill, a satellite, a step, an anchor or ‹ All topics on the picture, or the buttons under it; VS Code: the buttons, Tab/Enter, hotkeys | Hover traces; click a topic, a session or a step; drag a session onto a topic; the buttons under the map, Tab/Enter and the hotkeys work too |
+| Field | One SVG at the pane's width: pills, satellites, chain, glow. Live (the default): drawn in a script-less frame, it traces under the pointer, moves and shows tooltips; Clicks: drawn as an image with an invisible pointer layer over it on the Desktop. Either way the focus ring traces too | A text-mode map (a Client module) that takes the mouse; its rows fit the topics, its labels never run into each other |
+| Picking | The buttons under the picture, Tab/Enter and the hotkeys; with Clicks on the Desktop also a click on a pill, a satellite, a step, an anchor or ‹ All topics | Hover traces; click a topic, a session or a step; drag a session onto a topic; the buttons under the map, Tab/Enter and the hotkeys work too |
 | Everything else | Header, cards, settings, band, commands | The same |
 
 The terminal reports the mouse only under its fullscreen renderer, the
@@ -318,9 +343,36 @@ Handover Refund"), else a number; names you gave are kept, and the larger
 topic keeps a shared name. A rename to a name another topic has is refused,
 and `/topic` with a topic's name joins that topic.
 
-## Clicks on the picture (Desktop)
+## The picture (Desktop)
 
-The Desktop draws the field as an image, which takes the pane's width at its
+Settings › Advanced › **Picture** (`pictureMode`) picks one of two pictures,
+on the Desktop and in VS Code.
+
+**Live** (the default) draws the field in the engine's script-less,
+sandboxed frame, so the picture itself answers the pointer, in CSS alone.
+Hover a topic and it is traced: its pill turns light with a dark name, its
+spokes and its links to other topics light in its colour, everything else
+fades to a low strength, and the hint at the top gives way to the topic's
+caption (its goal, else its latest note, else its count and last activity).
+In focus mode a hovered step or anchor lights the same way and its meta
+becomes the caption. The map never stands still: the stars twinkle, each
+topic's satellites sway slowly about it, the topics float a little inside
+their halos, a running session ripples, a focused chain's latest step
+breathes. With nobody pointing, an idle cycle traces each major topic in
+turn, starting at a running one, about four seconds each, and eases the
+others to about 0.4 meanwhile (a running topic's ring stays); any hover stops
+it. Satellites and steps carry tooltips. Under the system's reduced-motion
+setting all motion stops, and the rings, glows and cores stay. The frame
+passes no click position to the mod, so a live picture takes no clicks: the
+buttons under it (each topic tinted in its colour, a running one marked
+"live"), the Tab ring and the keys pick, and its hint says so ("Hover a
+topic to trace it · its button below focuses it").
+
+**Clicks** is the still picture with a pointer layer over it, where a click
+on the picture picks; the rings, glows and cores are drawn without motion.
+The rest of this section is about it.
+
+The Desktop draws the Clicks field as an image, which takes the pane's width at its
 own aspect and passes no click on. Constellation lays an invisible Client
 over it, inset to the picture's own box. The Desktop gives a Client the width
 of its box but the height of what it draws, so the layer draws the picture's
@@ -358,10 +410,16 @@ shows is its own layout of the layer over the picture.
 - A node on the map can never switch the Desktop app to an existing session;
   Claude Code has no API for it. A node can message that session while it
   runs, pick up its note into this chat, or start a new session from it.
-- On the Desktop the SVG is a picture: no click on it reaches a mod. The
-  pointer layer over it (above) takes the clicks; the buttons under the field
-  do the same work, and moving a session is "Move to topic" then a pick. The
+- On the Desktop no click on the SVG reaches a mod. The live picture's frame
+  shows hover, motion and tooltips but gives the mod no pointer position, so
+  a live picture takes no clicks: the buttons under the field pick, and
+  moving a session is "Move to topic" then a pick. The Clicks picture's
+  pointer layer (above) takes clicks on a still image instead. The
   terminal's text-mode map takes clicks and drags itself.
+- An exact copy of a canvas graph (such as a scripted force layout that
+  follows the pointer) is not possible inside a pane: the frame runs no
+  script, so the live picture moves on CSS clocks of its own and traces by
+  CSS hover.
 - The engine starts a Desktop or VS Code session headless (`isInteractive`
   false). Constellation treats those surfaces, and a `CLAUDE_CODE_ENTRYPOINT`
   of `claude-desktop` or `claude-vscode`, as able to show the pane, and opens
@@ -433,7 +491,12 @@ the numbered commands, the session card's rows, the settings groups),
 `claude`), `tests/review.test.tsx` (the shared store merging, the scan cache under a
 refusing store, one chain numbering, Undo per entry, the old caches, placed
 panes, the start-time pane across a resume, anchors under the pointer, a focus
-ring on a chip, the chat row's hotkeys) and
+ring on a chip, the chat row's hotkeys), `tests/live.test.tsx` (the live
+picture: its frame, the hover rules, the motion and the idle fade, the
+running marks, reduced motion, the size cap), `tests/surfaces.test.tsx` (the
+look of every cell surface: tints from the topic's colour, no primary slabs,
+sentence case, meta outside the buttons), `tests/chooser.test.tsx` (the join
+chooser) and
 `tests/edge.test.tsx` (empty
 folders, hostile and huge transcripts, bounded scans, every `openOnStart`, a
 refusing store, model failures, dismissed dialogs, key and hotkey uniqueness
