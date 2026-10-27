@@ -182,9 +182,21 @@ export function pointerHint(view: Pick<View, 'surface' | 'placement' | 'settings
   }
   if (view.surface === 'mobile') return 'Tap a topic under the map to focus it'
   // The live picture: hover traces in the frame's CSS; a click there carries no position, so its buttons pick.
-  if ((view.surface === 'desktop' || view.surface === 'vscode') && view.settings.pictureMode !== 'clicks') return 'Hover a topic to trace it · its button below focuses it'
+  if (isLive(view)) return 'Hover a topic to trace it · its button below focuses it'
   if (view.surface === 'desktop' && view.settings.pictureClicks !== 'off') return 'Hover or focus a topic to trace it · Enter or click to focus'
   return 'Tab onto a topic to trace it · Enter or its button under the map focuses'
+}
+
+/** The live picture: the Desktop's and VS Code's field drawn in the interactive frame, unless the person chose Clicks. */
+export function isLive(view: Pick<View, 'surface' | 'settings'>): boolean {
+  return (view.surface === 'desktop' || view.surface === 'vscode') && view.settings.pictureMode !== 'clicks'
+}
+
+/** A topic's one-line caption in the live picture: its goal, else its latest parked note, else its count and last activity. */
+export function captionOf(t: Topic, now: number): string {
+  const noted = [...t.sessions].sort((a, b) => b.lastAt - a.lastAt).find(s => s.note?.text)
+  const n = t.sessions.length
+  return t.goal ?? noted?.note?.text ?? `${n} session${n === 1 ? '' : 's'} · last ${ageOf(t.lastAt, now)} ago`
 }
 
 type SvgOptions = { withTooltips?: boolean; maxSessions?: number }
@@ -290,6 +302,20 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     `text{font-family:${SANS}}`,
     `.mono{font-family:${MONO}}`,
   ]
+  // The live picture traces in CSS alone; its rules beat the drawing's inline styles, so the press-free frame needs no state.
+  const live = isLive(view) && !view.isRow
+  if (live) {
+    css.push(
+      `.cap{opacity:0;pointer-events:none;transition:opacity .2s}.hint{transition:opacity .2s}`,
+      `.f:has(.t:hover) .hint{opacity:0}`,
+      `.f:has(.t:hover) .t:not(:hover){opacity:.15}`,
+      `.f:has(.t:hover) .x{opacity:.15}`,
+      `.t:hover .pill{fill:var(--tx)!important}`,
+      `.t:hover .nm{fill:var(--inv)!important}`,
+      `.t:hover .lbl{fill:var(--tx)!important}`,
+    )
+  }
+  const caps: string[] = []
   const indexOf = new Map<string, number>()
   model.topics.forEach((t, i) => indexOf.set(t.id, i))
 
@@ -303,7 +329,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   const styleAt = parts.length
   parts.push('')
   parts.push(`</defs>`)
-  parts.push(`<g clip-path="url(#field)">`)
+  parts.push(`<g class="f" clip-path="url(#field)">`)
   // Transparent by default: the field sits on the pane's own surface; `night` paints the prototype's solid ground.
   if (view.settings.fieldBackground === 'night') parts.push(`<rect width="${size.w}" height="${size.h}" fill="${BG}"/>`)
   parts.push(`<rect width="${size.w}" height="${size.h}" fill="url(#glow)"/>`)
@@ -339,10 +365,23 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       if (t.sessions.length > 0 && !t.sessions.some(s => s.isInRange)) opacity = Math.min(opacity, 0.4)
       const isDrop = dropSource !== undefined && dropSource !== t.id
       const countLabel = query ? `${t.sessions.filter(s => matches(query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
-      css.push(`.t-${i}:hover .ln{stroke:${t.color}}`, `.t-${i}:hover .sat{r:10px}`)
-      for (const r of relatedOf(model.links, t.id)) {
-        const j = indexOf.get(r.id)
-        if (j !== undefined) css.push(`svg:has(.t-${i}:hover) .t-${j}{opacity:.8}`, `svg:has(.t-${i}:hover) .x-${i}{stroke:${t.color};opacity:.8}`)
+      const linked = relatedOf(model.links, t.id)
+      if (live) {
+        // Its spokes and its links to other topics in its colour; the rest fades (above), the caption takes the hint's place.
+        css.push(`.t-${i}:hover .ln{stroke:${t.color}!important;opacity:.8!important}`, `.t-${i}:hover .sat{r:10px}`, `.f:has(.t-${i}:hover) .c-${i}{opacity:1}`)
+        if (linked.length > 0) css.push(`.f:has(.t-${i}:hover) .x-${i}{stroke:${t.color}!important;opacity:.8!important}`)
+        const cap = clip(`${clip(t.name, 28)} · ${captionOf(t, now)}`, Math.max(8, Math.floor((size.w - 52) / 6.3)))
+        const cw = 24 + cap.length * 6.3
+        caps.push(
+          `<g class="cap c-${i}"><rect x="${(size.w / 2 - cw / 2).toFixed(1)}" y="14" width="${cw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass)" stroke="${t.color}"/>` +
+            `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--tx)" text-anchor="middle">${esc(cap)}</text></g>`,
+        )
+      } else {
+        css.push(`.t-${i}:hover .ln{stroke:${t.color}}`, `.t-${i}:hover .sat{r:10px}`)
+        for (const r of linked) {
+          const j = indexOf.get(r.id)
+          if (j !== undefined) css.push(`svg:has(.t-${i}:hover) .t-${j}{opacity:.8}`, `svg:has(.t-${i}:hover) .x-${i}{stroke:${t.color};opacity:.8}`)
+        }
       }
       const g: string[] = [`<g class="t t-${i}" opacity="${opacity.toFixed(2)}">`]
       const sessions = t.sessions.slice(0, maxSessions)
@@ -382,7 +421,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
           `<rect class="glow" x="${(x - 5).toFixed(1)}" y="${y - 5}" width="${(w + 10).toFixed(1)}" height="48" rx="24" fill="${rgba(t.color, 0.22)}"${isTraced || isDrop ? ' opacity="1"' : ''}/>`,
           `<rect class="pill hit" x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="38" rx="19" style="fill:var(${isTraced ? '--pill2' : '--pill'})" stroke="${t.color}" stroke-width="1.5"${dashed}/>`,
           `<circle cx="${(x + 17).toFixed(1)}" cy="${p.y}" r="4" fill="${t.color}"/>`,
-          `<text x="${(x + 28).toFixed(1)}" y="${p.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clip(t.name, 28))}</text>`,
+          `<text class="nm" x="${(x + 28).toFixed(1)}" y="${p.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clip(t.name, 28))}</text>`,
           `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${p.y + 4}" font-size="11" font-weight="500" fill="${t.color}" text-anchor="end">${esc(countLabel)}</text>`,
         )
       } else {
@@ -501,8 +540,9 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   const hint = hintFitted(view, size)
   const hw = 24 + hint.length * 6.3
   parts.push(
-    `<rect x="${(size.w / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/>`,
-    `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--lb)" text-anchor="middle">${esc(hint)}</text>`,
+    `<g class="hint"><rect x="${(size.w / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/>`,
+    `<text x="${size.w / 2}" y="33" font-size="12" style="fill:var(--lb)" text-anchor="middle">${esc(hint)}</text></g>`,
+    ...caps,
   )
   const ly = size.h - 16
   parts.push(

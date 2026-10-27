@@ -36,7 +36,7 @@ import {
   suggestFor,
   viewOf,
 } from './actions'
-import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, svgOf } from './draw'
+import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, isLive, svgOf } from './draw'
 import type { Table, View } from './draw'
 import { DESKTOP_CELL } from './layout'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
@@ -223,8 +223,8 @@ export const register: Register = (on, options) => {
       const field = <Client key="map" module="../client/map.js" props={fieldOf(view)} height={rows} />
       return drawPane(tableOf($, e), view, actionsFor($), field)
     }
-    const isLive = (e.surface === 'desktop' || e.surface === 'vscode') && view.settings.pictureMode !== 'clicks'
-    if (e.surface === 'desktop' && !isLive && view.settings.pictureClicks !== 'off') {
+    const isLiveFrame = isLive({ surface: e.surface, settings: view.settings })
+    if (e.surface === 'desktop' && !isLiveFrame && view.settings.pictureClicks !== 'off') {
       // The Svg is drawn as an image: it takes the slot's width at its own aspect, and passes no click on. The same Client
       // as the terminal's map lies over it, drawing nothing (or its outline), and fills the picture's box through the box's
       // own geometry (a relative parent, an inset child) rather than any pixel size, so it needs no tuning; it reports
@@ -243,7 +243,7 @@ export const register: Register = (on, options) => {
     // Elsewhere the picture alone, and the buttons under it pick. Live, it is drawn in the script-less frame, so hover and
     // motion work in its CSS; nothing lies over it, since a layer would take the pointer from the frame. Else an image.
     const T = tableOf($, e)
-    const field = T.Svg ? <T.Svg source={svgOf(view)} alt={altOf(view)} {...(isLive ? { isInteractive: true } : {})} /> : undefined
+    const field = T.Svg ? <T.Svg source={svgOf(view)} alt={altOf(view)} {...(isLiveFrame ? { isInteractive: true } : {})} /> : undefined
     return drawPane(T, view, actionsFor($), field)
   })
 
