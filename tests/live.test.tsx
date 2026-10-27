@@ -2,9 +2,9 @@
 // CSS; no pointer layer lies over it. The click picture (the image plus the Client layer) stays as `pictureMode: clicks`.
 import { expect, test } from 'claude-code/testing'
 
-import { ACCENT, EMPTY_STORE, buildModel } from '../hooks/cluster'
+import { ACCENT, EMPTY_STORE, buildModel, satellitesPerTopic } from '../hooks/cluster'
 import { placementOf } from '../hooks/actions'
-import { pointerHint, svgOf } from '../hooks/draw'
+import { fieldOf, pointerHint, svgOf } from '../hooks/draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, settingValue } from '../hooks/state'
 import type { SessionSummary } from '../types'
 import { CWD, NOW, boxesOf, paneOn, stubEngine } from './helpers'
@@ -180,7 +180,80 @@ function bigView(topics: number, each: number) {
   return { model, placed: placement.placed, field: placement.size, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
 }
 
-const satellites = (svg: string) => (svg.match(/class="s n hit"/g) ?? []).length
+const satellites = (svg: string) => (svg.match(/class="s n hit[ "]/g) ?? []).length
+
+/** A folder of `topics` topics of `each` sessions, every one written this minute (or `ago` before): each satellite running, the heaviest it draws. */
+function runningView(topics: number, each: number, settings = DEFAULT_SETTINGS, ago = 0) {
+  const sessions: SessionSummary[] = []
+  const store = { ...EMPTY_STORE, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string> }
+  for (let t = 0; t < topics; t += 1) {
+    store.topics[`topic:r${t}`] = { name: `Running topic ${t} with a long name`, createdAt: t }
+    for (let k = 0; k < each; k += 1) {
+      const id = `r-${t}-${k}`
+      const lastAt = NOW - ago - (t * each + k) * 100
+      sessions.push({ id, cwd: CWD, slug: 'x', branch: `feat/${t}`, firstPrompt: `run ${k}`, title: `Running item ${k} of topic ${t}`, startedAt: lastAt - 3600_000, lastAt, turns: k, filesTouched: [`src/r${t}/file${k}.ts`], lastAssistantText: 'done', size: 1, mtimeMs: lastAt })
+      store.assign[id] = `topic:r${t}`
+    }
+  }
+  const model = buildModel(sessions, store, settings, NOW, 'me')
+  const placement = placementOf(model, null)
+  return { model, placed: placement.placed, field: placement.size, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: 'me' }, settings, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
+}
+
+/** Satellites drawn per topic, by the topic group they sit in. */
+const perTopic = (svg: string, n: number) => Array.from({ length: n }, (_, i) => satellites(svg.split(new RegExp(`<g class="t t-${i}[ "]`))[1]?.split('<g class="t t-')[0] ?? ''))
+
+test('forty topics keep the six satellites apiece their budget offers, live idle or clicks running', () => {
+  expect(satellitesPerTopic(40)).toBe(6)
+  for (const view of [bigView(40, 10), runningView(40, 10, { ...DEFAULT_SETTINGS, pictureMode: 'clicks' })]) {
+    const svg = svgOf(view)
+    expect(svg.length).toBeLessThanOrEqual(131072)
+    expect(perTopic(svg, 40)).toEqual(Array(40).fill(6))
+  }
+})
+
+test('forty topics live with every session running keep five satellites apiece, each rippling', () => {
+  // Live with all four hundred written this minute (a ring, halo and live caption on every topic, a ripple on every
+  // satellite), six apiece land just over the cap: five apiece stay, every one rippling with its bright core.
+  const svg = svgOf(runningView(40, 10))
+  expect(svg.length).toBeLessThanOrEqual(131072)
+  expect(perTopic(svg, 40)).toEqual(Array(40).fill(5))
+  expect((svg.match(/<circle class="rp" /g) ?? []).length).toBe(200)
+  expect((svg.match(/<circle class="co" /g) ?? []).length).toBe(200)
+  // No number spends characters on float noise (a delay of -6.299999999999999s).
+  expect(svg.match(/\d\.\d{4,}/g) ?? []).toEqual([])
+})
+
+test('sixty idle topics keep the four satellites apiece their budget offers, and the layer the same', () => {
+  // The budget offers four each. Idle, sixty topics keep all four apiece under the cap (they kept none before).
+  expect(satellitesPerTopic(60)).toBe(4)
+  const idleView = runningView(60, 6, DEFAULT_SETTINGS, 3600_000)
+  const idle = svgOf(idleView)
+  expect(idle.length).toBeLessThanOrEqual(131072)
+  expect(perTopic(idle, 60)).toEqual(Array(60).fill(4))
+  expect(fieldOf(idleView).nodes.filter(n => n.kind === 'session').length).toBe(240)
+})
+
+test('seventy topics keep as many satellites apiece as fit, the same on every topic, and the layer the same', () => {
+  // Seventy idle topics are offered three apiece and keep two: the shed stops at the most that fit, not at a fixed step.
+  expect(satellitesPerTopic(70)).toBe(3)
+  const seventy = runningView(70, 6, DEFAULT_SETTINGS, 3600_000)
+  const shed = svgOf(seventy)
+  expect(shed.length).toBeLessThanOrEqual(131072)
+  expect(perTopic(shed, 70)).toEqual(Array(70).fill(2))
+  expect(fieldOf(seventy).nodes.filter(n => n.kind === 'session').length).toBe(140)
+})
+
+test('sixty topics every one running keep one satellite apiece, the most that fit', () => {
+  // Every one of the sixty running, their rings, halos and live captions take most of the room: one apiece still fits,
+  // and asked for two apiece the drawing still sheds to one, so two do not.
+  const view = runningView(60, 6)
+  const svg = svgOf(view)
+  expect(svg.length).toBeLessThanOrEqual(131072)
+  expect(perTopic(svg, 60)).toEqual(Array(60).fill(1))
+  expect(fieldOf(view).nodes.filter(n => n.kind === 'session').length).toBe(60)
+  expect(perTopic(svgOf(view, { withTooltips: false, maxSessions: 2 }), 60)).toEqual(Array(60).fill(1))
+})
 
 test('live: when the tooltips alone overflow the cap, they go first and every satellite stays', () => {
   const view = bigView(20, 10)
@@ -300,17 +373,22 @@ test('running: one ripple per running satellite, each out of step; none on idle 
   const ripples = svg.match(/<circle class="rp" [^>]*>/g) ?? []
   expect(ripples.length).toBe(3)
   // Durations of two to three seconds and delays all differ, so no two widen together.
-  const clocks = ripples.map(r => r.match(/animation:rp ([\d.]+)s ease-out -([\d.]+)s infinite/)?.slice(1).join('/') ?? '')
+  // A satellite's ripple carries its clock (`--u` long, `--v` in); the shared rule runs it in the satellite's colour.
+  expect(svg).toContain('.s .rp{fill:none;stroke:currentColor;stroke-width:1.2;animation:rp var(--u) ease-out var(--v) infinite}')
+  const clocks = ripples.map(r => r.match(/style="--u:([\d.]+)s;--v:-([\d.]+)s"/)?.slice(1).join('/') ?? '')
   clocks.forEach(k => expect(k).not.toBe(''))
   expect(new Set(clocks).size).toBe(3)
   ripples.forEach(r => {
-    const d = Number(r.match(/animation:rp ([\d.]+)s/)?.[1])
+    const d = Number(r.match(/--u:([\d.]+)s/)?.[1])
     expect(d).toBeGreaterThanOrEqual(2)
     expect(d).toBeLessThanOrEqual(3)
   })
   expect((svg.match(/<circle class="co" /g) ?? []).length).toBe(3)
-  // Idle sessions stay outlined, archived ones dashed.
-  expect(svg).toMatch(/<circle class="sat" [^>]*style="fill:var\(--pill\)"[^>]*stroke-dasharray="2 2"/)
+  expect(svg).toContain('.s .co{fill:#fff}')
+  // Running satellites filled, idle ones outlined, archived ones dashed: each by its class and the shared rules.
+  expect((svg.match(/<g class="s n hit sr"/g) ?? []).length).toBe(3)
+  expect((svg.match(/<g class="s n hit sa"/g) ?? []).length).toBe(1)
+  expect(svg).toContain('.sat{fill:var(--pill);stroke:currentColor;stroke-width:1.5}.sr .sat{fill:currentColor}.sa .sat{stroke:var(--dim);stroke-dasharray:2 2}')
   expect(svg).toContain('@keyframes rp{')
 })
 
@@ -319,8 +397,11 @@ test('running: this session’s satellite is in the accent colour and ripples in
   const svg = svgOf(view)
   const b = view.model.topics.findIndex(t => t.id === 'topic:b')
   expect(openTag(svg, b)).toContain(' run')
-  expect(groupOf(svg, b)).toMatch(new RegExp(`<circle class="sat" [^>]*fill="${ACCENT}"`))
-  expect(groupOf(svg, b)).toMatch(new RegExp(`<circle class="rp" [^>]*stroke="${ACCENT}"`))
+  // Its satellite runs (filled and rippling in `currentColor`) with the accent as its colour; its topic's others keep the topic's.
+  const mine = groupOf(svg, b).match(/<g class="s n hit sr"[^>]*>(?:(?!<\/g>)[^])*<\/g>/)?.[0] ?? ''
+  expect(mine).toContain(`style="color:${ACCENT}"`)
+  expect(mine).toContain('<circle class="rp" ')
+  expect(openTag(svg, b)).toContain(`color:${view.model.topicById['topic:b']?.color}`)
 })
 
 test('running focus: running chain steps and "you" get the core and the ripple, "you" in the accent colour', () => {

@@ -537,17 +537,19 @@ function crowdedView(topics: number, each: number) {
 }
 
 test('the click layer holds only the satellites the picture drew, and nothing over the too-many-topics placeholder', async () => {
-  const shed = crowdedView(60, 6)
+  const shed = crowdedView(70, 6)
   const svg = svgOf(shed)
   const drawn = svg.split('class="sat"').length - 1
-  // Sixty topics shed every satellite from the picture (four each still overflow the cap): the layer must shed them too.
-  expect(drawn).toBe(0)
+  // Seventy topics shed to two satellites apiece of the three the budget offers: the layer must shed the same.
+  expect(drawn).toBe(70 * 2)
   expect(fieldOf(shed).nodes.filter(n => n.kind === 'session').length).toBe(drawn)
-  // Forty topics keep some satellites, fewer than the six the budget offers: the layer keeps the same ones.
+  // Sixty and forty topics keep what the budget offers (four and six apiece), and the layer the same.
+  const sixty = crowdedView(60, 6)
+  expect(svgOf(sixty).split('class="sat"').length - 1).toBe(60 * 4)
+  expect(fieldOf(sixty).nodes.filter(n => n.kind === 'session').length).toBe(60 * 4)
   const part = crowdedView(40, 10)
   const partDrawn = svgOf(part).split('class="sat"').length - 1
-  expect(partDrawn).toBeGreaterThan(0)
-  expect(partDrawn).toBeLessThan(40 * 6)
+  expect(partDrawn).toBe(40 * 6)
   expect(fieldOf(part).nodes.filter(n => n.kind === 'session').length).toBe(partDrawn)
   const placeholder = crowdedView(200, 3)
   expect(svgOf(placeholder)).toContain('Too many topics to draw at once')
@@ -591,6 +593,18 @@ test('/map here prints the field as a row in the main chat: Svg and buttons on d
   const plain = await $.ui.mount({ ...ROW, surface: 'desktop', props: { ...ROW.props, args: '', text: 'Constellation closed.' } })
   expect((await plain.find({ type: 'Text' }))?.text).toBe('engine')
   await plain.unmount()
+})
+
+test('the /map here row narrows to the transcript width the engine reports and keeps 860 otherwise (K4)', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const widths: Record<string, string> = {}
+  for (const [label, viewport] of [['none', undefined], ['40', { columns: 40, rows: 30 }], ['120', { columns: 120, rows: 30 }]] as const) {
+    const row = await $.ui.mount({ ...ROW, surface: 'desktop', ...(viewport ? { viewport } : {}) })
+    widths[label] = /viewBox="0 0 (\d+) /.exec(String((await row.find({ type: 'Svg' }))?.props.source))?.[1] ?? '?'
+    await row.unmount()
+  }
+  expect(widths).toEqual({ none: '860', '40': '520', '120': '860' })
 })
 
 test('the start band has an Open map button that opens the pane', async ($, on) => {
