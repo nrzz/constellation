@@ -417,10 +417,18 @@ class Desktop {
     this.driver.resize(this.id, columns, this.rows)
     return this.refit()
   }
-  /** The picture's height in px: the image takes the layer's width at the field's proportions. */
+  /**
+   * The picture's own size, from its Svg source's viewBox: the Desktop shows the image at these proportions, whatever
+   * the layer's props say. NaN where the source has none, so every check that leans on it fails.
+   */
+  pictureBox() {
+    const vb = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svgOfTree(this.tree)?.props.source ?? '')
+    return vb ? { w: Number(vb[1]), h: Number(vb[2]) } : { w: NaN, h: NaN }
+  }
+  /** The picture's height in px: the image takes the layer's width at its viewBox's proportions. */
   pictureHeightPx() {
-    const p = this.props()
-    return (this.columns * this.cell.w * p.fieldH) / p.fieldW
+    const box = this.pictureBox()
+    return (this.columns * this.cell.w * box.h) / box.w
   }
   /** After new props: the host sizes the layer again (to what it draws, or to its box) until it settles. */
   refit() {
@@ -450,8 +458,7 @@ class Desktop {
    * the Desktop delivers no event there. `fine` adds sub-cell positions, as a pointer that has them gives.
    */
   cellOf(x, y, fine = false) {
-    const p = this.props()
-    const pxPerUnit = (this.columns * this.cell.w) / p.fieldW
+    const pxPerUnit = (this.columns * this.cell.w) / this.pictureBox().w
     const fx = (x * pxPerUnit) / this.cell.w
     const fy = (y * pxPerUnit) / this.cell.h
     if (Math.floor(fy) >= this.rows || Math.floor(fx) >= this.columns) return undefined
@@ -552,8 +559,9 @@ function checkCovers(desk, label) {
 function checkEveryNode(desk, label) {
   const missed = []
   const p = desk.props()
-  const cellW = p.fieldW / desk.columns
-  const cellH = p.fieldH / (desk.pictureHeightPx() / desk.cell.h)
+  const box = desk.pictureBox()
+  const cellW = box.w / desk.columns
+  const cellH = box.h / (desk.pictureHeightPx() / desk.cell.h)
   for (const n of p.nodes) {
     const at = pointOn(n)
     const fine = desk.cellOf(at.x, at.y, true)
@@ -572,6 +580,50 @@ function checkEveryNode(desk, label) {
     }
   }
   check(missed.length === 0, `${label} (${p.nodes.length} nodes)`, missed.slice(0, 8))
+}
+/** The points the picture's Svg source draws, by kind: each list holds the centres a layer node should sit on. */
+function drawnPoints(src) {
+  const num = Number
+  const all = (re, at) => [...src.matchAll(re)].map(at)
+  return {
+    sat: all(/<circle class="sat" cx="([\d.-]+)" cy="([\d.-]+)"/g, m => [num(m[1]), num(m[2])]),
+    pill: all(/<rect class="pill hit" x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="38"/g, m => [num(m[1]) + num(m[3]) / 2, num(m[2]) + 19]),
+    dot: all(/<circle class="hit[^"]*" cx="([\d.-]+)" cy="([\d.-]+)" r="5.5"/g, m => [num(m[1]), num(m[2])]),
+    step: all(/<circle(?: class="ring")? cx="([\d.-]+)" cy="([\d.-]+)" r="16" style="fill:/g, m => [num(m[1]), num(m[2])]),
+    focusPill: all(/<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="38" rx="19" style="fill:var\(--pill2\)"/g, m => [num(m[1]) + num(m[3]) / 2, num(m[2]) + 19]),
+    anchor: all(/<g class="hit" opacity="0.9"><rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="32"/g, m => [num(m[1]) + num(m[3]) / 2, num(m[2]) + 16]),
+    back: all(/<g class="hit"><rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="30"/g, m => [num(m[1]) + num(m[3]) / 2, num(m[2]) + 15]),
+  }
+}
+/**
+ * The layer and the picture agree (review A5-1): the Svg's viewBox is the layer's field, nothing in the source shifts
+ * its contents, and every node of the layer sits within 1.5 units of the element the picture draws for it. Without
+ * this a layer off the picture passes every click check, since those take the field and the points from the layer.
+ */
+function checkParity(desk, label) {
+  const src = svgOfTree(desk.tree)?.props.source ?? ''
+  const p = desk.props()
+  const box = desk.pictureBox()
+  const problems = []
+  if (box.w !== p.fieldW || box.h !== p.fieldH) problems.push(`viewBox ${box.w}×${box.h} but the layer's field is ${p.fieldW}×${p.fieldH}`)
+  if (/transform=/.test(src.replace(/<marker[^>]*>/g, ''))) problems.push('the picture has a transform attribute: its contents may be displaced')
+  const d = drawnPoints(src)
+  const near = (list, x, y) => list.some(([a, b]) => Math.abs(a - x) <= 1.5 && Math.abs(b - y) <= 1.5)
+  const missing = []
+  for (const n of p.nodes) {
+    const list =
+      n.kind === 'session' ? d.sat
+      : n.kind === 'step' || n.kind === 'you' ? d.step
+      : n.kind === 'back' ? d.back
+      : n.kind === 'topic' && n.isAnchor ? d.anchor
+      : n.kind === 'topic' && n.isMajor ? (p.mode === 'focus' ? d.focusPill : d.pill)
+      : n.kind === 'topic' ? d.dot
+      : undefined
+    if (!list) missing.push(`${n.kind} ${n.label ?? n.id}: a kind the check does not know`)
+    else if (!near(list, n.x, n.y)) missing.push(`${n.kind}${n.isAnchor ? '/anchor' : n.isMajor ? '/major' : ''} ${String(n.label || n.id).slice(0, 18)} at ${Math.round(n.x)},${Math.round(n.y)}`)
+  }
+  if (missing.length) problems.push(`${missing.length} of ${p.nodes.length} nodes have no drawn element at their point: ${missing.slice(0, 4).join('; ')}`)
+  check(problems.length === 0 && p.nodes.length > 0, `${label} (${p.nodes.length} nodes)`, problems)
 }
 const svgOfTree = tree => find(tree, n => n.type === 'Svg')
 function saveShot(name, svg) {
@@ -625,6 +677,7 @@ async function fixtureFolderChecks() {
     const drawn = desk.mountLikeDesktop(cols)
     check(drawn?.type === 'Box' && !(drawn.children ?? []).length, `the layer draws nothing over the picture (${cols}×${desk.rows} cells)`, drawn)
     checkCovers(desk, 'the Desktop sizes the layer to what it draws, and it draws the picture’s height')
+    checkParity(desk, 'the layer’s field is the picture’s viewBox, and each of its nodes sits on what the picture draws')
     check(desk.driver.hasListener(desk.id, 'pointer') === true, 'the layer listens to the pointer')
     check(desk.driver.hasListener(desk.id, 'key') === false, '…and not to the keys, so a click never holds the keyboard')
 
@@ -722,6 +775,7 @@ async function fixtureFolderChecks() {
     check(clientOf(desk.tree)?.props.props.hits === true, 'On again: the layer is back')
     await desk.pressAndDraw(`t:${checkout.id}`)
     check(desk.props().mode === 'focus', 'a topic button under the picture focuses the topic too')
+    checkParity(desk, '…and the focused chain’s layer sits on its picture: steps, anchors and the back pill')
 
     // A pane the Desktop seats inline keeps the pointer hint.
     await desk.pressAndDraw('back')
@@ -734,6 +788,7 @@ async function fixtureFolderChecks() {
     await desk.pane()
     check(desk.props().fieldW === 520, 'a pane 44 cells wide draws a field 520 units wide, not 860, so its text stays legible', desk.props().fieldW)
     desk.mountLikeDesktop(39)
+    checkParity(desk, '…its layer’s nodes sit on the narrow picture')
     checkCovers(desk, '…its layer, 39 cells wide, covers the picture')
     checkEveryNode(desk, '…and a click on each node picks it')
     desk.bodyColumns = VIEWPORT.columns
@@ -854,6 +909,7 @@ async function bigFolderChecks() {
     if (process.env.E2E_DEBUG) console.log('     state before the big click:', desk.props() && { mode: desk.props().mode, kinds: desk.props().nodes.map(n => n.kind).join(',') }, textOf(desk.tree).slice(0, 300))
     desk.mountLikeDesktop(140)
     checkCovers(desk, `the layer over the big map (${desk.props().fieldW}×${desk.props().fieldH}) covers the picture`)
+    checkParity(desk, '…its nodes sit on what the big map draws')
     checkEveryNode(desk, '…and a click on each node of the big map picks it')
     // The lowest topic: on a layer six rows tall (8a99ba1 on the Desktop) it lay out of reach.
     const topic = desk.props().nodes.filter(n => n.kind === 'topic').sort((a, b) => b.y - a.y)[0]
@@ -864,6 +920,7 @@ async function bigFolderChecks() {
     check(sent.some(d => d.type === 'pick' && d.id === topic.id), `a click on the lowest topic of the big map (${topic.label}, at ${Math.round(topic.y)} of ${fieldH}) picks it`, sent)
     check(desk.props().mode === 'focus', '…and focuses it')
     checkCovers(desk, '…the layer over its chain covers the picture')
+    checkParity(desk, '…its chain’s layer sits on the picture of the chain')
     checkEveryNode(desk, '…and a click on each step, anchor and the back pill picks it')
     saveShot('desktop-big-focus.svg', svgOfTree(desk.tree))
     check(desk.faults.length === 0, 'the module never faulted', desk.faults)
