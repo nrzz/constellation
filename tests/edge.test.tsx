@@ -595,6 +595,18 @@ test('/map here prints the field as a row in the main chat: Svg and buttons on d
   await plain.unmount()
 })
 
+test('the /map here row narrows to the transcript width the engine reports and keeps 860 otherwise (K4)', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const widths: Record<string, string> = {}
+  for (const [label, viewport] of [['none', undefined], ['40', { columns: 40, rows: 30 }], ['120', { columns: 120, rows: 30 }]] as const) {
+    const row = await $.ui.mount({ ...ROW, surface: 'desktop', ...(viewport ? { viewport } : {}) })
+    widths[label] = /viewBox="0 0 (\d+) /.exec(String((await row.find({ type: 'Svg' }))?.props.source))?.[1] ?? '?'
+    await row.unmount()
+  }
+  expect(widths).toEqual({ none: '860', '40': '520', '120': '860' })
+})
+
 test('the start band has an Open map button that opens the pane', async ($, on) => {
   const stubs = stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })

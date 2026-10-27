@@ -267,6 +267,23 @@ test('the terminal map’s hint: click and Tab on a docked pane; Tab, Enter and 
   await deskInline.unmount()
 })
 
+test('a fullscreen terminal under 110 columns seats the pane inline and still reports the mouse: the hint says click (A3-4)', { options: { pictureMode: 'clicks' } }, async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const base = paneOn('terminal')
+  const hints: Record<string, string> = {}
+  for (const [label, isFullscreen] of [['fullscreen', true], ['classic', false], ['none', undefined]] as const) {
+    const ui = await $.ui.mount({ ...base, ...(isFullscreen === undefined ? {} : { viewport: { columns: 100, rows: 30, isFullscreen } }), props: { ...base.props, placement: 'inline' } })
+    hints[label] = String(((await ui.find({ type: 'Client', key: 'map' }))?.props.props as { hint?: string } | undefined)?.hint ?? '')
+    await ui.unmount()
+  }
+  expect(hints).toEqual({
+    fullscreen: 'Click or Tab to a topic · Enter focuses',
+    classic: 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen',
+    none: 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen',
+  })
+})
+
 test('the resting hint on each surface says how picking works there, in the picture and the Client alike', async () => {
   // The click picture's hints (live has its own, tests/live.test.tsx).
   const settings = { ...DEFAULT_SETTINGS, pictureMode: 'clicks' as const }
