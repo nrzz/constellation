@@ -273,6 +273,33 @@ export function chainMetaChars(n: number, size: FieldSize = BASE): number {
   return Math.max(6, Math.min(34, Math.floor((sameRow - 10) / 6.3)))
 }
 
+/** The closest two labelled steps of a crowded chain may sit on one row: a whole age ("12h ago", 7 characters of meta) each, and 4 apart. */
+export const CROWD_GAP = 49
+
+/**
+ * The labels a crowded chain draws (one that `chainLabelChars` cannot label
+ * whole) and each one's room in characters. `priority` ranks each step (0: no
+ * label wanted); the higher wins its row, and a lower one closer than
+ * `CROWD_GAP` to a kept label on its row is dropped (its tooltip keeps it).
+ * Each kept label takes the room to its nearest kept neighbour on its row, so
+ * no two meet.
+ */
+export function crowdedLabels(priority: readonly number[], positions: readonly Point[]): Map<number, { title: number; meta: number }> {
+  const wanted = positions.map((_, i) => i).filter(i => (priority[i] ?? 0) > 0)
+  wanted.sort((a, b) => (priority[b] ?? 0) - (priority[a] ?? 0) || a - b)
+  const kept: { i: number; p: Point }[] = []
+  for (const i of wanted) {
+    const p = positions[i]
+    if (p && !kept.some(k => k.p.y === p.y && Math.abs(k.p.x - p.x) < CROWD_GAP)) kept.push({ i, p })
+  }
+  const out = new Map<number, { title: number; meta: number }>()
+  for (const { i, p } of kept) {
+    const d = Math.min(Infinity, ...kept.filter(k => k.i !== i && k.p.y === p.y).map(k => Math.abs(k.p.x - p.x)))
+    out.set(i, { title: Math.max(5, Math.min(14, Math.floor((d - 4) / 6.4))), meta: Math.max(7, Math.min(18, Math.floor((d - 4) / 6.3))) })
+  }
+  return out
+}
+
 /** The related-topic anchors along the bottom of a focused chain. */
 /** The narrowest room an anchor gets: its name, part of the shared file, and its dashed pill. */
 export const ANCHOR_MIN_SLOT = 150

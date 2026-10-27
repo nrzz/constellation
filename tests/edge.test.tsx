@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { EMPTY_STORE, buildModel } from '../hooks/cluster'
 import { fieldOf, svgOf } from '../hooks/draw'
 import { placementOf } from '../hooks/actions'
-import { DESKTOP_CELL, fieldWidthFor, pillWidth } from '../hooks/layout'
+import { DESKTOP_CELL, chainPositions, fieldWidthFor, pillWidth } from '../hooks/layout'
 import { READS_PER_PASS } from '../hooks/scan'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, resolveSettings, settingValue } from '../hooks/state'
 import type { SessionSummary } from '../types'
@@ -690,45 +690,63 @@ test('a narrow pane lays the field out narrower so its text stays legible; a wid
 })
 
 /** One topic whose chain has `n` steps, each titled at length, an hour or so apart. */
-function chainFolder(n: number) {
+function chainFolder(n: number, resumed?: number) {
   const sessions: SessionSummary[] = []
   const store = { ...EMPTY_STORE, topics: { 'topic:chain': { name: 'Cart Total', createdAt: 0 } } as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string> }
   for (let i = 0; i < n; i += 1) {
-    const lastAt = NOW - (n - i) * 3_700_000
+    const startedAt = NOW - (n - i) * 3_700_000 - 3600_000
+    // A resumed step keeps its place in the chain but was active last.
+    const lastAt = i === resumed ? NOW : startedAt + 3600_000
     const id = `c${i}`
-    sessions.push({ id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: `Round the cart line totals once, at the end ${i}`, startedAt: lastAt - 3600_000, lastAt, turns: 3 + i, filesTouched: ['src/cart.ts'], lastAssistantText: '', size: 1, mtimeMs: lastAt })
+    sessions.push({ id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: `Round the cart line totals once, at the end ${i}`, startedAt, lastAt, turns: 3 + i, filesTouched: ['src/cart.ts'], lastAssistantText: '', size: 1, mtimeMs: lastAt })
     store.assign[id] = 'topic:chain'
   }
   return buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
+}
+
+/** A focused view of `chainFolder(n)` at `columns`, with a step selected and this session joined if asked. */
+function chainView(columns: number, n: number, opts: { selected?: string; you?: boolean; model?: ReturnType<typeof chainFolder> } = {}) {
+  const model = opts.model ?? chainFolder(n)
+  const placement = placementOf(model, null, fieldWidthFor(columns))
+  return { model, placed: placement.placed, field: placement.size, ui: { ...INITIAL_UI, focusTopic: 'topic:chain', ...(opts.selected ? { selected: opts.selected } : {}) }, me: { ...INITIAL_ME, sessionId: 'me', ...(opts.you ? { topicId: 'topic:chain' } : {}) }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' as const }
+}
+
+/**
+ * The chain's drawn label and meta lines, and every one that meets its neighbour on the row it is drawn on or
+ * leaves the field. Meta lines are mono at 10.5 (6.3 units a character); labels at 11.5 (6.4, the layout's own
+ * measure). A label's second line sits 14 below its first, so it shares a row with a one-line label's first.
+ */
+function chainClashes(svg: string, w: number, tag: string) {
+  const texts: { y: string; x: number; w: number; text: string }[] = []
+  for (const m of svg.matchAll(/<text class="mono" x="([\d.]+)" y="([\d.]+)" font-size="10.5"[^>]*>([^<]*)<\/text>/g)) texts.push({ y: `meta ${m[2]}`, x: Number(m[1]), w: (m[3] ?? '').length * 6.3, text: m[3] ?? '' })
+  for (const m of svg.matchAll(/<text x="[\d.]+" y="([\d.]+)" font-size="11.5"[^>]*>(.*?)<\/text>/g)) {
+    const lines = [...(m[2] ?? '').matchAll(/<tspan x="([\d.]+)" dy="(\d+)">([^<]*)<\/tspan>/g)]
+    lines.forEach((l, k) => texts.push({ y: `label ${Number(m[1]) + 14 * k}`, x: Number(l[1]), w: (l[3] ?? '').length * 6.4, text: l[3] ?? '' }))
+  }
+  const clashes: string[] = []
+  const rows = new Map<string, typeof texts>()
+  for (const t of texts) rows.set(t.y, [...(rows.get(t.y) ?? []), t])
+  for (const row of rows.values()) {
+    row.sort((a, b) => a.x - b.x)
+    for (let i = 1; i < row.length; i += 1) {
+      const a = row[i - 1]
+      const b = row[i]
+      if (a && b && b.x - a.x < (a.w + b.w) / 2 + 4) clashes.push(`${tag}: "${a.text}" meets "${b.text}"`)
+    }
+  }
+  // Every line stays on the field.
+  for (const t of texts) if (t.x - t.w / 2 < 0 || t.x + t.w / 2 > w) clashes.push(`${tag}: "${t.text}" leaves the field`)
+  return { texts, clashes }
 }
 
 test('a focused chain keeps every label and meta line to its room: none meets its neighbour on its row, in a 520, 620 or 860 field, from 3 steps to 24', async () => {
   const clashes: string[] = []
   for (const columns of [44, 60, 120]) {
     for (const n of [3, 5, 8, 11, 16, 24]) {
-      const model = chainFolder(n)
-      const placement = placementOf(model, null, fieldWidthFor(columns))
-      const view = { model, placed: placement.placed, field: placement.size, ui: { ...INITIAL_UI, focusTopic: 'topic:chain' }, me: { ...INITIAL_ME, sessionId: 'me' }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' as const }
-      const svg = svgOf(view)
-      // Meta lines are mono at 10.5 (6.3 units a character); labels at 11.5 (6.4, the layout's own measure).
-      const texts: { y: string; x: number; w: number; text: string }[] = []
-      for (const m of svg.matchAll(/<text class="mono" x="([\d.]+)" y="([\d.]+)" font-size="10.5"[^>]*>([^<]*)<\/text>/g)) texts.push({ y: `meta ${m[2]}`, x: Number(m[1]), w: (m[3] ?? '').length * 6.3, text: m[3] ?? '' })
-      for (const m of svg.matchAll(/<text x="[\d.]+" y="([\d.]+)" font-size="11.5"[^>]*>(.*?)<\/text>/g)) {
-        const lines = [...(m[2] ?? '').matchAll(/<tspan x="([\d.]+)" dy="(\d+)">([^<]*)<\/tspan>/g)]
-        lines.forEach((l, k) => texts.push({ y: `label ${m[1]} line ${k}`, x: Number(l[1]), w: (l[3] ?? '').length * 6.4, text: l[3] ?? '' }))
-      }
-      const rows = new Map<string, typeof texts>()
-      for (const t of texts) rows.set(t.y, [...(rows.get(t.y) ?? []), t])
-      for (const row of rows.values()) {
-        row.sort((a, b) => a.x - b.x)
-        for (let i = 1; i < row.length; i += 1) {
-          const a = row[i - 1]
-          const b = row[i]
-          if (a && b && b.x - a.x < (a.w + b.w) / 2 + 4) clashes.push(`${placement.size.w} wide, ${n} steps: "${a.text}" meets "${b.text}"`)
-        }
-      }
-      // Every meta line stays on the field.
-      for (const t of texts) if (t.x - t.w / 2 < 0 || t.x + t.w / 2 > placement.size.w) clashes.push(`${placement.size.w} wide, ${n} steps: "${t.text}" leaves the field`)
+      const view = chainView(columns, n)
+      const found = chainClashes(svgOf(view), view.field.w, `${view.field.w} wide, ${n} steps`)
+      const texts = found.texts
+      clashes.push(...found.clashes)
       // In a wide field an 11-step chain keeps each step's age and turns.
       if (columns === 120 && n === 11) expect(texts.filter(t => t.y.startsWith('meta')).every(t => / ago( · \d+ turns)?$/.test(t.text) && (t.text.includes('turns') || t.text.startsWith('latest')))).toBe(true)
       // In a narrow one each keeps its age whole, at least.
@@ -736,6 +754,52 @@ test('a focused chain keeps every label and meta line to its room: none meets it
     }
   }
   expect(clashes).toEqual([])
+})
+
+test('a crowded chain never overprints its labels: a selected step, "you" and a resumed older latest each keep clear of the others', async () => {
+  const clashes: string[] = []
+  for (const columns of [44, 60, 120]) {
+    for (const n of [12, 16, 24]) {
+      // The review's cases: the third step selected; "you" joined with the step three before the end selected.
+      for (const [label, opts] of [['c2 selected', { selected: 'c2' }], [`you, c${n - 3} selected`, { selected: `c${n - 3}`, you: true }]] as const) {
+        const view = chainView(columns, n, opts)
+        clashes.push(...chainClashes(svgOf(view), view.field.w, `${view.field.w} wide, ${n} steps, ${label}`).clashes)
+      }
+      // Every step selected in turn, with and without "you".
+      for (const you of [false, true]) {
+        for (let k = 0; k < n; k += 1) {
+          const view = chainView(columns, n, { selected: `c${k}`, you })
+          clashes.push(...chainClashes(svgOf(view), view.field.w, `${view.field.w} wide, ${n} steps${you ? ' + you' : ''}, c${k} selected`).clashes)
+        }
+      }
+      // The latest is not the last started: an older session resumed (the third step), so it is labelled without a click.
+      const view = chainView(columns, n, { model: chainFolder(n, 2) })
+      const resumed = chainClashes(svgOf(view), view.field.w, `${view.field.w} wide, ${n} steps, c2 resumed`)
+      const at = chainPositions(n, view.field)[2]?.x.toFixed(1)
+      expect(resumed.texts.some(t => t.y.startsWith('meta') && t.x.toFixed(1) === at)).toBe(true)
+      clashes.push(...resumed.clashes)
+    }
+  }
+  expect(clashes).toEqual([])
+  // The selected step keeps its label: it wins its row over the first step, whose label it would meet.
+  const view = chainView(44, 16, { selected: 'c2' })
+  const x = chainPositions(16, view.field)[2]?.x.toFixed(1)
+  expect(chainClashes(svgOf(view), view.field.w, '').texts.some(t => t.y.startsWith('label') && t.x.toFixed(1) === x)).toBe(true)
+})
+
+test('the "you" meta is never cut to "now · y…": it reads "now · you", or "you" where that does not fit', async () => {
+  const view = chainView(120, 21, { you: true })
+  const metas = chainClashes(svgOf(view), view.field.w, '').texts.filter(t => t.y.startsWith('meta')).map(t => t.text)
+  expect(metas.some(t => t === 'now · you' || t === 'you')).toBe(true)
+  // Over every width a pane gives and every chain length to 40 with "you" in it, no meta line is cut.
+  const cut: string[] = []
+  for (let columns = 40; columns <= 120; columns += 2) {
+    for (let n = 2; n <= 40; n += 1) {
+      const v = chainView(columns, n, { you: true })
+      for (const t of chainClashes(svgOf(v), v.field.w, '').texts) if (t.y.startsWith('meta') && t.text.endsWith('…')) cut.push(`${v.field.w} wide, ${n} steps: "${t.text}"`)
+    }
+  }
+  expect([...new Set(cut)]).toEqual([])
 })
 
 test('the panes: a Desktop pane 44 columns wide draws a 520-unit picture, a wide one 860, a terminal pane the full field for its text map', async ($, on) => {
