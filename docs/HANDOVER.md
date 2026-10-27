@@ -98,11 +98,11 @@ the start of every run).
 | O-1 | After an install the engine prints "N userConfig options not yet set": every option has a default | The README says so (L6 5fc1a61) |
 | Install | The engine copies the plugin to the cache; a user-scope install hot-loads into open Desktop sessions; auto notes (haiku) work on Windows | Recorded (section 1.3) |
 
-### Gates at a5fb7f5 (Windows 11, Claude Code 2.1.308, Git Bash)
+### Gates at e8c3b3d, the final branch (Windows 11, Claude Code 2.1.308, Git Bash)
 
 - `plugin validate --strict .`: passes. `plugin test .`: **256 pass**, 0 fail.
 - `tsc` (TypeScript 5.9.3): clean.
-- `tests/e2e/desktop.mjs`: **265 passed**, 0 failed, exit 0 (the Desktop's
+- `tests/e2e/desktop.mjs`: **265 passed**, 0 failed, exit 0, four runs in a row (the Desktop's
   wire against the real engine: a live scenario on a big folder with a running
   session, `enter` before the first move as the Desktop sends it, the click
   layer compared with the picture, narrow panes clicked by
@@ -112,7 +112,8 @@ the start of every run).
 - Not run here: `tests/e2e/tui.sh` and `shots-terminal.mjs` (need WSL with a
   Linux distro and tmux).
 
-L8 runs every gate again on the final branch (desktop.mjs four times).
+L8 (2026-10-28) ran every gate on the final branch with lanes B and C merged in:
+all green, nothing to fix.
 
 ## 4. What is left to see with eyes (L9's OWNER-CHECK.md)
 
@@ -202,7 +203,6 @@ Queue items (in `analysis-4c378de\QUEUE.md`) still open when this was written:
 
 | Item | Lane | What |
 | --- | --- | --- |
-| L8 | A | Merge the lanes a last time; every gate, desktop.mjs four times, both installer suites |
 | L9 | A | Fast-forward `main`, `plugin update`, OWNER-CHECK.md (section 4), the monitor's check |
 | L10 | A | Fix what the check finds, push `main`, BUILD-DONE.md, disable the tasks |
 
