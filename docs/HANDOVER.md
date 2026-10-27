@@ -76,15 +76,15 @@ The work ran unattended as the scheduled tasks `constellation-build`(`-b`,
 `fix/windows-retest`, `fix/lane-b`, `fix/lane-c`, merged into each other at
 the start of every run).
 
-### Commits on `fix/windows-retest` since 4c378de (49 before this update, oldest first, by theme)
+### Commits on `fix/windows-retest` since 4c378de (oldest first, by theme; merges left out)
 
 | Theme | Commits |
 | --- | --- |
 | Re-test fixes (S-1, S-2, installers, non-Latin ids) | 9690493, 1f8bd3f, b02e1c0, 62312f3 |
 | The live picture (L2, L3, L3a, L3b) and its harness (L4) | 528bbe1, 29a90d8, d1f80dd, 766a0aa, 079c7f7, 722442f, 9d1b5b0, 8e922cb |
 | Every surface restyled (L4a, L4b) | f60772b, ba40e61, 4c679ff, 845306c, b321dcd, 927a592 |
-| The review's fixes (R1-R26, section 9) | 3e735d8 … 2eb38f4, cde1c9a, 8c9f146 |
-| README pictures as the live picture (L5) and this file (L7) | 6876673, 8f59569 |
+| The review's fixes (R1-R27, section 9) | 3e735d8 … 2eb38f4, cde1c9a, 8c9f146, 9e4eb86 |
+| README pictures (L5, redrawn for R26/R27), docs (L6) and this file (L7) | 6876673, 58f1703, 5fc1a61, 8f59569, 378f028 |
 
 ### What the re-test (REPORT.md) found and what was done
 
@@ -95,12 +95,12 @@ the start of every run).
 | S-2 | A scheduled task's run showed "0 turns" (316 of 369 sessions in `D:\Sensus-Design`) | 1f8bd3f: the run's row is a turn, its boilerplate never a first prompt |
 | F2 names | No two topics alike on the 369-session folder | Verified offline with the mod's own scan and clustering |
 | Checklist 10, the one-line installer | Desktop fallback works with no PATH claude, with an old one, and refuses cleanly with neither | Verified (stand-in 2.1.283) |
-| O-1 | After an install the engine prints "N userConfig options not yet set": every option has a default | L6 says so in the README |
+| O-1 | After an install the engine prints "N userConfig options not yet set": every option has a default | The README says so (L6 5fc1a61) |
 | Install | The engine copies the plugin to the cache; a user-scope install hot-loads into open Desktop sessions; auto notes (haiku) work on Windows | Recorded (section 1.3) |
 
-### Gates at dc5303d (Windows 11, Claude Code 2.1.308, Git Bash)
+### Gates at a5fb7f5 (Windows 11, Claude Code 2.1.308, Git Bash)
 
-- `plugin validate --strict .`: passes. `plugin test .`: **255 pass**, 0 fail.
+- `plugin validate --strict .`: passes. `plugin test .`: **256 pass**, 0 fail.
 - `tsc` (TypeScript 5.9.3): clean.
 - `tests/e2e/desktop.mjs`: **265 passed**, 0 failed, exit 0 (the Desktop's
   wire against the real engine: a live scenario on a big folder with a running
@@ -202,9 +202,6 @@ Queue items (in `analysis-4c378de\QUEUE.md`) still open when this was written:
 
 | Item | Lane | What |
 | --- | --- | --- |
-| R27 | C | A narrow chain's step label never splits a word ("Idempote" / "ncy key…" in desktop-narrow.png); then redraw the Desktop pictures once |
-| L6 | B | README (Live/Clicks, `pictureMode`, running look, the new chooser, Known limits, A3-6's `*`, "in a crowded chain", O-1), PLAN.md's Windows record and Environment facts, CLAUDE.md's 35 % hand-over rule |
-| L7 | A | This file (R27's row in section 9 fills in once R27 is ticked) |
 | L8 | A | Merge the lanes a last time; every gate, desktop.mjs four times, both installer suites |
 | L9 | A | Fast-forward `main`, `plugin update`, OWNER-CHECK.md (section 4), the monitor's check |
 | L10 | A | Fix what the check finds, push `main`, BUILD-DONE.md, disable the tasks |
@@ -255,8 +252,8 @@ marketplace on a clean machine, watch the first real folder, tag v0.1.0.
   org plugin `cc-plugin-sec-default` on the Windows 10 machine, by earlier
   notes); Constellation also restarts on `session.end` and checks the session
   id on every command, press, turn and every three seconds.
-- PLAN.md's "Environment facts" describe this Windows 11 machine only in part;
-  L6 corrects them. Until then, section 2 here holds.
+- PLAN.md's "Environment facts" describe this Windows 11 machine (L6); the
+  Windows 10 machine is in section 2 here and PLAN.md's Windows 10 sections.
 
 ## 8. Code map
 
@@ -307,7 +304,7 @@ refuted; **To verify** = fixed from the code, needs a machine we lack.
 | A3-1 | The Escape path and F5 had no runnable test | partly | Fixed: `closePane` with injected io, 5 tests; Esc, Esc in tui.sh (R5 9023847) |
 | A3-3 | The WGL4 test never read what the Client draws | holds | Fixed (R5 e4ca0d9) |
 | A3-4 | The fullscreen hint's plumbing was unpinned | holds | Fixed (R5 66ac1ec) |
-| A3-6 | The README says the terminal map marks pinned sessions with `*` (only the List does) | holds | L6 (queued) |
+| A3-6 | The README says the terminal map marks pinned sessions with `*` (only the List does) | holds | Fixed (L6 5fc1a61) |
 | A3-7 | (a) the close mark and ctrl+x x act as Escape, undocumented; (b) the hint's wording | (a) holds, (b) refuted | (a) Fixed (R18); (b) not a defect |
 | A4-1 | A `claude` PowerShell could not start was reported as success | holds | Fixed (b02e1c0) |
 | A4-2 | Installer output as mojibake on Windows PowerShell | holds | Fixed (b02e1c0) |
@@ -320,15 +317,16 @@ refuted; **To verify** = fixed from the code, needs a machine we lack.
 | A5-8 | Coverage holes behind the labels (anchors, box hosts, Layer height -2) | holds | Fixed (R9 df99994) |
 | A5-9 | The narrow pane's width disagreed across files | holds | Fixed (R9, R18); the narrow README picture redrawn at its slot (L5 6876673) |
 | A1-3, A2-9 | Tests passed while hit boxes drifted; surviving mutants | holds | Fixed: parity over 7 widths and K1 (R3 b8f2d17), K2b/K2c (R10), K4 (R5), the goal clip (R14); each mutant killed |
-| A2-10 | Doc slips (comments, specs pointing at 860) | holds | Fixed (R13, R18); README:193-195 in L6 |
+| A2-10 | Doc slips (comments, specs pointing at 860) | holds | Fixed (R13, R18, L6 5fc1a61) |
 
 Found on the way and fixed: ages that read "now ago" (R19 bb99852), a test
 that timed out under load (R21 4dcd1ce), two transcript files with one id drawn
 several times (R24 2eb38f4), the soft fade's `@property` breaking the sheet
 (R16 67038ee), the legend's amber "active" mark unlike the map's running
-satellite (R26 8c9f146: now filled with a light core, in the idle ring's grey).
-Found by L5's pictures and still open: a narrow chain's step label split
-mid-word (R27, lane C).
+satellite (R26 8c9f146: now filled with a light core, in the idle ring's grey),
+a narrow chain's step label split mid-word, "Idempote" over "ncy key…" (R27
+9e4eb86: a word too long for a line is clipped with "…", the next words take
+the second line; the Desktop pictures redrawn once for R26 and R27, 58f1703).
 
 ## 10. Prompt to continue
 
