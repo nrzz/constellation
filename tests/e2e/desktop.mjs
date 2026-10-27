@@ -622,14 +622,20 @@ function checkReach(desk, label, ceiling) {
   check(lost.length <= ceiling, `${label}: ${lost.length} of ${p.nodes.length} nodes no cell of ${desk.columns}×${desk.rows} picks, at most ${ceiling}`, lost.slice(0, 6).map(n => `${n.kind} ${String(n.label || n.id).slice(0, 18)} at ${Math.round(n.x)},${Math.round(n.y)}`))
   return lost.length
 }
-const SAT_GROUP = /<g class="[^"]*" transform="translate\(([\d.-]+) ([\d.-]+)\)"[^>]*>(?:(?!<\/g>)[\s\S])*?<circle class="sat" r=/g
+/**
+ * A satellite is one group at its centre (R15): `<g class="s n hit…" transform="translate(x y)">` holding its marks,
+ * the `sat` circle among them. Only such a group may carry a transform, and only a plain translate: one holding a
+ * pill, a dot, an anchor, a back pill or a step (a rect, a `hit` or `pill` class, a step's r="16") is not a satellite.
+ */
+const SAT_GROUP = /<g class="s n hit[^"]*" transform="translate\(([\d.-]+) ([\d.-]+)\)"[^>]*>((?:(?!<\/g>|<g[\s>])[^])*)<\/g>/g
+const satGroups = src =>
+  [...src.matchAll(SAT_GROUP)].filter(m => m[3].includes('<circle class="sat"') && !/<rect|class="(?:hit|pill)|r="16"/.test(m[3]))
 /** The points the picture's Svg source draws, by kind: each list holds the centres a layer node should sit on. */
 function drawnPoints(src) {
   const num = Number
   const all = (re, at) => [...src.matchAll(re)].map(at)
   return {
-    // A satellite is a group at its centre (`translate`), its circle at the group's origin.
-    sat: all(SAT_GROUP, m => [num(m[1]), num(m[2])]),
+    sat: satGroups(src).map(m => [num(m[1]), num(m[2])]),
     pill: all(/<rect class="pill hit" x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="38"/g, m => [num(m[1]) + num(m[3]) / 2, num(m[2]) + 19]),
     dot: all(/<circle class="hit[^"]*" cx="([\d.-]+)" cy="([\d.-]+)" r="5.5"/g, m => [num(m[1]), num(m[2])]),
     step: all(/<circle(?: class="ring")? cx="([\d.-]+)" cy="([\d.-]+)" r="16" style="fill:/g, m => [num(m[1]), num(m[2])]),
@@ -649,9 +655,10 @@ function checkParity(desk, label) {
   const box = desk.pictureBox()
   const problems = []
   if (box.w !== p.fieldW || box.h !== p.fieldH) problems.push(`viewBox ${box.w}×${box.h} but the layer's field is ${p.fieldW}×${p.fieldH}`)
-  // Only a satellite's own group may carry one, and the satellite points below are read from it.
-  const unplaced = src.replace(/<marker[^>]*>/g, '').replace(SAT_GROUP, m => m.replace(/ transform="[^"]*"/, ''))
-  if (/transform=/.test(unplaced)) problems.push('the picture has a transform attribute: its contents may be displaced')
+  // A satellite's own translate places it; any other transform (a scale, a rotate, a shift of anything else) displaces.
+  let rest = src.replace(/<marker[^>]*>/g, '')
+  for (const m of satGroups(src)) rest = rest.replace(m[0], m[0].replace(/ transform="translate\([\d.-]+ [\d.-]+\)"/, ''))
+  if (/transform=/.test(rest)) problems.push('the picture has a transform attribute other than a satellite’s own translate: its contents may be displaced')
   const d = drawnPoints(src)
   const near = (list, x, y) => list.some(([a, b]) => Math.abs(a - x) <= 1.5 && Math.abs(b - y) <= 1.5)
   const missing = []
