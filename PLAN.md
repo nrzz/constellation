@@ -306,7 +306,7 @@ facts". Work like this:
    writes that build's `claude-code.d.ts` into its own skill folder and prints
    the path. Copy it to `.claude-plugin/types/claude-code/index.d.ts`
    (gitignored) so `tsconfig.json` in this repo type-checks the mod with
-   `npx -y typescript@5.9.3 tsc -p .`. Grep the types for a name; do not read
+   `npx -y -p typescript@5.9.3 tsc -p .`. Grep the types for a name; do not read
    the whole 22k-line file.
 3. `claude plugin validate --strict .` and `claude plugin test .` work in the
    cloud; they need no session. Tests are the gate for every phase there.
@@ -325,7 +325,7 @@ facts". Work like this:
 7. The mod itself must never use the network or Node globals; only the dev
    tooling (npx typescript) may.
 
-## Environment facts (local Desktop session, verified 2026-10-27)
+## Environment facts (an earlier machine: user `nares`, the installer app, the repo at D:\Projects\constellation; verified 2026-10-27. For the owner's Windows 10 machine, where work continues, see docs/HANDOVER.md section 7)
 
 - Claude Code CLI for validate/test (not on PATH):
   `C:\Users\nares\AppData\Roaming\Claude\claude-code\2.1.308\c17a819afb40\claude.exe`
@@ -725,7 +725,7 @@ environment limits, a narrow pane's small text). Fixed, each with a test:
 - F9, EPERM in clean-up on Windows: `claude.exe` runs without a shell, its
   tree is killed with `taskkill /T /F`, and `rmSync` retries, only warning.
 - The terminal hint promised hover: it promises clicks only. The terminal
-  draws ♦ ◦ ► ▼ * and no gear or refresh sign; the status line says
+  draws ♦ ◦ ► ▼ * √ and no gear or refresh sign; the status line says
   "note saved".
 - A narrow pane's text was 4–5 px: the field narrows with the pane
   (`fieldWidthFor`, 520…860 units), so a 300 px pane draws 520 units.

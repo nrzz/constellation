@@ -159,7 +159,8 @@ constellation --marketplace <path to this repo>`.
 **Header**: breadcrumb (folder › topic › session), search over titles, notes,
 files and branches (with **× clear search** while it is set), a time-range
 picker (7, 14, 30 days or all time; pinned sessions ignore it), Map/List,
-Settings, Help, **◆ my topic** once this session has one, and **↻ refresh**.
+Settings, Help, **♦ my topic** once this session has one, and **↻ refresh**
+(plain **refresh** in a terminal).
 
 **Jump back in**: under the header, the three most recent sessions as chips.
 One press opens the session's card with its topic focused, so **Pick up
@@ -290,7 +291,7 @@ pointer, and the terminal panel inside the Desktop app passes no mouse at
 all. So the terminal's hint promises clicks only ("Click or Tab to a topic ·
 Enter focuses"), and Tab, Enter and the hotkeys work everywhere. Windows
 console fonts lack a few glyphs, so the terminal draws its marks from the
-console's own set (♦ ◦ ► ▼ *) and leaves out the gear and refresh signs the
+console's own set (♦ ◦ ► ▼ * √) and leaves out the gear and refresh signs the
 Desktop shows. Mobile has the
 SVG and the buttons but no text fields, so renaming, goals and messaging are
 not offered there.
@@ -389,7 +390,7 @@ shows is its own layout of the layer over the picture.
 ```bash
 claude plugin validate --strict .
 claude plugin test .
-npx -y typescript@5.9.3 tsc -p .          # needs .claude-plugin/types laid by the engine or the plugin-authoring skill
+npx -y -p typescript@5.9.3 tsc -p .       # needs .claude-plugin/types laid by the engine or the plugin-authoring skill
 bash tests/e2e/tui.sh                    # the real Claude Code TUI in tmux, three passes (about six minutes, one model turn; tmux, python3)
 E2E_INSTALL=1 bash tests/e2e/tui.sh      # the same after the one-line install from this checkout, run as installed
 E2E_SKIP_MODEL=1 bash tests/e2e/tui.sh   # the same without the model turn

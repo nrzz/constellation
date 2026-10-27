@@ -247,7 +247,7 @@ test('settings come in MAP, SESSION and ADVANCED groups, without row numbers; th
   await ui.unmount()
 })
 
-test('the terminal map’s hint: hover and click on a docked pane; Tab, Enter and /tui fullscreen on an inline one, where the terminal reports no mouse', async ($, on) => {
+test('the terminal map’s hint: click and Tab on a docked pane; Tab, Enter and /tui fullscreen on an inline one, where the terminal reports no mouse', async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
   const docked = await $.ui.mount(paneOn('terminal'))

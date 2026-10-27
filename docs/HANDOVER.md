@@ -10,6 +10,12 @@ every pass; the `README.md` is the user-facing description.
 
 ## 1. Start here (Windows)
 
+Two shells appear below. **PowerShell** blocks are for you, the owner, in a
+PowerShell window. A Claude Code session on Windows runs its commands in
+**Git Bash**, one new shell per command: there it sets variables and runs
+the command in one line, and uses forward slashes (bash strips unquoted
+backslashes). Section 5 gives both forms.
+
 1. **Get the code.** The installed plugin folder is a git checkout of `main`:
    `C:\Users\Lenovo\.claude\local-plugins\constellation`. In PowerShell there:
 
@@ -17,21 +23,29 @@ every pass; the `README.md` is the user-facing description.
    git status                 # untracked HANDOVER.md, REPO-PROMPT.md and analysis-8a99ba1\ are fine; nothing tracked may be modified
    git fetch origin
    git checkout main
-   git pull --ff-only         # main now carries the Windows pass (see section 3)
-   git log --oneline -1
+   git pull --ff-only         # 8a99ba1 -> the Windows pass
+   git merge-base --is-ancestor 4363174 HEAD; $?   # True: the Windows pass is here
+   git log --oneline -1       # the last commit of the cloud sessions, "docs: the handover, checked ..." or later
    ```
 
-   The untracked root `HANDOVER.md` and `REPO-PROMPT.md` in that folder are
-   from 8a99ba1 and earlier and are superseded by this file. Keep or delete
-   them; they do not block the pull, since this file lives in `docs\`.
+   If it prints False, `main` on GitHub was not moved: run
+   `git merge --ff-only origin/claude/festive-pascal-f1mjce`, or stop and ask.
+   The untracked root `HANDOVER.md` and `REPO-PROMPT.md` are from 8a99ba1 and
+   earlier: superseded by this file, do not follow them (they, and
+   `analysis-*\`, are now in `.gitignore`, so they are never committed).
+
+   Optional, only to run the `.sh` files in Git Bash: Git for Windows checks
+   text out with CRLF by default, and bash stops on CRLF. `.gitattributes`
+   now keeps `*.sh` LF; rewrite the ones already on disk with
+   `Remove-Item install.sh, tests\e2e\*.sh; git checkout -- install.sh tests/e2e`.
 
 2. **Load it.** In each open Desktop session that should run the new code:
    `/reload-plugins`, or open a new session (a session's Claude Code process
    loads plugins when it starts).
 
 3. **Point the tools at the Desktop's own Claude Code.** The `claude` on PATH
-   is 2.1.283, too old for mods (2.1.287 or later). The Desktop carries a
-   current one:
+   is 2.1.283, too old for mods (2.1.287 or later); the Desktop carries a
+   current one. For this PowerShell window:
 
    ```powershell
    $env:CLAUDE_BIN = (Get-Item "$env:LOCALAPPDATA\Claude-Data\*\claude-code\*\*\claude.exe" |
@@ -40,13 +54,17 @@ every pass; the `README.md` is the user-facing description.
    & $env:CLAUDE_BIN --version
    ```
 
-   (Or put that folder on PATH ahead of the old one, or `claude update` the
-   PATH install.)
+   To type `claude` in this window only: `$env:PATH = (Split-Path $env:CLAUDE_BIN) + ';' + $env:PATH`.
+   Do **not** `claude update` the PATH install or change PATH for good before
+   checklist item 10 has run: it needs the old 2.1.283 first on PATH.
 
-4. **Run the gates** (section 5), then the **re-test checklist** (section 4),
-   and write what you find to an untracked `analysis-<commit>\REPORT.md` with
-   screenshots, as was done for 8a99ba1. Mark each item **Verified** (ran it)
-   or **Read** (found in code only).
+4. **Run the gates** (section 5), then the **re-test checklist** (section 4).
+   Write what you find to an untracked `analysis-<short hash of HEAD after
+   the pull>\REPORT.md` (for example `analysis-4363174\`), marking each item
+   **Verified** (ran it) or **Read** (found in code only). Screenshots: pasted
+   images do not reach the disk, so the session names a file for each
+   (`f1-outline.png`, ...) and the owner saves it into that folder (Win+Shift+S,
+   then save); REPORT.md links them.
 
 5. **Then the open items** (section 6), most important first.
 
@@ -63,11 +81,16 @@ every pass; the `README.md` is the user-facing description.
   `feat:`, `fix:`, `test:`, `docs:`). A feature branch is fine for work in
   progress; `main` gets only verified work.
 - Commit messages end with the attribution lines the session's own Claude Code
-  gives (a `Co-Authored-By:` line). Never put a model name or model identifier
-  in a commit, a doc or the code.
-- The README carries real pictures (`docs/images`, drawn by the real engine
-  with `tests/e2e/shots.mjs` and `shots-terminal.mjs`); regenerate them when
-  the drawing changes.
+  gives (a `Co-Authored-By:` line): keep that trailer exactly as given, though
+  it names a model. Nowhere else (subject, body, docs, code) name the model a
+  session runs on. The mod's own `haiku` calls and their documented cost are
+  part of the product and stay.
+- The README carries real pictures (`docs/images`, drawn by the real engine:
+  `tests/e2e/shots.mjs` the Desktop's, on Windows; `shots-terminal.mjs` the
+  terminal's, in WSL); regenerate them when the drawing changes.
+- When a stretch of work ends, rewrite this file (state, results, open items)
+  and its section 10 as the prompt to continue from there, and end the reply
+  to the owner with that prompt, paste-ready.
 - Token-lean public tool: the mod never wastes the user's tokens, documents
   every model call and its cost, never approves tool calls, never touches the
   network (see `PLAN.md`, Working agreements).
@@ -77,7 +100,8 @@ every pass; the `README.md` is the user-facing description.
 ## 3. Where things stand
 
 **`main` = the Windows pass**, on top of 8a99ba1 (the build the Windows 10
-report was run on). Commits of the pass, oldest first:
+report was run on); `main` and `claude/festive-pascal-f1mjce` are the same.
+Commits of the pass, oldest first:
 
 | Commit | What |
 | --- | --- |
@@ -87,7 +111,8 @@ report was run on). Commits of the pass, oldest first:
 | 5af75c2 | The terminal prints only marks a Windows console font has; docs |
 | 185d3bd | A chain's meta lines keep to their room and the field; a narrow-pane picture |
 | 30ae9a5 | The terminal pictures with the console-safe marks |
-| (next) | A unit test for F5 (`scheduleReclaim`), these notes, `.claude/CLAUDE.md` |
+| 4363174 | A unit test for F5 (`scheduleReclaim`), these notes, `.claude/CLAUDE.md` |
+| (last) | These notes checked by two independent readers and corrected; `.gitignore` and `.gitattributes` for the Windows checkout |
 
 ### What the Windows report (8a99ba1) found, and what was done
 
@@ -102,7 +127,7 @@ report was run on). Commits of the pass, oldest first:
 | F7 | Satellites took presses on a pill's edges | A point inside a drawn box belongs to it, unless within 8 units of a dot or (whole-cell pointer) in the very cell the dot's centre lies in | `client/map.js` `nodeAtPoint`, `isInsideDrawn` | `tests/client.test.tsx` pill edge / dot cell |
 | F8 | `desktop.mjs` flaked on a settings press (a stale invalidation) | The harness draws until the tree changes (3 s cap) | `tests/e2e/desktop.mjs` `redrawAfter` | every cloud run since is clean (the flake was 1 in 4 on Windows: run it four times there) |
 | F9 | `desktop.mjs` crashed with EPERM in clean-up on Windows | `claude.exe` starts without a shell, its tree is killed with `taskkill /T /F`, `rmSync` retries and only warns | `tests/e2e/desktop.mjs` `resolveClaude`, `spawnClaude`, `close`, `cleanUp` | needs a Windows run |
-| Limit | The terminal hint promised hover; conhost passes clicks but no motion, the Desktop's terminal panel no mouse | The hint promises clicks only: "Click or Tab to a topic · Enter focuses" | `hooks/draw.tsx` `pointerHint` | `tests/interact.test.tsx` hints |
+| Limit | The terminal hint promised hover; conhost passes clicks but no motion, the Desktop's terminal panel no mouse | The hint promises clicks only: "Click or Tab to a topic · Enter focuses" | `hooks/draw.tsx` `pointerHint` | `tests/interact.test.tsx` "the terminal map’s hint: click and Tab on a docked pane…" |
 | Limit | conhost drew ⚙ and ◆ as boxes | The terminal draws only WGL4 marks: ♦ ◦ ► ▼ * √, no gear or refresh sign; status line `♦ <topic> · step N · note saved` | `hooks/draw.tsx` `marks`, `statusGlyph`; `client/map.js` legend; `hooks/actions.ts` status | `tests/interact.test.tsx` "every mark the terminal pane prints…" |
 | Limit | The installers refused the PATH `claude` 2.1.283 | Fall back to the newest Claude Code the Desktop keeps; `CLAUDE_BIN` names one; `install.ps1` runs in a script block so `irm … \| iex` never closes the window, and is ASCII so PowerShell 5.1 reads it right | `install.sh`, `install.ps1` | `tests/e2e/installers.sh` (54 checks); `tests/e2e/installers.ps1` (needs a Windows run) |
 | Look | Text was 4–5 px in a 300 px pane | The field narrows with the pane: `fieldWidthFor(bodyColumns)`, 520…860 units | `hooks/layout.ts` `fieldWidthFor`; `hooks/actions.ts` `viewOf` | `tests/edge.test.tsx` narrow pane |
@@ -119,6 +144,8 @@ report was run on). Commits of the pass, oldest first:
 - `E2E_INSTALL=1 bash tests/e2e/tui.sh`: **67 passed**, 0 failed (the real
   TUI in tmux, installed through `install.sh`, with a real model turn).
 - `bash tests/e2e/installers.sh`: **54 passed** (sh, dash, bash).
+- `E2E_INSTALL=1 bash tests/e2e/tui.sh` and `desktop.mjs` were run once more
+  on the final code (67 and 105).
 
 ### Not verified yet (needs Windows or a real Desktop window)
 
@@ -132,8 +159,10 @@ report was run on). Commits of the pass, oldest first:
 
 ## 4. Windows re-test checklist
 
-Do these in a Desktop session on a real folder (`E:\GIT` has 163 sessions,
-17 over 4 MiB) after `/reload-plugins`. For each: what to do, what should
+Do these in a Desktop session on a real folder after `/reload-plugins`:
+`E:\GIT` held 163 sessions, 17 over 4 MiB, by the 8a99ba1 report
+(`analysis-8a99ba1\REPORT.md`; recount with
+`(Get-ChildItem $env:USERPROFILE\.claude\projects\E--GIT\*.jsonl).Count`). For each: what to do, what should
 happen, what to report if it does not.
 
 1. **Layer covers the picture (F1).** Open the map (`/map`), Settings ›
@@ -154,58 +183,108 @@ happen, what to report if it does not.
    the right end of its pill on "· you": back to all topics, as a click on
    its left end does.
 4. **Unique names (F2).** On `E:\GIT`: no two topics share a name (8a99ba1
-   had two alike); the shorter one now carries an extra word or a number.
+   had two alike); of two that read alike, the topic with fewer sessions
+   (never one you named) now carries an extra word or a number.
 5. **Anchors (F3).** Focus a topic with many related topics: the dashed
    anchors along the bottom do not overlap and none is cut at the edge.
 6. **Narrow pane.** Drag the pane to about 300 px: the labels stay readable
    (the field draws 520 units across), a focused chain's lines do not run
    into each other, and clicks still land (Outline on to see the edge).
-7. **Terminal hint (F4) and marks.** In a terminal session (conhost and
-   Windows Terminal), `/map`: the hint reads "Click or Tab to a topic · Enter
+7. **Terminal hint (F4) and marks.** In a terminal session started with the
+   Desktop's Claude Code, not the PATH 2.1.283 (which cannot load mods):
+   `cd E:\GIT; & $env:CLAUDE_BIN` in a PowerShell window (conhost), and the
+   same in Windows Terminal if it is installed (Windows 10 does not ship it).
+   Then `/map`: the hint reads "Click or Tab to a topic · Enter
    focuses" on one line even in a narrow pane; no boxes (□) anywhere: the
    legend `● active ○ idle ◦ shipped ♦ you`, Advanced's `Show ►` / `Hide ▼`,
-   a pinned session's `*`, a toast's `√`, the status line
+   a pinned session's `*`, a toast's `√`, and, after joining a topic (a band
+   digit or `/topic`) and `/park <note>`, the status line
    `♦ <topic> · step N · note saved`. A click on a topic focuses it in
    conhost (no hover there: expected).
-8. **Closed stays closed (F5).** In a terminal session: click the map, then
+8. **Closed stays closed (F5).** In such a terminal session: click the map, then
    close the pane (`/map close`, or Escape until it closes): it does not
    reopen half a second later.
 9. **Gates on Windows** (section 5): validate, tests (146), tsc,
    `desktop.mjs` (105, exit 0, no EPERM: F9) four times in a row (F8),
-   `installers.ps1` (all PASS).
-10. **The one-line installer.** In a fresh PowerShell window with the old
-    PATH `claude` still first:
-    `irm https://raw.githubusercontent.com/nrzz/constellation/main/install.ps1 | iex`.
+   `installers.ps1` (`== 33 passed, 0 failed` under Windows PowerShell alone,
+   66 when PowerShell 7 is installed; exit 0).
+10. **The one-line installer.** Use a throwaway config folder: the normal one
+    holds the local `constellation` marketplace, and adding the GitHub one of
+    the same name is refused there ("Cannot add marketplace "constellation":
+    its source doesn't match its extraKnownMarketplaces entry", exit 1, no
+    "Done."). That refusal is expected on this machine and not a bug. In a
+    fresh PowerShell window, with the old PATH `claude` still first:
+
+    ```powershell
+    $env:CLAUDE_CONFIG_DIR = Join-Path $env:TEMP ('cst-oneline-' + [guid]::NewGuid().ToString('N'))
+    irm https://raw.githubusercontent.com/nrzz/constellation/main/install.ps1 | iex
+    ```
+
     Expected: "Claude Code 2.1.283 is on PATH; mods need 2.1.287 or later.
-    Using the Claude Desktop app's own 2.1.3xx:" with its path, then the
-    install (it says "already installed" or installs), "Done.", and the
-    window stays open. With the Desktop's folder removed from the search
-    (or on a machine without it), a refusal also leaves the window open.
+    Using the Claude Desktop app's own 2.1.3xx:" with its path, the install's
+    own success line, "Done.", and the window stays open. Then the refusal,
+    in the same window:
+
+    ```powershell
+    $empty = (New-Item -ItemType Directory -Force (Join-Path $env:TEMP 'cst-empty')).FullName
+    $env:LOCALAPPDATA = $empty; $env:APPDATA = $empty
+    irm https://raw.githubusercontent.com/nrzz/constellation/main/install.ps1 | iex
+    ```
+
+    Expected: "Claude Code 2.1.283 is on PATH; mods need 2.1.287 or later.
+    Update it (claude update), or type inside a newer Claude Code:", and the
+    window stays open. Close that window afterwards and delete both temp
+    folders.
 
 ## 5. Running everything on Windows
 
-From the repo folder, in PowerShell, with `$env:CLAUDE_BIN` set (section 1.3):
+**In a PowerShell window** (the owner), from the repo folder, with
+`$env:CLAUDE_BIN` set (section 1.3):
 
 ```powershell
 & $env:CLAUDE_BIN plugin validate --strict .
-& $env:CLAUDE_BIN plugin test .                       # 146 tests; the stubs are Windows-safe since 8a99ba1
-node tests\e2e\desktop.mjs                            # the Desktop's wire, about a minute; E2E_ONLY=1,3 runs scenarios 1 and 3
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\e2e\installers.ps1   # Windows PowerShell 5.1; also runs pwsh 7 when installed
-node tests\e2e\shots.mjs                              # README's Desktop pictures (needs: npm i -g playwright; npx playwright install chromium)
+& $env:CLAUDE_BIN plugin test .                       # 146 pass; the stubs are Windows-safe since 8a99ba1
+node tests\e2e\desktop.mjs                            # the Desktop's wire, about a minute: == 105 passed, 0 failed
+1..4 | ForEach-Object { node tests\e2e\desktop.mjs | Select-Object -Last 1; "exit $LASTEXITCODE" }   # F8: four in a row
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\e2e\installers.ps1   # == 33 passed (66 with pwsh 7)
+```
+
+Scenarios alone: `$env:E2E_ONLY = '1,3'` before `node tests\e2e\desktop.mjs`,
+`Remove-Item Env:E2E_ONLY` after. `desktop.mjs` also honours `CLAUDE_BIN`,
+`E2E_INSTALL`, `E2E_SHOTS=<dir>`, `E2E_DEBUG` and `E2E_KEEP` (keeps the temp
+folders), set the same way.
+
+**From a Claude Code session** (Git Bash, a new shell per command): find
+claude.exe in the same line that uses it, and use forward slashes:
+
+```bash
+P=$(ls -d "$(cygpath "$LOCALAPPDATA")"/Claude-Data/*/claude-code/*/*/claude.exe | sort -V | tail -1); "$P" --version && "$P" plugin validate --strict . && "$P" plugin test . && CLAUDE_BIN="$(cygpath -w "$P")" node tests/e2e/desktop.mjs
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/e2e/installers.ps1
 ```
 
 - **tsc** needs the engine's types beside the mod:
   `.claude-plugin\types\claude-code\index.d.ts` (gitignored). The engine lays
-  `.claude-plugin\types\` when it loads a mod from a folder; otherwise run
-  the `plugin-authoring` skill in a session (it writes `claude-code.d.ts`
-  under `%TEMP%\claude\bundled-skills\<version>\<hash>\plugin-authoring\types\`)
-  and copy it there. Then `npx -y -p typescript@5.9.3 tsc -p .`.
+  `.claude-plugin\types\` when it loads a mod from a folder; otherwise run the
+  `plugin-authoring` skill in a session (it writes `claude-code.d.ts` under
+  `%TEMP%\claude\bundled-skills\<version>\<hash>\plugin-authoring\types\`) and
+  copy it:
+  `New-Item -ItemType Directory -Force .claude-plugin\types\claude-code | Out-Null; Copy-Item <that claude-code.d.ts> .claude-plugin\types\claude-code\index.d.ts`.
+  Then `npx.cmd -y -p typescript@5.9.3 tsc -p .` (`npx.cmd`, since Windows
+  PowerShell's default policy refuses `npx.ps1`; plain `npx` works in Git
+  Bash).
+- **README pictures, Desktop** (`node tests\e2e\shots.mjs`): needs
+  `npm.cmd i -g playwright`, `npx.cmd playwright install chromium`, and
+  `$env:NODE_PATH = (npm.cmd root -g)` in the same window (Node on Windows does
+  not search npm's global folder).
 - **`tests/e2e/tui.sh`** and **`shots-terminal.mjs`** need tmux and python3
   (and ffmpeg for the clip): not on Windows. Run them in WSL with a Linux
-  `claude` (2.1.287 or later), or skip them on Windows and say so.
-- `tests/e2e/installers.sh` runs in Git Bash or WSL (`bash tests/e2e/installers.sh`).
-- `desktop.mjs` honours `CLAUDE_BIN`, `E2E_ONLY`, `E2E_INSTALL`,
-  `E2E_SHOTS=<dir>`, `E2E_DEBUG`, `E2E_KEEP` (keep the temp folders).
+  `claude` (2.1.287 or later) signed in there (tui.sh copies
+  `~/.claude/.credentials.json` into each pass; `E2E_SKIP_MODEL=1` drops the
+  model turn) and Playwright on `NODE_PATH`, or skip them on Windows and say
+  so.
+- **`tests/e2e/installers.sh`**: in WSL (`bash tests/e2e/installers.sh`, 54
+  checks under sh, dash and bash). In Git Bash only with LF `.sh` files
+  (section 1.1) and no dash there, so 36 checks; not yet run there.
 
 ## 6. Open items, most important first
 
@@ -220,9 +299,10 @@ reports its cell size.
 ### 6.2 The independent review of the pass
 
 Five reviewers (one area each) with a skeptic per finding were started in the
-cloud on 30ae9a5; if their results are not appended below, run the review on
-Windows: in a Claude Code session in this folder, ask for an independent
-review of `git diff 8a99ba1..HEAD` by area, each finding verified by a second
+cloud, but none finished before the move (the first attempt hit an account
+limit; the second ended with the cloud session). Run it on Windows: in a
+Claude Code session in this folder, ask for an independent review of
+`git diff 8a99ba1..HEAD` by area, each finding verified by a second
 reader who tries to refute it, then fix what holds. The areas:
 
 1. **Pointer geometry** (F1, F6, F7): `client/map.js` (`layerFor`,
@@ -239,8 +319,8 @@ reader who tries to refute it, then fix what holds. The areas:
    `chainLabelChars`, `chainMetaChars`), `hooks/actions.ts` (`placementOf`,
    `viewOf`), `hooks/cluster.ts` (`uniqueNames` and friends). Anything still
    assuming 860 wide; placements at 520; name stability across scans.
-3. **Keyboard and lifecycle** (F5): `reclaimKeys`, `cancelReclaim`, the
-   `ui.close` hook, `pointerHint`. Can a reclaim still reopen a closed pane
+3. **Keyboard and lifecycle** (F5): `reclaimKeys`, `scheduleReclaim`,
+   `cancelReclaim`, the `ui.close` hook, `pointerHint`. Can a reclaim still reopen a closed pane
    (X, `/map close`, Escape twice, session end); can cancel drop a needed
    reclaim?
 4. **Installers**: `install.sh` (dash, bash 3.2 as sh, busybox, Git Bash),
@@ -274,17 +354,23 @@ one look at the layer in a real window (6.1), watch the first real folder
   `%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc\claude-code\<version>\<build>\claude.exe`
   (Store app) or `%APPDATA%\Claude\claude-code\<version>\<build>\claude.exe`
   (installer app). Both share `~/.claude` and its plugins.
+- **Pushing from this machine**: not recorded yet. Check early with
+  `git config user.email` and `git push --dry-run origin HEAD:main`; if it is
+  refused, ask the owner before the final step.
 - **Paths on the owner's machine** (2026-10-27): installed plugin folder
   `C:\Users\Lenovo\.claude\local-plugins\constellation` (local marketplace
   `constellation`, plugin `constellation@constellation`, user scope); plugin
   store `~/.claude/plugins/store/constellation_constellation-*.json`; the
   Desktop's log
   `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\Claude\logs\main.log`.
-- The org plugin `cc-plugin-sec-default` keeps `classic.SessionStart` from
-  user plugins; Constellation also restarts on `session.end` and checks the
+- Another plugin can keep `classic.SessionStart` from this one (on the
+  owner's machine, by the owner's earlier notes, the org plugin
+  `cc-plugin-sec-default`; not reproduced here); Constellation also restarts on `session.end` and checks the
   session id on every command, press and turn and every three seconds.
 - The full API facts, the engine facts read from the 2.1.311 binary, the
-  Desktop facts and every pass's record are in `PLAN.md`.
+  Desktop facts and every pass's record are in `PLAN.md`. Its "Environment
+  facts" section describes an earlier machine (user `nares`, the installer
+  app, `D:\Projects\constellation`); for this one, this section holds.
 
 ## 8. Code map
 
@@ -308,17 +394,15 @@ one look at the layer in a real window (6.1), watch the first real folder
 
 ## 9. Review results
 
-The cloud review of the pass (5 areas) did not finish before the move to
-Windows: run it there (6.2). Its first attempt was cut off by an account
-limit before any reviewer read a line; the second was still running when
-these notes were written. If a later commit appends its results here, act on
-them first.
+None yet: the cloud review did not finish (6.2). The Windows session runs it
+and records its results here.
 
 ## 10. Prompt to continue on Windows
 
-Paste this into a new Claude Code session (the Desktop's Code tab, or
-`claude` from the Desktop's own folder) opened in
-`C:\Users\Lenovo\.claude\local-plugins\constellation`:
+Paste this into a new Claude Code session opened in
+`C:\Users\Lenovo\.claude\local-plugins\constellation`: the Desktop's Code tab
+on that folder, or `& $env:CLAUDE_BIN` in a PowerShell window there after
+section 1.3 (never the `claude` on PATH, 2.1.283, which cannot load mods).
 
 ```text
 You are continuing the Constellation mod (github.com/nrzz/constellation) on my
@@ -326,27 +410,37 @@ Windows 10 machine with Claude Desktop. This folder,
 C:\Users\Lenovo\.claude\local-plugins\constellation, is both the git checkout
 and the installed plugin.
 
-1. Read .claude/CLAUDE.md, then docs/HANDOVER.md in full. PLAN.md holds the spec, the
-   API facts and every pass's record: read the sections the handover points to
-   when you need them.
-2. Bring the folder to the latest main (handover 1.1; my untracked files there
-   may stay), set CLAUDE_BIN to the Desktop's newest claude.exe (1.3), and run
-   the gates on Windows (section 5): validate --strict, plugin test (146 pass),
-   tsc, node tests\e2e\desktop.mjs four times (105 passed and exit 0 each
-   time, no EPERM), and tests\e2e\installers.ps1 (all PASS).
-3. Take me through the re-test checklist (section 4): tell me exactly what to
+1. First bring this folder to the Windows pass: git status (my untracked
+   HANDOVER.md, REPO-PROMPT.md and analysis-8a99ba1\ may stay; the root
+   HANDOVER.md and REPO-PROMPT.md are from 8a99ba1 and superseded, do not
+   follow them), git fetch origin, git checkout main, git pull --ff-only.
+   Then `git merge-base --is-ancestor 4363174 HEAD` must succeed; if it does
+   not, stop and tell me.
+2. Now read .claude/CLAUDE.md, then docs/HANDOVER.md in full. PLAN.md holds
+   the spec, the API facts and every pass's record: read the sections the
+   handover points to when you need them.
+3. Find the Desktop's newest claude.exe (handover 1.3; in your Git Bash shell
+   use the one-line form in section 5) and run the gates on Windows
+   (section 5): validate --strict, plugin test (146 pass), tsc,
+   tests/e2e/desktop.mjs four times (105 passed and exit 0 each time, no
+   EPERM), and tests/e2e/installers.ps1 (33 passed, 66 with pwsh 7). Check
+   early that git here can push (handover section 7).
+4. Take me through the re-test checklist (section 4): tell me exactly what to
    click and look at in the Desktop window for the steps that need my eyes,
    and do the rest yourself. Record every result as Verified or Read in
-   analysis-<commit>\REPORT.md with my screenshots.
-4. Run the independent review in section 6.2 unless section 9 already has its
-   results: one reviewer per area, each finding checked by a second reader
-   who tries to refute it.
-5. Fix everything the re-test and the review find, each with a test that
+   analysis-<short hash>\REPORT.md; for screenshots, name each file and I
+   will save it into that folder.
+5. Run the independent review in section 6.2: one reviewer per area, each
+   finding checked by a second reader who tries to refute it.
+6. Fix everything the re-test and the review find, each with a test that
    fails without the fix. Keep README.md, PLAN.md and docs/HANDOVER.md
    current, and regenerate the README pictures if the drawing changes.
-6. When every gate passes and the re-test is clean, commit (conventional
-   commits, no model names) and push to main. Then give me a short summary
-   and what is left.
+7. When every gate passes and the re-test is clean, commit (conventional
+   commits; keep the Co-Authored-By trailer Claude Code adds, no other model
+   names) and push to main. Before that last commit, rewrite
+   docs/HANDOVER.md (state, results, open items) and its section 10 as the
+   prompt to continue from where you stopped. Then give me a short summary,
+   what is left, and, at the very end, that prompt, paste-ready.
 
 Follow the working rules in docs/HANDOVER.md section 2: complete work, no
 skipped checks, no shrinking the scope, short progress reports.
