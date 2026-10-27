@@ -268,6 +268,26 @@ export function isUpperStep(i: number, w: number): boolean {
   return (i % chainBandSize(w)) % 2 === 0
 }
 
+/** How far a label beside a band-to-band link keeps from it: clear of the line and its arrowhead. */
+export const LINK_CLEAR = 8
+
+/**
+ * Where the i-th step of an `n`-step chain draws its label: 0 centred on it;
+ * 1 or -1 to the right or left of it, outward, for the two steps at a band's
+ * end that the link to the next band joins (it runs straight down between
+ * them, through a centred label).
+ */
+export function labelSide(i: number, n: number, w: number): -1 | 0 | 1 {
+  if (chainBands(n, w) < 2) return 0
+  const per = chainBandSize(w)
+  const band = Math.floor(i / per)
+  const j = i % per
+  // Band b ends on the right when b is even, on the left when odd; the next band starts under that end.
+  if (j === per - 1 && i < n - 1) return band % 2 === 0 ? 1 : -1
+  if (j === 0 && band > 0) return (band - 1) % 2 === 0 ? 1 : -1
+  return 0
+}
+
 /**
  * The numbered steps of a focused chain: spread across the field, alternating
  * between the two rows. A chain too long for that (its circles would meet)

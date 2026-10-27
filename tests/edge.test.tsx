@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { EMPTY_STORE, buildModel } from '../hooks/cluster'
 import { clipName, fieldOf, sizeOf, svgOf } from '../hooks/draw'
 import { placementOf } from '../hooks/actions'
-import { DESKTOP_CELL, chainPositions, fieldWidthFor, pillWidth } from '../hooks/layout'
+import { DESKTOP_CELL, chainBandSize, chainPositions, fieldWidthFor, pillWidth } from '../hooks/layout'
 import { READS_PER_PASS } from '../hooks/scan'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, resolveSettings, settingValue } from '../hooks/state'
 import type { SessionSummary } from '../types'
@@ -731,26 +731,61 @@ function chainView(columns: number, n: number, opts: { selected?: string; you?: 
  * measure). A label's second line sits 14 below its first, so it shares a row with a one-line label's first.
  */
 function chainClashes(svg: string, w: number, tag: string) {
-  const texts: { y: string; x: number; w: number; text: string }[] = []
-  for (const m of svg.matchAll(/<text class="mono" x="([\d.]+)" y="([\d.]+)" font-size="10.5"[^>]*>([^<]*)<\/text>/g)) texts.push({ y: `meta ${m[2]}`, x: Number(m[1]), w: (m[3] ?? '').length * 6.3, text: m[3] ?? '' })
-  for (const m of svg.matchAll(/<text x="[\d.]+" y="([\d.]+)" font-size="11.5"[^>]*>(.*?)<\/text>/g)) {
-    const lines = [...(m[2] ?? '').matchAll(/<tspan x="([\d.]+)" dy="(\d+)">([^<]*)<\/tspan>/g)]
-    lines.forEach((l, k) => texts.push({ y: `label ${Number(m[1]) + 14 * k}`, x: Number(l[1]), w: (l[3] ?? '').length * 6.4, text: l[3] ?? '' }))
+  const texts: { y: string; x: number; w: number; left: number; right: number; base: number; size: number; text: string }[] = []
+  // A line's extent by its anchor: centred unless it says start or end.
+  const span = (x: number, width: number, attrs: string) => {
+    const anchor = /text-anchor="(start|end)"/.exec(attrs)?.[1]
+    const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
+    return { left, right: left + width }
+  }
+  for (const m of svg.matchAll(/<text class="mono" x="([\d.]+)" y="([\d.]+)" font-size="10.5"([^>]*)>([^<]*)<\/text>/g)) {
+    const text = m[4] ?? ''
+    texts.push({ y: `meta ${m[2]}`, x: Number(m[1]), w: text.length * 6.3, ...span(Number(m[1]), text.length * 6.3, m[3] ?? ''), base: Number(m[2]), size: 10.5, text })
+  }
+  for (const m of svg.matchAll(/<text x="[\d.]+" y="([\d.]+)" font-size="11.5"([^>]*)>(.*?)<\/text>/g)) {
+    const lines = [...(m[3] ?? '').matchAll(/<tspan x="([\d.]+)" dy="(\d+)">([^<]*)<\/tspan>/g)]
+    lines.forEach((l, k) => {
+      const text = l[3] ?? ''
+      texts.push({ y: `label ${Number(m[1]) + 14 * k}`, x: Number(l[1]), w: text.length * 6.4, ...span(Number(l[1]), text.length * 6.4, m[2] ?? ''), base: Number(m[1]) + 14 * k, size: 11.5, text })
+    })
   }
   const clashes: string[] = []
   const rows = new Map<string, typeof texts>()
   for (const t of texts) rows.set(t.y, [...(rows.get(t.y) ?? []), t])
   for (const row of rows.values()) {
-    row.sort((a, b) => a.x - b.x)
+    row.sort((a, b) => a.left - b.left)
     for (let i = 1; i < row.length; i += 1) {
       const a = row[i - 1]
       const b = row[i]
-      if (a && b && b.x - a.x < (a.w + b.w) / 2 + 4) clashes.push(`${tag}: "${a.text}" meets "${b.text}"`)
+      if (a && b && b.left < a.right + 4) clashes.push(`${tag}: "${a.text}" meets "${b.text}"`)
     }
   }
   // Every line stays on the field.
-  for (const t of texts) if (t.x - t.w / 2 < 0 || t.x + t.w / 2 > w) clashes.push(`${tag}: "${t.text}" leaves the field`)
+  for (const t of texts) if (t.left < 0 || t.right > w) clashes.push(`${tag}: "${t.text}" leaves the field`)
   return { texts, clashes }
+}
+
+/** Every drawn chain link (a line ending in the arrow) that runs through a drawn label or meta line, 3 units clear. */
+function linkCrossings(svg: string, w: number, tag: string) {
+  const { texts } = chainClashes(svg, w, tag)
+  const out: string[] = []
+  for (const m of svg.matchAll(/<line(?: class="ch")? x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"[^>]*marker-end="url\(#arrow\)"/g)) {
+    const [x1, y1, x2, y2] = [m[1], m[2], m[3], m[4]].map(Number) as [number, number, number, number]
+    const steps = Math.ceil(Math.hypot(x2 - x1, y2 - y1))
+    for (const t of texts) {
+      const top = t.base - 0.8 * t.size - 3
+      const bottom = t.base + 0.25 * t.size + 3
+      for (let s = 0; s <= steps; s += 1) {
+        const x = x1 + ((x2 - x1) * s) / steps
+        const y = y1 + ((y2 - y1) * s) / steps
+        if (x > t.left - 3 && x < t.right + 3 && y > top && y < bottom) {
+          out.push(`${tag}: the link ${x1},${y1} to ${x2},${y2} crosses "${t.text}"`)
+          break
+        }
+      }
+    }
+  }
+  return out
 }
 
 test('a focused chain keeps every label and meta line to its room: none meets its neighbour on its row, in a 520, 620 or 860 field, from 3 steps to 24', async () => {
@@ -832,6 +867,35 @@ test('a long chain wraps into bands: the drawn step circles never meet, the pict
   // A chain that fits two rows keeps the base field.
   expect(sizeOf(chainView(44, 20)).h).toBe(520)
   expect(sizeOf(chainView(44, 21)).h).toBeGreaterThan(520)
+})
+
+test('the link from one band of a long chain to the next never crosses a label: the steps it joins keep theirs beside it', async () => {
+  const problems: string[] = []
+  for (const columns of [44, 60, 120]) {
+    const w = fieldWidthFor(columns)
+    const per = chainBandSize(w)
+    // Two bands and a bit, two whole bands, three and a bit; "you" lands at the next band's start or last.
+    for (const n of [per, per + 1, 2 * per, 2 * per + 1]) {
+      for (const you of [false, true]) {
+        const total = n + (you ? 1 : 0)
+        // The steps either side of each band's end, each selected in turn (and none: the latest is labelled anyway).
+        const ends = [...Array(total).keys()].filter(i => i < n && i >= per - 1 && (i % per === per - 1 || i % per === 0))
+        for (const k of [undefined, ...ends]) {
+          const view = chainView(columns, n, { ...(k === undefined ? {} : { selected: `c${k}` }), you })
+          const svg = svgOf(view)
+          const tag = `${w} wide, ${n} steps${you ? ' + you' : ''}${k === undefined ? '' : `, c${k} selected`}`
+          problems.push(...linkCrossings(svg, w, tag), ...chainClashes(svg, w, tag).clashes)
+          // The step at the band's end keeps its label: it moves, it is not dropped.
+          if (k !== undefined) {
+            const pt = chainPositions(total, sizeOf(view))[k]
+            const { texts } = chainClashes(svg, w, tag)
+            if (pt && !texts.some(t => t.y.startsWith('label') && t.left < pt.x + 12 && t.right > pt.x - 12 && Math.abs(t.base - pt.y) < 80)) problems.push(`${tag}: c${k} lost its label`)
+          }
+        }
+      }
+    }
+  }
+  expect(problems).toEqual([])
 })
 
 test('the "you" meta is never cut to "now · y…": it reads "now · you", or "you" where that does not fit', async () => {
