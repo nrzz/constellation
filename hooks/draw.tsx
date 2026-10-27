@@ -10,7 +10,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
-import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, chainRows, focusSize, pillWidth, satellitePosition, starPath, unitEdge } from './layout'
+import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, chainRows, focusSize, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
@@ -313,6 +313,10 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       `.t:hover .pill{fill:var(--tx)!important}`,
       `.t:hover .nm{fill:var(--inv)!important}`,
       `.t:hover .lbl{fill:var(--tx)!important}`,
+      // Motion: calm, out of step, and stopped for a reader who asks for less.
+      `@keyframes tw{50%{opacity:.25}}@keyframes rk{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}@keyframes fl{50%{transform:translate(0,-3px)}}`,
+      `.tw{animation:tw 5s ease-in-out infinite}.o{transform-box:view-box;animation:rk 60s ease-in-out infinite alternate}.t{animation:fl 8s ease-in-out infinite}`,
+      `@media (prefers-reduced-motion:reduce){.f *{animation:none!important}}`,
     )
   }
   const caps: string[] = []
@@ -344,8 +348,20 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   if (view.settings.fieldBackground === 'night') parts.push(`<rect width="${size.w}" height="${size.h}" fill="${BG}"/>`)
   parts.push(`<rect width="${size.w}" height="${size.h}" fill="url(#glow)"/>`)
   parts.push(`<rect width="${size.w}" height="${size.h}" fill="url(#grid)"/>`)
-  parts.push(`<path d="${starPath(Math.round((70 * size.w * size.h) / (BASE.w * BASE.h)), 137.5, 11, size)}" style="stroke:var(--star)" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.8"/>`)
-  parts.push(`<path d="${starPath(Math.round((18 * size.w * size.h) / (BASE.w * BASE.h)), 211.7, 53, size)}" style="stroke:var(--star2)" stroke-width="2.4" stroke-linecap="round" fill="none" opacity="0.8"/>`)
+  const stars = (d: string, colour: string, width: number, k: number) => {
+    if (!live) return [`<path d="${d}" style="stroke:var(${colour})" stroke-width="${width}" stroke-linecap="round" fill="none" opacity="0.8"/>`]
+    // Live: the stars in three layers, each twinkling on its own clock.
+    const dots = d.split('M').filter(Boolean)
+    return [0, 1, 2].map(
+      j =>
+        `<path class="tw" style="animation-duration:${(3.7 + j * 1.7 + k * 0.9).toFixed(1)}s;animation-delay:-${(j * 1.3 + k).toFixed(1)}s;stroke:var(${colour})" d="${dots
+          .filter((_, n) => n % 3 === j)
+          .map(m => `M${m}`)
+          .join('')}" stroke-width="${width}" stroke-linecap="round" fill="none" opacity="0.8"/>`,
+    )
+  }
+  parts.push(...stars(starPath(Math.round((70 * size.w * size.h) / (BASE.w * BASE.h)), 137.5, 11, size), '--star', 1.6, 0))
+  parts.push(...stars(starPath(Math.round((18 * size.w * size.h) / (BASE.w * BASE.h)), 211.7, 53, size), '--star2', 2.4, 1))
 
   if (!focus) {
     const traced = ui.hover && model.topicById[ui.hover] ? ui.hover : null
@@ -388,8 +404,14 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
           if (j !== undefined) css.push(`svg:has(.t-${i}:hover) .t-${j}{opacity:.8}`, `svg:has(.t-${i}:hover) .x-${i}{stroke:${t.color};opacity:.8}`)
         }
       }
-      const g: string[] = [`<g class="t t-${i}" opacity="${opacity.toFixed(2)}">`]
+      const g: string[] = [`<g class="t t-${i}" opacity="${opacity.toFixed(2)}"${live ? ` style="animation-duration:${7 + (i % 5) * 0.8}s;animation-delay:-${(i * 1.9) % 7}s"` : ''}>`]
       const sessions = t.sessions.slice(0, maxSessions)
+      if (live && sessions.length > 0) {
+        // Its spokes and satellites sway about its centre as one group, a few degrees each way: a full turn would carry
+        // a satellite from the wide end of its ellipse into a neighbour.
+        const c = unitCentre(p)
+        g.push(`<g class="o" style="transform-origin:${c.x.toFixed(1)}px ${c.y.toFixed(1)}px;animation-duration:${45 + ((i * 17) % 46)}s;animation-direction:${i % 2 === 0 ? 'alternate' : 'alternate-reverse'}">`)
+      }
       sessions.forEach((s, k) => {
         const sp = satellitePosition(p, k, size)
         if (s.isInRange) {
@@ -417,6 +439,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         const pin = s.isPinned ? `<text x="${(sp.x + 5).toFixed(1)}" y="${(sp.y - 5).toFixed(1)}" font-size="9" fill="${ACCENT}">★</text>` : ''
         g.push(`<g class="s n hit" opacity="${op.toFixed(2)}">${tip}${halo}${glow}<circle class="sat" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r}" ${fillAttr} ${ringAttr} stroke-width="1.5"${dash}/>${pin}</g>`)
       })
+      if (live && sessions.length > 0) g.push('</g>')
       if (t.isMajor) {
         const w = pillWidth(t.name, countLabel)
         const x = p.x - w / 2

@@ -198,3 +198,33 @@ test('live: four hundred sessions stay under the cap, the map and a focused chai
   expect(focused.length).toBeLessThanOrEqual(131072)
   expect(focused).toContain('.f:has(.st-9:hover) .q-9{opacity:1}')
 })
+
+test('live motion: stars twinkle out of step, each topic sways its satellites and floats, and reduced motion stops it all', () => {
+  const view = liveView()
+  const svg = svgOf(view)
+  expect(svg).toContain('@media (prefers-reduced-motion:reduce){.f *{animation:none!important}}')
+  // The stars come in several layers with their own durations, never all in step.
+  const twinkles = new Set((svg.match(/class="tw" style="animation-duration:[\d.]+s/g) ?? []).map(m => m))
+  expect(twinkles.size).toBeGreaterThanOrEqual(3)
+  // One orbit group per drawn topic, holding its spokes and satellites, turning about its unit's centre, directions alternating.
+  view.model.topics.forEach((t, i) => {
+    const group = svg.split(`<g class="t t-${i}"`)[1]?.split('<g class="t t-')[0] ?? ''
+    const orbit = group.split('<g class="o"')[1] ?? ''
+    expect(orbit).toContain('class="ln"')
+    expect(orbit).toContain('class="s n hit"')
+    expect(group).toMatch(new RegExp(`<g class="o" style="transform-origin:[\\d.]+px [\\d.]+px;animation-duration:[\\d.]+s;animation-direction:${i % 2 === 0 ? 'alternate' : 'alternate-reverse'}"`))
+  })
+  // A sway takes 90 to 180 s there and back; a float a few units.
+  for (const m of svg.matchAll(/class="o" style="[^"]*animation-duration:([\d.]+)s/g)) {
+    expect(Number(m[1]) * 2).toBeGreaterThanOrEqual(90)
+    expect(Number(m[1]) * 2).toBeLessThanOrEqual(180)
+  }
+  expect(svg).toMatch(/@keyframes fl\{50%\{transform:translate\(0,-3px\)\}\}/)
+})
+
+test('clicks: no motion at all', () => {
+  const svg = svgOf(liveView({ ...DEFAULT_SETTINGS, pictureMode: 'clicks' }))
+  expect(svg).not.toContain('@keyframes')
+  expect(svg).not.toContain('animation')
+  expect(svg).not.toContain('class="o"')
+})
