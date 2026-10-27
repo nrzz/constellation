@@ -419,6 +419,7 @@ class Desktop {
     this.rows = 1
     this.driver.mount(this.id, frame.entry[frame.component], this.props())
     this.mounted = true
+    this.inside = false
     this.driver.resize(this.id, columns, this.rows)
     return this.refit()
   }
@@ -470,7 +471,11 @@ class Desktop {
     if (Math.floor(fy) >= this.rows || Math.floor(fx) >= this.columns) return undefined
     return fine ? { x: Math.floor(fx), y: Math.floor(fy), fine: { x: fx, y: fy } } : { x: Math.floor(fx), y: Math.floor(fy) }
   }
+  /** As the Desktop does: the pointer crossing into the layer comes as an `enter` before its first move or press. */
   pointer(ev) {
+    if (ev.type === 'enter') this.inside = true
+    else if (ev.type === 'leave') this.inside = false
+    else if (!this.inside) this.pointer({ type: 'enter', x: ev.x, y: ev.y })
     this.driver.stage(this.id, 'pointer', ev)
     globalThis.__surface__.run()
   }
@@ -736,9 +741,12 @@ async function fixtureFolderChecks() {
     // Hover traces, leaving clears.
     const before = svgOfTree(desk.tree).props.source
     let c = desk.cellOf(pointOn(checkout).x, pointOn(checkout).y)
-    desk.pointer({ type: 'move', ...c })
+    desk.pointer({ type: 'enter', ...c })
     let sent = await desk.flush()
-    check(sent.some(d => d.type === 'hover' && d.id === checkout.id), 'hovering a topic on the picture posts it', sent)
+    check(sent.some(d => d.type === 'hover' && d.id === checkout.id), 'the pointer entering the picture over a topic posts it, before any move', sent)
+    desk.pointer({ type: 'move', ...c })
+    sent = await desk.flush()
+    check(!sent.some(d => d.type === 'hover'), '…and the move that follows on the same topic posts nothing more', sent)
     check(desk.props().hint === 'Checkout Cart · 2 sessions · Enter to focus', '…the hint names it', desk.props().hint)
     check(svgOfTree(desk.tree).props.source !== before, '…and the picture redraws traced')
     desk.pointer({ type: 'leave', ...c })

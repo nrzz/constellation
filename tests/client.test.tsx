@@ -136,6 +136,18 @@ test('pointer hover traces a topic; a click on a session focuses its chain with 
   await ui.pointer({ type: 'move', x: 0, y: ROWS - 1, in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'tc:focus' })).toBeUndefined()
 
+  // The pointer crossing into the region over a topic (`enter`, before any `move`) traces it as a `move` there does.
+  const over = await at(ui, topic, 2)
+  await ui.pointer({ type: 'enter', ...over, in: 'map' })
+  const entered = { focus: Boolean(await ui.find({ type: 'Button', key: 'tc:focus' })), hint: Boolean(await ui.find({ in: 'map', type: 'Text', text: /Enter to focus/ })) }
+  await ui.pointer({ type: 'leave', ...over, in: 'map' })
+  expect(await ui.find({ type: 'Button', key: 'tc:focus' })).toBeUndefined()
+  await ui.pointer({ type: 'move', ...over, in: 'map' })
+  const moved = { focus: Boolean(await ui.find({ type: 'Button', key: 'tc:focus' })), hint: Boolean(await ui.find({ in: 'map', type: 'Text', text: /Enter to focus/ })) }
+  expect(moved).toEqual({ focus: true, hint: true })
+  expect(entered).toEqual(moved)
+  await ui.pointer({ type: 'leave', ...over, in: 'map' })
+
   const session = (await nodesOf(ui)).find(n => n.id === IDS.tests)
   expect(session).toBeDefined()
   if (!session) return
