@@ -449,9 +449,12 @@ test('running: the four-hundred-session folder with a running topic still meets 
   expect(svg).toContain('class="rp"')
 })
 
-// The idle cycle fades the rest, softly: one registered variable, `--k`, walks the slots on the field's own timeline,
-// and every topic, link and satellite reads its own strength from it, so the fade costs no keyframes per topic.
+// The idle cycle fades the rest, softly: one variable, `--k`, steps through the slots on the field's own timeline, every
+// topic, link and satellite reads its own strength from it (so the fade costs no keyframes per topic), and each faded
+// element eases to its new strength with its own opacity transition.
 const fadeRule = (svg: string, sel: string) => svg.split(`.f:not(:hover) ${sel}{opacity:`)[1]?.split('}')[0] ?? ''
+const easeOf = (svg: string, sel: string) =>
+  [...svg.matchAll(/([^{}]*)\{transition:([^}]*)\}/g)].find(m => m[1]?.split(/,(?![^(]*\))/).includes(`.f:not(:hover) ${sel}`))?.[2] ?? ''
 /** Evaluates the CSS `calc()` the fade uses (numbers, + - *, min, max), with `var(--x)` read from `vars`. */
 const evalFade = (rule: string, vars: Record<string, number>) => {
   const src = rule.replace(/var\(--(\w)(,-?\d+)?\)/g, (_, v: string) => `(${vars[v] ?? -9})`).replace(/calc\(/g, '(').replace(/\s+/g, '')
@@ -487,16 +490,19 @@ const kAt = (svg: string, t: number) => {
   const body = svg.match(/@keyframes ck\{(.*?)\}\}/)?.[1] ?? ''
   const period = Number(svg.match(/\.f:not\(:hover\)\{animation:ck ([\d.]+)s/)?.[1])
   const keys = [...body.matchAll(/([\d.]+)%\{--k:([\d.]+)/g)].map(m => [(Number(m[1]) / 100) * period, Number(m[2])] as const)
-  const after = keys.findIndex(([at]) => at >= t)
-  const [t1, k1] = keys[after] ?? keys[keys.length - 1] ?? [0, 0]
-  const [t0, k0] = keys[after - 1] ?? [t1, k1]
-  return t1 === t0 ? k1 : k0 + ((k1 - k0) * (t - t0)) / (t1 - t0)
+  // `step-end`: each value holds until the next keyframe, registered or not.
+  return [...keys].reverse().find(([at]) => at <= t)?.[1] ?? NaN
 }
 
 test('live idle cycle fade: outside its own slot and the hint slot every topic and link fades to about .4, easing over about .6 s', () => {
   const view = liveView()
   const svg = svgOf(view)
-  expect(svg).toContain("@property --k{syntax:'<number>';inherits:true;initial-value:0}")
+  // No `<` in the stylesheet: `syntax:'<number>'` read as a tag cut the sheet short in an HTML parser (the fade lost) and
+  // left the SVG not well-formed in an XML one (the picture lost); a stepping `--k` needs no `@property` at all.
+  const sheets = [...svg.matchAll(/<style>([\s\S]*?)<\/style>/g)].map(m => m[1] ?? '')
+  expect(sheets.length).toBeGreaterThan(0)
+  for (const sheet of sheets) expect(sheet).not.toContain('<')
+  expect(svg).not.toContain('@property')
   const topicRule = fadeRule(svg, '.t>:not(.rg,.rh,.ld,.glow)')
   const linkRule = fadeRule(svg, '.x')
   expect(topicRule).not.toBe('')
@@ -516,14 +522,35 @@ test('live idle cycle fade: outside its own slot and the hint slot every topic a
     for (const i of majors) near(evalFade(topicRule, { k, i: slotOf.get(i) ?? -9 }), j === 0 || slotOf.get(i) === j ? 1 : 0.4)
     near(evalFade(linkRule, { k, ...ends }), 0.8 * (j === 0 || j === ends.a || j === ends.b ? 1 : 0.4))
   }
-  // Softly: between two slots the strength passes through the middle, over a ramp of about .6 s.
-  const mid = evalFade(topicRule, { k: kAt(svg, 4 * 2 - 0.3), i: 1 })
-  expect(mid).toBeGreaterThan(0.45)
-  expect(mid).toBeLessThan(0.95)
-  near(kAt(svg, 4 * 2 - 0.7), 1)
-  near(kAt(svg, 4 * 2), 2)
+  // Softly: `--k` steps .6 s before a slot and every faded element eases there over .6 s, arriving as its slot starts.
+  expect(svg).toMatch(/\.f:not\(:hover\)\{animation:ck [\d.]+s step-end infinite\}/)
+  near(kAt(svg, 4 * 2 - 0.65), 1)
+  near(kAt(svg, 4 * 2 - 0.55), 2)
+  expect(easeOf(svg, '.t>:not(.rg,.rh,.ld,.glow)')).toBe('opacity .6s ease-in-out')
+  expect(easeOf(svg, '.x')).toBe('opacity .6s ease-in-out')
   // A minor topic has no slot: it fades with the rest outside the hint slot.
   near(evalFade(topicRule, { k: 1, i: -9 }), 0.4)
+})
+
+// An engine may drop `@property` (the Desktop's scrub cannot be read here): the fade must ease the same without it.
+test('live idle cycle fade without @property: the same .4 target, eased by the elements over .6 s', () => {
+  const view = liveView()
+  const bare = svgOf(view).replace(/@property[^{]*\{[^}]*\}/g, '')
+  expect(bare).not.toContain('@property')
+  // An unregistered `--k` animates discretely, flipping half way between keyframes; `step-end` makes both flip at the key.
+  expect(bare).toMatch(/\.f:not\(:hover\)\{animation:ck [\d.]+s step-end infinite\}/)
+  const topicRule = fadeRule(bare, '.t>:not(.rg,.rh,.ld,.glow)')
+  const linkRule = fadeRule(bare, '.x')
+  for (const sel of ['.t>:not(.rg,.rh,.ld,.glow)', '.x']) expect(easeOf(bare, sel)).toBe('opacity .6s ease-in-out')
+  const majors = view.model.topics.filter(t => t.isMajor).length
+  for (let j = 0; j <= majors; j += 1) {
+    const k = kAt(bare, 4 * j + 2)
+    near(k, j)
+    for (let i = 1; i <= majors; i += 1) near(evalFade(topicRule, { k, i }), j === 0 || i === j ? 1 : 0.4)
+    near(evalFade(linkRule, { k, a: 1, b: 2 }), 0.8 * (j === 0 || j === 1 || j === 2 ? 1 : 0.4))
+  }
+  // The ease waits for an unpointed field, so a hover keeps its own quicker .25 s fade.
+  expect(bare).toContain('.t,.x,.s{transition:opacity .25s}')
 })
 
 test('live idle cycle fade: hover wins, a running ring stays, and there is no fade in clicks or under reduced motion', () => {

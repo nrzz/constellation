@@ -472,10 +472,13 @@ function renderSvg(view: View, withTooltips: boolean, maxSessions: number): stri
       const at = (v: number) => `${Number(v.toFixed(2))}%`
       const frames = (name: string, prop: string, off: string, on: string) => `@keyframes ${name}{0%{${prop}:${off}}${at(s / 8)},${at(s - s / 8)}{${prop}:${on}}${at(s)},100%{${prop}:${off}}}`
       const run = (name: string) => `{animation:${name} ${period}s linear var(--d) infinite}`
-      // The fade: `--k` walks the slots (0 the hint, then each topic, n + 1 the hint again) on the field's one timeline,
-      // easing over 0.6 s into each slot; whatever holds slot `--k`, or the hint's, is at full, the rest at .4.
+      // The fade: `--k` steps through the slots (0 the hint, then each topic, n + 1 the hint again) on the field's one
+      // timeline, 0.6 s before each; whatever holds slot `--k`, or the hint's, is at full, the rest at .4, and each faded
+      // element eases there with its own 0.6 s opacity transition. `--k` is not registered: `@property`'s `syntax:'<number>'`
+      // reads as a tag inside the SVG (an HTML parser cut the sheet short there, an XML one refused the picture), and
+      // `step-end` makes an unregistered `--k` flip at each key rather than half way between two.
       const ck = [`0%{--k:0}`]
-      for (let j = 1; j <= n + 1; j += 1) ck.push(`${at((100 * (4 * j - 0.6)) / period)}{--k:${j - 1}}${at((100 * 4 * j) / period)}{--k:${j}}`)
+      for (let j = 1; j <= n + 1; j += 1) ck.push(`${at((100 * (4 * j - 0.6)) / period)}{--k:${j}}`)
       const lit = (v: string) => `max(0,min(1 + var(--${v},-9) - var(--k),1 + var(--k) - var(--${v},-9)))`
       const strength = (...vs: string[]) => `.4 + .6*min(1,max(0,1 - var(--k)) + max(0,var(--k) - ${n})${vs.map(v => ` + ${lit(v)}`).join('')})`
       css.push(
@@ -485,9 +488,9 @@ function renderSvg(view: View, withTooltips: boolean, maxSessions: number): stri
         frames('cl', 'stroke', 'var(--ln)', 'var(--c)'),
         `.f:not(:hover) .hint{animation:cv ${period}s linear infinite}`,
         `.f:not(:hover) .t.cy .pill${run('cp')}.f:not(:hover) .t.cy .nm${run('cn')}.f:not(:hover) .t.cy .glow${run('cv')}.f:not(:hover) .t.cy .ln${run('cl')}.f:not(:hover) .cap.cy${run('cv')}`,
-        `@property --k{syntax:'<number>';inherits:true;initial-value:0}`,
         // A running topic's ring, halo and live dot stay through the fade, as does the hover glow's own rule.
-        `@media (prefers-reduced-motion:no-preference){@keyframes ck{${ck.join('')}}.f:not(:hover){animation:ck ${period}s ease-in-out infinite}` +
+        `@media (prefers-reduced-motion:no-preference){@keyframes ck{${ck.join('')}}.f:not(:hover){animation:ck ${period}s step-end infinite}` +
+          `.f:not(:hover) .t>:not(.rg,.rh,.ld,.glow),.f:not(:hover) .x{transition:opacity .6s ease-in-out}` +
           `.f:not(:hover) .t>:not(.rg,.rh,.ld,.glow){opacity:calc(${strength('i')})}.f:not(:hover) .x{opacity:calc(.8*(${strength('a', 'b')}))}}`,
       )
     }
