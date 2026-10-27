@@ -111,6 +111,20 @@ describe('parseTranscript', () => {
     const inline = parseTranscript(rows.slice(2, 3).join('\n'), seed('p'))
     expect(inline?.firstPrompt).toBe('Look at the README too')
   })
+
+  test('a scheduled task’s run is a turn, though nobody typed it; its prompt is no first prompt, its title names it', async () => {
+    const trigger = { origin: { kind: 'task-notification', subkind: 'scheduled-trigger', fireReason: 'scheduled' } }
+    const rows = [
+      userRow('t', 'u1', '2026-10-27T03:00:00.000Z', '<scheduled-task name="nightly-build" file="C:\\Users\\me\\.claude\\scheduled-tasks\\nightly-build\\SKILL.md">\nThis is an automated run of a scheduled task. The user is not present to answer questions.\n\nBuild the storefront.\n</scheduled-task>', trigger),
+      assistantRow('t', 'a1', '2026-10-27T03:04:00.000Z', [{ type: 'text', text: 'Built; two warnings.' }]),
+      userRow('t', 'u2', '2026-10-27T03:05:00.000Z', '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>', { origin: { kind: 'task-notification' } }),
+      JSON.stringify({ type: 'custom-title', customTitle: 'Nightly build (hourly)', sessionId: 't' }),
+    ]
+    const s = parseTranscript(rows.join('\n'), seed('t'))
+    expect(s?.turns).toBe(1)
+    expect(s?.firstPrompt).toBe('')
+    expect(s?.title).toBe('Nightly build (hourly)')
+  })
 })
 
 type FakeFile = { size: number; mtimeMs: number; text?: string }

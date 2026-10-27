@@ -130,6 +130,12 @@ function promptOf(row: Json): string | undefined {
   return text === '' ? undefined : text
 }
 
+/** A scheduled task's run starts from a `<scheduled-task name="…">` row: a turn nobody typed, so no first prompt. */
+function isScheduledRun(row: Json): boolean {
+  if (row.isMeta === true) return false
+  return asString(asObject(row.message)?.content)?.trimStart().startsWith('<scheduled-task') === true
+}
+
 /**
  * One transcript's lines into a summary; `undefined` when it holds no
  * conversation row (a session that has not started). Tolerates bad lines.
@@ -198,6 +204,8 @@ export function parseTranscript(
       if (prompt !== undefined) {
         turns += 1
         if (firstPrompt === '') firstPrompt = prompt
+      } else if (isScheduledRun(row)) {
+        turns += 1
       }
       continue
     }
