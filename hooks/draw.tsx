@@ -97,8 +97,11 @@ export function clipName(name: string, max: number): string {
   return clip(name, max)
 }
 
-/** Up to two lines of about `width` characters, broken at spaces. */
-function wrap2(text: string, width: number): string[] {
+/**
+ * Up to two lines of about `width` characters, broken at spaces. A first word longer than a line is clipped with
+ * "…" and the next words take the second line: a word is never split across the two unmarked ("Idempote" / "ncy").
+ */
+export function wrap2(text: string, width: number): string[] {
   if (text.length <= width) return [text]
   const words = text.split(' ')
   let first = ''
@@ -108,10 +111,11 @@ function wrap2(text: string, width: number): string[] {
     i += 1
   }
   if (first === '') {
-    first = text.slice(0, width)
-    return [first, clip(text.slice(width), width)]
+    first = clip(words[0] ?? '', width)
+    i = 1
   }
-  return [first, clip(words.slice(i).join(' '), width)]
+  const rest = words.slice(i).join(' ')
+  return rest ? [first, clip(rest, width)] : [first]
 }
 
 export function matches(query: string, s: SessionView): boolean {

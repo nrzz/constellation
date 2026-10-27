@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { EMPTY_STORE, buildModel } from '../hooks/cluster'
-import { clipName, fieldOf, sizeOf, svgOf } from '../hooks/draw'
+import { clipName, fieldOf, sizeOf, svgOf, wrap2 } from '../hooks/draw'
 import { placementOf } from '../hooks/actions'
 import { DESKTOP_CELL, chainBandSize, chainPositions, fieldWidthFor, pillWidth } from '../hooks/layout'
 import { READS_PER_PASS } from '../hooks/scan'
@@ -731,7 +731,7 @@ test('a narrow pane lays the field out narrower so its text stays legible; a wid
 })
 
 /** One topic whose chain has `n` steps, each titled at length, an hour or so apart. */
-function chainFolder(n: number, resumed?: number) {
+function chainFolder(n: number, resumed?: number, titles?: string[]) {
   const sessions: SessionSummary[] = []
   const store = { ...EMPTY_STORE, topics: { 'topic:chain': { name: 'Cart Total', createdAt: 0 } } as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string> }
   for (let i = 0; i < n; i += 1) {
@@ -739,7 +739,7 @@ function chainFolder(n: number, resumed?: number) {
     // A resumed step keeps its place in the chain but was active last.
     const lastAt = i === resumed ? NOW : startedAt + 3600_000
     const id = `c${i}`
-    sessions.push({ id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: `Round the cart line totals once, at the end ${i}`, startedAt, lastAt, turns: 3 + i, filesTouched: ['src/cart.ts'], lastAssistantText: '', size: 1, mtimeMs: lastAt })
+    sessions.push({ id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: titles?.[i % titles.length] ?? `Round the cart line totals once, at the end ${i}`, startedAt, lastAt, turns: 3 + i, filesTouched: ['src/cart.ts'], lastAssistantText: '', size: 1, mtimeMs: lastAt })
     store.assign[id] = 'topic:chain'
   }
   return buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
@@ -943,6 +943,31 @@ test('the "you" meta is never cut to "now · y…": it reads "now · you", or "y
     }
   }
   expect(cut).toEqual([])
+})
+
+test('a step label wraps between words: a line ends at a word boundary or with "…", never mid-word unmarked', async () => {
+  // The payments theme of the README's folder (tests/e2e/desktop.mjs), where the 520 picture read "Idempote" over "ncy key…".
+  const titles = ['Stripe webhook retries create duplicate payments', 'Refunds should be partial as well as full', 'Verify the stripe webhook signature', 'Payments fail when the card needs 3d secure', 'Idempotency keys for stripe payment calls', 'Log the stripe payment intent ids', 'Refund webhook arrives before the payment', 'Move stripe keys to the secrets store', 'Payments page shows cents as dollars', 'Stripe webhook retry storm', 'Authentication middleware rate limiting']
+  const words = new Set(titles.flatMap(t => t.split(' ')))
+  const broken: string[] = []
+  for (let n = 2; n <= 40; n += 1) {
+    const model = chainFolder(n, undefined, titles)
+    for (const columns of [44, 60, 120]) {
+      const v = chainView(columns, n, { model, selected: 'c2' })
+      for (const t of chainClashes(svgOf(v), v.field.w, '').texts) {
+        if (!t.y.startsWith('label')) continue
+        // Every word of a line is a whole word of its title, but a last one cut with "…".
+        const tokens = t.text.split(' ')
+        const marked = t.text.endsWith('…')
+        if (tokens.some((w, k) => !words.has(w) && !(marked && k === tokens.length - 1))) broken.push(`${v.field.w} wide, ${n} steps: "${t.text}"`)
+      }
+    }
+  }
+  expect([...new Set(broken)].slice(0, 6)).toEqual([])
+  // A first word longer than a line is clipped and the next words take the second line; a lone one keeps one line.
+  expect(wrap2('Idempotency keys for stripe payment calls', 8)).toEqual(['Idempot…', 'keys fo…'])
+  expect(wrap2('Idempotency', 8)).toEqual(['Idempot…'])
+  expect(wrap2('Verify the stripe webhook signature', 22)).toEqual(['Verify the stripe', 'webhook signature'])
 })
 
 test('the panes: a Desktop pane 44 columns wide draws a 520-unit picture, a wide one 860, a terminal pane the full field for its text map', async ($, on) => {
