@@ -92,6 +92,16 @@ describe('tokens and names', () => {
     expect(topicIdFor('Checkout tests')).toBe('topic:checkout-tests')
     expect(topicIdFor('  CI / pipeline!! ')).toBe('topic:ci-pipeline')
   })
+
+  test('a name in any script has its own id and key: two Hindi names are two topics, never one', async () => {
+    // Devanagari vowel signs are combining marks: they belong to the word, not between words.
+    expect(topicIdFor('भुगतान')).not.toBe(topicIdFor('रिफंड'))
+    expect(topicIdFor('भुगतान फिर से')).toBe('topic:भुगतान-फिर-से')
+    expect(topicIdFor('Café crème')).toBe('topic:café-crème')
+    expect(nameKey('भुगतान')).not.toBe(nameKey('रिफंड'))
+    expect(nameKey('भुगतान')).not.toBe('')
+    expect(nameKey('फिर से भुगतान')).toBe(nameKey('भुगतान फिर से'))
+  })
 })
 
 describe('clustering several topics in one folder', () => {

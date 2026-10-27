@@ -122,11 +122,14 @@ function sharedCount<T>(a: Set<T>, b: Set<T>): number {
   return n
 }
 
-/** A stable topic id for a name typed in `/topic <name>` or the chooser. */
+/**
+ * A stable topic id for a name typed in `/topic <name>` or the chooser: its letters, marks and digits in any
+ * script (a Devanagari vowel sign is a mark of its word), so two names in Hindi are two topics.
+ */
 export function topicIdFor(name: string): string {
   const slug = name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '')
   return `topic:${slug || 'topic'}`
 }
@@ -172,7 +175,7 @@ export function autoName(sessions: readonly SessionSummary[]): string {
 
 /** Two names that read as one: the same words, in any order and case ("Cashfree Continuation", "continuation cashfree"). */
 export function nameKey(name: string): string {
-  return name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).sort().join(' ')
+  return name.toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u).filter(Boolean).sort().join(' ')
 }
 
 /**
