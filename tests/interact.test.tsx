@@ -320,3 +320,49 @@ test('a refresh leaves an Undo on offer, and says its piece in the engine’s to
   expect(await ui.find({ type: 'Text', text: /^Refreshed:/ })).toBeDefined()
   await ui.unmount()
 })
+
+/** WGL4, the characters every Windows console font carries (Consolas, Lucida Console, Cascadia): what a terminal may print. */
+const WGL4 = new Set<string>([
+  ...Array.from({ length: 0x7f - 0x20 }, (_, i) => String.fromCharCode(0x20 + i)),
+  ...Array.from({ length: 0x180 - 0xa0 }, (_, i) => String.fromCharCode(0xa0 + i)),
+  ...'–—―‗‘’‚‛“”„†‡•…‰′″‹›‼‾⁄ⁿ₣₤₧€℅ℓ№™Ω℮←↑→↓↔↕↨∂∆∏∑−∕∙√∞∟∩∫≈≠≡≤≥⌂⌐⌠⌡─│┌┐└┘├┤┬┴┼═║╔╗╚╝▀▄█▌▐░▒▓■□▪▫▬▲►▼◄◊○●◘◙◦☺☻☼♀♂♠♣♥♦♪♫',
+])
+
+test('every mark the terminal pane prints is one a Windows console font has: the header, the map’s props, the list, settings, help, a session card, a pin and its toast, the band', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(paneOn('terminal'))
+  const strays = new Map<string, string>()
+  const scan = async (state: string) => {
+    const texts: string[] = []
+    for (const t of await ui.findAll({ type: 'Text' })) texts.push(String(t.text ?? ''))
+    for (const b of await ui.findAll({ type: 'Button' })) texts.push(String(b.props.label ?? ''), String(b.text ?? ''))
+    const map = (await ui.find({ type: 'Client', key: 'map' }))?.props.props as { hint?: string; legend?: string; nodes?: { label?: string; label2?: string }[] } | undefined
+    if (map) texts.push(String(map.hint ?? ''), String(map.legend ?? ''), ...(map.nodes ?? []).flatMap(n => [String(n.label ?? ''), String(n.label2 ?? '')]))
+    for (const text of texts) for (const ch of text) if (!WGL4.has(ch) && !strays.has(ch)) strays.set(ch, `${state}: ${text}`)
+  }
+  await scan('the map')
+  await ui.press({ key: 'help' })
+  await scan('help')
+  await ui.press({ key: 'help:done' })
+  await ui.press({ key: 'settings' })
+  await ui.press({ key: 'set:advanced' })
+  await scan('settings, advanced open')
+  await ui.press({ key: 'settings' })
+  await ui.press({ key: `r:${IDS.tests}` })
+  await scan('a session card')
+  await ui.press({ key: 'sc:pin' })
+  await scan('pinned, with its toast')
+  const done = await ui.find({ type: 'Text', text: /^√$/ })
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'view:list' })
+  await ui.press({ key: `t:${CHECKOUT}` })
+  await scan('the list, a topic open, a pinned session in it')
+  await ui.unmount()
+  const band = await $.ui.mount(bandOn('terminal'))
+  for (const t of await band.findAll({ type: 'Text' })) for (const ch of String(t.text ?? '')) if (!WGL4.has(ch)) strays.set(ch, `the band: ${t.text}`)
+  await band.unmount()
+  expect([...strays.entries()].map(([ch, where]) => `${ch} (U+${ch.codePointAt(0)?.toString(16).toUpperCase()}) in ${where}`)).toEqual([])
+  // The toast's mark is the console's own √.
+  expect(done).toBeDefined()
+})

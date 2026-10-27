@@ -44,7 +44,8 @@ seed_cfg() { # <fullscreen|default>
   printf '# demo\n' > "$demo/README.md"
   printf '{"tui":"%s"}\n' "$1" > "$cfg/settings.json"
   if [ -n "${E2E_INSTALL:-}" ]; then
-    CLAUDE_CONFIG_DIR=$cfg claude plugin install constellation --marketplace "$REPO" >"$cfg/install.log" 2>&1 \
+    # The one-line installer itself, with the checkout as its marketplace.
+    CLAUDE_CONFIG_DIR=$cfg CONSTELLATION_MARKETPLACE=$REPO sh "$REPO/install.sh" >"$cfg/install.log" 2>&1 \
       || { echo "FAIL: the one-line install from the checkout"; cat "$cfg/install.log"; exit 1; }
   fi
   CFGS+=("$cfg"); echo "$cfg|$demo"

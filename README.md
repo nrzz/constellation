@@ -22,21 +22,34 @@ Desktop sidebar and nothing is lost between them.
 
 Status: built against Claude Code 2.1.310 and run end to end on 2.1.311, every
 picture on this page drawn by the real engine. `claude plugin validate
---strict`, `claude plugin test` (135 tests, including an edge-case suite),
-`tsc` and two end-to-end suites pass:
+--strict`, `claude plugin test` (@@UNIT@@ tests, including an edge-case suite),
+`tsc` and three end-to-end suites pass:
 
 - `tests/e2e/tui.sh` drives the real Claude Code TUI in tmux with real mouse
   events: hover, clicks on topics, steps, dots and buttons, a drag, the
   keyboard after a click and after Escape, the band, every command, a real
   model turn that quotes the injected handoff note, `/clear`, and the classic
-  renderer that has no mouse (67 checks, run as installed with the one-line
-  install by `E2E_INSTALL=1`).
+  renderer that has no mouse (@@TUI@@ checks, run as installed through the
+  one-line installer by `E2E_INSTALL=1`).
 - `tests/e2e/desktop.mjs` runs the engine the way Claude Desktop does, over
   its stdio wire, and acts as the Desktop's frame: it loads the map's Client
-  with the runtime the engine serves and clicks the picture through it, over
+  with the runtime the engine serves, sizes it as the Desktop does (as wide as
+  the picture, as tall as what it draws, in the Desktop's 7.7 × 19.8 px cells)
+  and clicks every node of the picture through it at five layer widths, in a
+  44-column pane, with a wider font before and after Layer height +2, over
   the fixture folder, a 140-session folder with a transcript over 4 MiB, an
   empty folder, and new sessions opening the map on Desktop, VS Code and
-  mobile (80 checks).
+  mobile (@@DESK@@ checks).
+- `tests/e2e/installers.sh` runs `install.sh` under sh, dash and bash against
+  stand-in `claude` commands laid out as on macOS, Linux and Windows (54
+  checks); `tests/e2e/installers.ps1` runs the same cases against
+  `install.ps1` on Windows.
+
+The previous build was run on Windows 10 with Claude Desktop 3.6556; this one
+fixes what that run found (a pointer layer that covered only the picture's
+top, colliding topic names, anchors off the field, a reclaimed keyboard
+reopening a closed pane, the installers refusing an old `claude` on PATH, the
+console's missing glyphs) and waits on a second look in a real Desktop window.
 
 ## What it looks like
 
@@ -74,8 +87,11 @@ Or from a shell:
 claude plugin install constellation --marketplace nrzz/constellation
 ```
 
-Or copy and paste an installer, which runs that command after checking that
-Claude Code 2.1.287 or later is on PATH:
+Or copy and paste an installer. It runs that command with the `claude` on
+PATH when that is 2.1.287 or later, and otherwise with the newer Claude Code
+the Claude Desktop app keeps for its Code tab (on Windows the `claude` on PATH
+is often an old install while the Desktop app carries a current one), saying
+which it used; `CLAUDE_BIN` names one outright:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nrzz/constellation/main/install.sh | sh
@@ -146,7 +162,10 @@ and under the settings or help cards.
 
 **Map**: the field, sized to the pane's width, drawn transparent on the pane's
 own surface and following the app's light or dark scheme (`fieldBackground:
-night` paints the prototype's solid ground instead). Each topic keeps a halo
+night` paints the prototype's solid ground instead). A narrow pane gets a
+narrower field (down to 520 units across, against 860 in a wide pane), so the
+labels keep a readable size instead of shrinking with the picture; the
+related anchors under a focused chain share its width, each cut to its slot. Each topic keeps a halo
 around its pill for its satellites, and the halos are packed into rows, so no
 satellite lands on another topic or on the hint, and the spokes start at the
 pill's edge, never across its name; a crowded folder gets a taller field (up
@@ -154,7 +173,8 @@ to the engine's 4096 px picture, past which rows close up). Session titles are t
 Major topics are labelled pills with a session count
 (and "· you" on your topic), minor topics small dots with a mono label,
 sessions satellites around their topic (filled = active in the last five
-minutes, hollow = idle, dashed = archived, ★ = pinned), dashed lines between
+minutes, hollow = idle, dashed = archived, ★ = pinned; in a terminal ● ○ ◦
+and *), dashed lines between
 topics that touched the same file. Tab onto a topic, or point at it on the
 terminal map, and it is traced: its sessions and links take its colour,
 everything else dims, and its card shows under the field. Searching dims
@@ -190,8 +210,8 @@ topic; Escape backs out one level.
 ![A step's card in the terminal: its handoff note, files and actions, under the chain with that step selected](docs/images/terminal-card.png)
 
 **Digest**: when the pane opens it says what changed since you last looked at
-this folder. **Status line**: your topic and step, with a tick once your note
-exists.
+this folder. **Status line**: your topic and step (`♦ Checkout Cart · step
+3`), and `· note saved` once your note exists.
 
 **Keyboard**: Tab walks the controls and traces the topic under the ring,
 Enter focuses it. Digits 1–9 pick chain steps or chooser topics. Letters:
@@ -230,6 +250,7 @@ major-topic rules and the Desktop pointer layer), folded until asked for.
 | `openOnStart` | band, pane, none | band | What a new session shows: the chooser band, the pane, or nothing. A Desktop or VS Code session counts as able to show the pane, though the engine starts it headless |
 | `fieldBackground` | transparent, night | transparent | transparent sits on the pane's own surface and follows light or dark; night is the prototype's solid ground |
 | `pictureClicks` | on, outline, off | on | The Desktop's pointer layer over the picture: on; drawn with its outline and readings; or off (the buttons under the map do the same work) |
+| `layerHeight` | −3 to +3 | 0 | The pointer layer's height, for a code font with wider or narrower cells than the Desktop's own: with `pictureClicks: outline` its edge should meet the picture's bottom, and each step moves it about 5 % |
 
 ## Model use and cost
 
@@ -257,7 +278,14 @@ The terminal reports the mouse only under its fullscreen renderer, the
 default after the first start (`/tui fullscreen`; `CLAUDE_CODE_DISABLE_MOUSE=1`
 turns the mouse off). The classic renderer (`/tui default`) seats the pane
 above the prompt with no mouse: Tab walks to a topic and Enter focuses it.
-The map's hint says which way picking works on each surface. Mobile has the
+Terminals also differ in what they pass on. Windows' console host passes
+clicks but no pointer motion, so a click focuses but nothing traces under the
+pointer, and the terminal panel inside the Desktop app passes no mouse at
+all. So the terminal's hint promises clicks only ("Click or Tab to a topic ·
+Enter focuses"), and Tab, Enter and the hotkeys work everywhere. Windows
+console fonts lack a few glyphs, so the terminal draws its marks from the
+console's own set (♦ ◦ ► ▼ *) and leaves out the gear and refresh signs the
+Desktop shows. Mobile has the
 SVG and the buttons but no text fields, so renaming, goals and messaging are
 not offered there.
 
@@ -275,20 +303,34 @@ cluster holds up to three, a third of them beyond), so one shared word never
 chains a folder into a single blob. Joining, moving, renaming or `/topic`
 makes a topic explicit, and explicit sessions never move.
 
+Names are unique in a folder. An auto topic whose name would repeat another's
+(the same words, in any order) takes its next most telling word ("Cashfree
+Handover Refund"), else a number; names you gave are kept, and the larger
+topic keeps a shared name.
+
 ## Clicks on the picture (Desktop)
 
 The Desktop draws the field as an image, which takes the pane's width at its
 own aspect and passes no click on. Constellation lays an invisible Client
-over it, inset to the picture's own box, so the two share one geometry on any
-machine and nothing needs tuning. A click on a pill focuses the topic, on a
-satellite or a step opens that session, on an anchor focuses the related
-topic, on ‹ All topics goes back. `pictureClicks: outline` draws the layer's
-edge, its size in cells and the last pointer event, for anyone curious; `off`
-removes the layer. Either way the buttons under the field do everything a
-click on the picture does. `tests/e2e/desktop.mjs` checks all of this over the
-Desktop's own wire, with the layer's module run under the runtime the engine
-serves the Desktop; what only a real Desktop window shows is its own layout of
-the layer over the picture.
+over it, inset to the picture's own box. The Desktop gives a Client the width
+of its box but the height of what it draws, so the layer draws the picture's
+own height: its width in cells, times the field's proportions, times a cell's
+width over its height (7.7 × 19.8 px in the Desktop's code font). It maps the
+pointer by the same measure. The Desktop reports whole cells, so a satellite
+or a step takes the cell its centre lies in, and a pill or a label takes the
+rest of its box. A click on a pill focuses the topic, on a satellite or a step
+opens that session, on an anchor focuses the related topic, on ‹ All topics
+goes back.
+
+`pictureClicks: outline` draws the layer's edge, its size in cells, the cell
+shape it assumes and the last pointer event. The edge should meet the
+picture's bottom; where a different code font puts it above or below, Settings
+› Advanced › **Layer height** moves it, a step at a time. `off` removes the
+layer. Either way the buttons under the field do everything a click on the
+picture does. `tests/e2e/desktop.mjs` checks all of this over the Desktop's
+own wire, with the layer's module run under the runtime the engine serves the
+Desktop and sized as the Desktop sizes it; what only a real Desktop window
+shows is its own layout of the layer over the picture.
 
 ## Known limits
 
@@ -346,6 +388,8 @@ bash tests/e2e/tui.sh                    # the real Claude Code TUI in tmux, thr
 E2E_INSTALL=1 bash tests/e2e/tui.sh      # the same after the one-line install from this checkout, run as installed
 E2E_SKIP_MODEL=1 bash tests/e2e/tui.sh   # the same without the model turn
 node tests/e2e/desktop.mjs               # the Desktop's wire against the real engine, the map's Client clicked (about a minute)
+bash tests/e2e/installers.sh             # install.sh against stand-in claude commands, under sh, dash and bash
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\e2e\installers.ps1   # install.ps1, the same cases (Windows)
 node tests/e2e/shots.mjs                 # this page's Desktop pictures, drawn by the real engine (Playwright)
 node tests/e2e/shots-terminal.mjs        # this page's terminal pictures and clip, from tmux (Playwright, ffmpeg)
 node tests/fixtures/sync.mjs             # after editing a *.jsonl fixture
@@ -368,7 +412,8 @@ list`, `/park`, `/topic`, `/map find`, `/map close`, a real model turn that
 quotes the injected handoff note, and `/clear`), `tests/interact.test.tsx` (the
 help card, Jump back in, my topic, the search clear, Refresh, the band's cap,
 the numbered commands, the session card's rows, the settings groups),
-`tests/review.test.tsx` (the shared store merging, the scan cache under a
+`tests/e2e/installers.sh` and `installers.ps1` (the installers' choice of
+`claude`), `tests/review.test.tsx` (the shared store merging, the scan cache under a
 refusing store, one chain numbering, Undo per entry, the old caches, placed
 panes, the start-time pane across a resume, anchors under the pointer, a focus
 ring on a chip, the chat row's hotkeys) and

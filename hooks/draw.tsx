@@ -204,14 +204,14 @@ export function themeCss(background: MapSettings['fieldBackground']): string {
 
 /**
  * Marks the pane prints as text. A terminal's font may lack some: Windows'
- * console host draws ⚙, ↻, ▸, ▾ and ★ as empty boxes. The terminal gets plain
- * stand-ins from the WGL4 set every console font carries; the other surfaces
- * draw the marks with the app's own fonts.
+ * console host drew ⚙ and ◆ as empty boxes, and ↻, ▸, ▾, ★ and ✓ are outside
+ * the WGL4 set every console font carries. The terminal gets stand-ins from
+ * that set; the other surfaces draw the marks with the app's own fonts.
  */
-export function marks(view: Pick<View, 'surface'>): { gear: string; refresh: string; open: string; shut: string; pin: string } {
+export function marks(view: Pick<View, 'surface'>): { gear: string; refresh: string; open: string; shut: string; pin: string; done: string } {
   return view.surface === 'terminal'
-    ? { gear: '', refresh: '', open: '▼', shut: '►', pin: '*' }
-    : { gear: '⚙ ', refresh: '↻ ', open: '▾', shut: '▸', pin: '★' }
+    ? { gear: '', refresh: '', open: '▼', shut: '►', pin: '*', done: '√' }
+    : { gear: '⚙ ', refresh: '↻ ', open: '▾', shut: '▸', pin: '★', done: '✓' }
 }
 
 /** The field a drawing draws: the map's, or a focused topic's (as wide as the map's, the base height). */
@@ -1217,7 +1217,7 @@ export function drawToast(T: Table, view: View, act: Actions): RenderElement | n
   if (!toast) return null
   return (
     <Box flexDirection="row" gap="sm" alignItems="center" borderStyle="round" borderColor="#5FD3A6" paddingX={1}>
-      <Text color="#5FD3A6">✓</Text>
+      <Text color="#5FD3A6">{marks(view).done}</Text>
       <Text>{toast.text}</Text>
       {toast.hasUndo ? <Button key="toast:undo" label="Undo" hotkey={hk(view, 'z')} onPress={() => act.undo()} /> : null}
       <Button key="toast:dismiss" label="Dismiss" plain onPress={() => act.dismissToast()} />

@@ -11,15 +11,18 @@ the band, the commands, handoff injection, auto notes, the terminal's
 text-mode map Client, and the features added beyond the brief (topic goals,
 rename, recolour, merge, a "since your last look" digest, a status line,
 Draft next prompt, `/map export`, a model-spend counter, letter hotkeys).
-`claude plugin validate --strict`, `claude plugin test` (135 tests) and `tsc`
-pass, and so do the two end-to-end suites against the real engine:
-`tests/e2e/tui.sh` (the terminal, with real mouse events) and
-`tests/e2e/desktop.mjs` (the Desktop's own wire, its map Client clicked). The
+`claude plugin validate --strict`, `claude plugin test` (@@UNIT@@ tests) and `tsc`
+pass, and so do the end-to-end suites against the real engine:
+`tests/e2e/tui.sh` (the terminal, with real mouse events),
+`tests/e2e/desktop.mjs` (the Desktop's own wire, its map Client sized as the
+Desktop sizes it and clicked) and `tests/e2e/installers.sh` (the one-line
+installer's choice of `claude`). The
 generated field was compared with the prototype by eye through the preview
 page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
 
-What is left is the release checklist at the end: one look at a real Desktop
-window, then the release.
+What is left is the release checklist at the end: a second look at a real
+Desktop window on Windows (the first, on 8a99ba1, found what the Windows pass
+below fixes), then the release.
 
 ## Design reference (the visual and interaction spec)
 
@@ -430,6 +433,29 @@ declarations it embeds as a zstd frame), to settle how a Desktop Client works:
   only where Ink has a sub-cell position, and `enter`/`leave` with the last
   position.
 
+## Desktop facts measured on Windows 10 (Claude Desktop 3.6556, engine 2.1.308)
+
+From the run of 8a99ba1 on a Windows 10 machine (1366×768 at 96 DPI), with
+the layer's outline on:
+
+- The Desktop gives a Client the **width of its box but the height of what
+  it draws**. `width="100%" height="100%"` on the Client and an absolute inset
+  box around it do not make it as tall as the picture: a layer that drew six
+  rows covered the top 119 px of a 363 px picture, and every click landed
+  rows below its aim. So the layer draws the picture's height itself.
+- A Desktop cell is 7.7 × 19.8 px (aspect 0.389) in its code font; the
+  picture is `columns × 7.7` px wide, at the field's proportions.
+- Its pointer reports whole cells (`down at 4,4`), never `fine`; `enter`,
+  `move`, `leave`, `down` and `up` all arrive.
+- The terminal panel inside the Desktop app passes no mouse at all; Windows'
+  console host passes clicks but no motion. Its font drew ⚙ and ◆ as boxes;
+  the terminal now keeps to the WGL4 set Windows console fonts carry.
+- The `claude` on PATH can be older than the Desktop's own (2.1.283 against
+  2.1.308 there). The Desktop keeps its Claude Code at
+  `%LOCALAPPDATA%\Claude-Data\<package>\claude-code\<version>\<build>\claude.exe`
+  (the Store app) or `%APPDATA%\Claude\claude-code\<version>\<build>\claude.exe`
+  (the installer app); both share `~/.claude` and its plugins.
+
 ## Done in the cloud session (2026-10-26)
 
 1. `hooks/scan.ts` + `tests/scan.test.ts`: fixtures for a typed prompt, an
@@ -664,6 +690,51 @@ over the Desktop's wire;
 the README's pictures drawn by the real engine (`tests/e2e/shots.mjs`,
 `tests/e2e/shots-terminal.mjs`).
 
+## Done in the cloud session (2026-10-27, the Windows pass)
+
+Asked: fix everything the Windows 10 report on 8a99ba1 found (F1–F9, the
+environment limits, a narrow pane's small text). Fixed, each with a test:
+
+- F1, the layer covered only the picture's top: the layer draws
+  `floor(columns × fieldH / fieldW × cellAspect)` rows and maps the pointer by
+  the same measure; a host that sizes the layer by its box and reports more
+  rows than were drawn is trusted instead. Advanced › **Layer height** (−3…+3,
+  0.02 of aspect a step) corrects a font with other cells; the outline names
+  the cell it assumes and says what to do when its edge misses the bottom.
+- F2, two topics named alike: `uniqueNames` gives the second its next most
+  telling word, else a number, comparing names as sets of words; names the
+  person gave are kept, the larger topic keeps a shared one.
+- F3, anchors overlapped or ran off the field: one slot each, at least 150
+  units, as many as fit, labels cut to their slot; the picture and the layer
+  share `anchorsOf`, rounded once.
+- F4, the hint wrapped into the map: fitted to the width, `wrap: 'truncate'`.
+- F5, a pending keyboard reclaim reopened a closed pane: the reclaim checks
+  `$.ui.panes()` first, and a close cancels it.
+- F6, the focused pill's hit width left out "· you": `focusPillOf` is shared.
+- F7, satellites took presses on a pill's edges: a point inside a drawn box
+  belongs to the box, unless it is within 8 units of a dot, or (a whole-cell
+  pointer) in the very cell a dot's centre lies in.
+- F8, a settings press raced a stale invalidation: the harness draws until
+  the tree changes.
+- F9, EPERM in clean-up on Windows: `claude.exe` runs without a shell, its
+  tree is killed with `taskkill /T /F`, and `rmSync` retries, only warning.
+- The terminal hint promised hover: it promises clicks only. The terminal
+  draws ♦ ◦ ► ▼ * and no gear or refresh sign; the status line says
+  "note saved".
+- A narrow pane's text was 4–5 px: the field narrows with the pane
+  (`fieldWidthFor`, 520…860 units), so a 300 px pane draws 520 units.
+- The installers refused an old `claude` on PATH: they fall back to the
+  Desktop's own, newest first, and `install.ps1` no longer closes the window
+  when piped into iex.
+- The Desktop harness sizes the layer as the Desktop does and clicks every
+  node at five widths, in a 44-column pane, and with a wider font before and
+  after Layer height +2.
+
+Results: @@UNIT@@ unit tests; `tests/e2e/tui.sh` @@TUI@@ checks;
+`tests/e2e/desktop.mjs` @@DESK@@ checks; `tests/e2e/installers.sh` 54 checks
+(`installers.ps1` waits on a Windows run: PowerShell could not be fetched
+into the cloud container).
+
 ## Release checklist
 
 1. `/plugin install constellation --marketplace nrzz/constellation` in any
@@ -671,10 +742,12 @@ the README's pictures drawn by the real engine (`tests/e2e/shots.mjs`,
    sessions. `tests/e2e/tui.sh` with `E2E_INSTALL=1` does the same from a
    checkout, unattended.
 2. On a real Desktop window, look at the layer over the picture once: the
-   wire, the module and every click are checked by `tests/e2e/desktop.mjs`;
-   only the Desktop's own layout of the layer is not. Settings, Advanced,
-   **Clicks on the picture: Outline** draws its edge; the buttons under the
-   field do the same work either way.
+   wire, the module, the Desktop's sizing and every click are checked by
+   `tests/e2e/desktop.mjs`; only the Desktop's own layout of the layer is
+   not. Settings, Advanced, **Clicks on the picture: Outline** draws its
+   edge, which should meet the picture's bottom (else **Layer height**); the
+   buttons under the field do the same work either way. On Windows, also
+   `tests/e2e/installers.ps1`.
 3. Watch the first real folder: large transcripts, the auto topic names, the
    join suggestions; tune the stopword list and the scoring if needed.
 4. Release: tag v0.1.0, confirm the marketplace install on a clean machine.
