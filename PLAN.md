@@ -197,8 +197,11 @@ dashed faint lines between linked topics. Hovering or focusing a topic traces
 it: its sessions and links brighten, everything else dims to ~30%. Search dims
 non-matches and shows match counts on topics.
 Focus mode: clicking a topic hides every other topic and lays its in-range
-sessions out as a numbered chain (pill at 430,92; steps x = n===1 ? 430 :
-120 + i*620/(n-1), y = 262 ± 26 zigzag, arrows between consecutive steps),
+sessions out as a numbered chain (as first specified for an 860-unit field:
+pill at 430,92; steps x = n===1 ? 430 : 120 + i*620/(n-1), y = 262 ± 26
+zigzag, arrows between consecutive steps; today the field is 520…860 units
+wide by `fieldWidthFor`, see "A narrow pane's text" below, and the chain's
+numbers, its bands and the anchors' spacing live in `hooks/layout.ts`),
 ordered by `numbering` (`oldestFirst` default | `newestFirst`), the latest
 session glowing and tagged "latest", and, when this session has joined the
 topic, a dashed accent step "This session · you" at the end (or start,
@@ -231,8 +234,9 @@ a mod in Phase 1; Phase 2's Client `onKey` gets them.)
 ### Interaction phases
 Phase 1 (elements only): the field is one `Svg` (desktop; `source` ≤ 131072
 chars, `alt` required, root `<svg width="860" height="520" viewBox="0 0 860
-520">`) regenerated from state; interactions through Buttons (topic pills,
-numbered steps, chooser) laid out beneath the Svg; hover tracing driven by
+520">` as first specified; now `fieldWidthFor` sets the width, 520…860)
+regenerated from state; interactions through Buttons (topic pills, numbered
+steps, chooser) laid out beneath the Svg; hover tracing driven by
 `ui.focus` (Tab onto a topic button) and `ui.press`; terminal gets the list
 view. Ship fully working before Phase 2, show the pane, compare with the
 prototype and fix differences.

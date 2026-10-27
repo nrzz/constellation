@@ -62,8 +62,8 @@ glowing:
 ![The topic focused: eleven sessions as a numbered two-row chain, labels above and below, the latest glowing](docs/images/desktop-focus.png)
 
 In a narrow pane the field narrows with it, so the same chain stays readable
-at about 340 px (shown here at its real size); each step's line sheds its turn
-count before its age:
+in a picture of about 300 px (a pane 44 cells wide leaves the picture its
+width less 40 px); each step's line sheds its turn count before its age:
 
 <img src="docs/images/desktop-narrow.png" width="395" alt="The same chain in a pane 44 cells wide: shorter labels, each step's age, nothing overlapping">
 
@@ -228,7 +228,9 @@ Enter focuses it. Digits 1–9 pick chain steps or chooser topics. Letters:
 `x` archive, `z` undo, `o` open the map from the band. Escape backs out one
 level (help, an editor, the selection, the focused topic, the settings) and
 keeps the pane, and the keyboard, until nothing is left; then it closes the
-pane. Help lies over an open card and gives it back when it closes. The keys
+pane. The pane's close mark and ctrl+x x do the same as Escape (the platform
+reports all three alike): with something open they back out one level and the
+pane stays. Help lies over an open card and gives it back when it closes. The keys
 fire while the pane or the band has the focus (a click or ctrl+x tab gives
 it); a click on the map never takes the keyboard, so every key works straight
 after one. Escape at an empty prompt backs the pane out too but leaves the
@@ -313,7 +315,8 @@ makes a topic explicit, and explicit sessions never move.
 Names are unique in a folder. An auto topic whose name would repeat another's
 (the same words, in any order) takes its next most telling word ("Cashfree
 Handover Refund"), else a number; names you gave are kept, and the larger
-topic keeps a shared name.
+topic keeps a shared name. A rename to a name another topic has is refused,
+and `/topic` with a topic's name joins that topic.
 
 ## Clicks on the picture (Desktop)
 
@@ -323,14 +326,18 @@ over it, inset to the picture's own box. The Desktop gives a Client the width
 of its box but the height of what it draws, so the layer draws the picture's
 own height: its width in cells, times the field's proportions, times a cell's
 width over its height (7.7 × 19.8 px in the Desktop's code font). It maps the
-pointer by the same measure. The Desktop reports whole cells, so a satellite
-or a step takes the cell its centre lies in, and a pill or a label takes the
-rest of its box. Where two dots share a cell (a dense folder in a narrow
-pane), the one that cell does not pick takes the nearest free cell beside it,
-so every dot can still be clicked; the buttons under the picture pick every
-topic too. A click on a pill focuses the topic, on a satellite or a step
-opens that session, on an anchor focuses the related topic, on ‹ All topics
-goes back.
+pointer by the same measure. The Desktop reports whole cells, and a cell
+goes by its centre: a satellite or a step takes the cell its centre lies in,
+and a pill or a label takes every other cell whose centre is inside its box.
+A cell that straddles a pill's edge beside a dot can go to the dot, so press a
+pill at its middle or its far ends. Where two dots share a cell (a dense
+folder in a narrow pane), the one that cell does not pick takes the nearest
+free cell beside it, so every dot can still be clicked. Below about 60
+columns the cells grow coarse beside a crowded topic's satellites and a press
+can land on a neighbour; the buttons under the picture pick every topic at
+any width. Only the left button picks. A click on a pill focuses the topic, on
+a satellite or a step opens that session, on an anchor focuses the related
+topic, on ‹ All topics goes back.
 
 `pictureClicks: outline` draws the layer's edge, its size in cells, the cell
 shape it assumes and the last pointer event. The edge should meet the
