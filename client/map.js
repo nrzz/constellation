@@ -4,8 +4,8 @@
 //
 // - On the terminal (which draws no Svg) it draws the map in its region of
 //   cells and gives the terminal what the picture cannot: pointer hover
-//   traces a topic, a click picks a topic or a session, dragging a session
-//   onto a topic moves it, and the arrow keys walk the topics or the chain.
+//   traces a topic, a click picks a topic or a session, and dragging a
+//   session onto a topic moves it.
 // - On the Desktop (`hits`), where the Svg is a picture that passes no click
 //   on, it lies over the picture at the same size, draws nothing (or, with
 //   `outline`, its edge and its readings, so the two can be matched up), and
@@ -13,6 +13,12 @@
 //
 // Everything it learns goes back to the hooks module as a post; the hooks
 // answer by handing it fresh props.
+//
+// It takes no keys. A key listener would hold the keyboard after every click
+// on the map (Escape alone gives it back), leaving the pane's hotkeys dead: a
+// click on a step and then `u` would pick up nothing. The pane's own focus
+// ring walks the topic buttons with Tab and the arrows, and traces as it goes,
+// on every surface alike.
 //
 // Props (JSON): { mode: 'map' | 'focus', hint, nodes: [{ id, kind, x, y, w,
 // label, label2, title, color, isMajor, isDim, isSelected, isArchived,
@@ -157,16 +163,13 @@ function describe(e) {
 
 export default function Map(props, surface) {
   const { Box, Text } = surface.elements
-  const state = surface.state || { hover: null, drag: null, cursor: 0, pressed: null, last: '', at: null }
+  const state = surface.state || { hover: null, drag: null, pressed: null, last: '', at: null }
   const nodes = Array.isArray(props.nodes) ? props.nodes : []
   const links = Array.isArray(props.links) ? props.links : []
   const s = scale(surface, props)
   const hits = props.hits === true
-  const topics = nodes.filter(n => n.kind === 'topic')
-  const steps = nodes.filter(n => n.kind === 'step' || n.kind === 'you')
-  const walk = props.mode === 'focus' ? steps : topics
-  latest.set(surface, { nodes, s, props, topics, steps })
-  const current = () => latest.get(surface) || { nodes, s, props, topics, steps }
+  latest.set(surface, { nodes, s, props })
+  const current = () => latest.get(surface) || { nodes, s, props }
   const hitAt = e => {
     const c = current()
     return c.props.hits === true ? nodeAtPoint(c.nodes, { x: c.s.fieldX(e), y: c.s.fieldY(e) }) : nodeAtCell(c.nodes, c.s, e.x, e.y, c.props.mode)
@@ -208,26 +211,6 @@ export default function Map(props, surface) {
         }
       }
     })
-    surface.onKey(e => {
-      const st = surface.state || state
-      const { props, steps, topics } = current()
-      const list = props.mode === 'focus' ? steps : topics
-      if (list.length === 0) return
-      if (e.key === 'left' || e.key === 'up' || e.key === 'right' || e.key === 'down') {
-        const dir = e.key === 'left' || e.key === 'up' ? -1 : 1
-        const cursor = (st.cursor + dir + list.length) % list.length
-        const target = list[cursor]
-        surface.setState({ ...st, cursor })
-        surface.post({ type: 'cursor', id: target.id, kind: target.kind })
-        return
-      }
-      if (e.key === 'return') {
-        const target = list[st.cursor % list.length]
-        if (target) surface.post({ type: 'pick', id: target.id, kind: target.kind })
-        return
-      }
-      if (e.key === 'backspace' || e.key === 'delete') surface.post({ type: 'back' })
-    })
   }
 
   if (hits) {
@@ -259,7 +242,6 @@ export default function Map(props, surface) {
     const anchorIndex = anchors.indexOf(n)
     const rowOffset = anchorIndex >= 0 ? anchorIndex % 2 : 0
     const isHover = state.hover !== null && (n.id === state.hover || n.topicId === state.hover)
-    const isCursor = walk[state.cursor % Math.max(1, walk.length)] && walk[state.cursor % walk.length].id === n.id
     const color = n.isArchived ? DIM : n.color || ACCENT
     const { left, top, text } = placeText(n, s, rowOffset)
     children.push(
@@ -271,7 +253,7 @@ export default function Map(props, surface) {
           Text({
             color,
             dimColor: n.isDim && !isHover ? true : undefined,
-            inverse: n.isSelected || isCursor ? true : undefined,
+            inverse: n.isSelected ? true : undefined,
             weight: n.kind === 'topic' && n.isMajor ? 'semibold' : undefined,
             children: text,
           }),

@@ -10,9 +10,9 @@ import type { EngineInterface, PluginOptions, Register, ResolveInput, Timer } fr
 
 import {
   actionsFor,
-  backedOut,
   describeTopics,
   ensureSession,
+  escape,
   INLINE_TEXT,
   exportMarkdown,
   inlineMapText,
@@ -205,7 +205,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const view: View = { ...(await viewOf($, e.surface)), placement: e.props.placement }
     if (e.surface === 'terminal') {
-      // No Svg here: the text-mode map Client stands in for the field, with pointer and arrow keys.
+      // No Svg here: the text-mode map Client stands in for the field and takes the pointer; the pane's ring takes the keys.
       const { Client } = $.ui.resolve({ ...e, surface: 'terminal' as const })
       // About half the window the pane gets: a docked pane has forty rows or more, one above the prompt may have fourteen.
       const rows = Math.max(8, Math.min(26, Math.floor((e.props.scroll.bodyRows || 40) * 0.5)))
@@ -267,10 +267,8 @@ export const register: Register = (on, options) => {
   on('ui.close', { id: PANE }, async ($, e, next) => {
     if (e.origin.kind !== 'person') return next(e)
     await ensureSession($)
-    const ui = await read($, uiAtom)
-    const backed = backedOut(ui)
-    if (!backed) return next(e)
-    await update($, uiAtom, () => backed)
+    // One level back, keeping the pane and the keyboard; with nothing left to back out of, the pane closes.
+    if (!(await escape($))) return next(e)
     return { value: undefined }
   })
 }

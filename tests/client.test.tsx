@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry, On } from 'claude-code'
 
-import { nodeAtCell, placeText, textOf } from '../client/map.js'
+import MapModule, { nodeAtCell, placeText, textOf } from '../client/map.js'
 import { transcripts } from './fixtures/transcripts'
 import { pathOf } from './helpers'
 
@@ -118,25 +118,29 @@ test('pointer hover traces a topic; a click on a session focuses its chain with 
   await ui.unmount()
 })
 
-test('arrow keys walk the topics and Enter focuses; in a chain they walk the steps', async ($, on) => {
-  stubEngine(on)
-  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
-  const ui = await $.ui.mount(PANE)
-  await ui.resize({ columns: COLUMNS, rows: ROWS, in: 'map' })
-  const topics = (await nodesOf(ui)).filter(n => n.kind === 'topic')
-  await ui.key({ key: 'right', in: 'map' })
-  const second = topics[1 % topics.length]
-  expect(await ui.find({ type: 'Button', key: 'tc:focus' })).toBeDefined()
-  await ui.key({ key: 'return', in: 'map' })
-  expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
-  if (second?.id === CHECKOUT) {
-    await ui.key({ key: 'right', in: 'map' })
-    expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
+test('the map takes the pointer and never the keys: with no key listener a click cannot hold the keyboard, so every pane hotkey keeps working', async () => {
+  const calls: string[] = []
+  const el = (type: string) => (props: Record<string, unknown>) => ({ type, props })
+  const surface = {
+    elements: { Box: el('Box'), Text: el('Text') },
+    state: undefined,
+    columns: 100,
+    rows: 24,
+    setState: () => void calls.push('setState'),
+    every: () => () => undefined,
+    post: () => undefined,
+    onPointer: () => (calls.push('onPointer'), () => undefined),
+    onKey: () => (calls.push('onKey'), () => undefined),
   }
-  await ui.key({ key: 'backspace', in: 'map' })
-  await ui.key({ key: 'backspace', in: 'map' })
-  expect(await ui.find({ type: 'Button', key: 'back' })).toBeUndefined()
-  await ui.unmount()
+  for (const props of [
+    { mode: 'map', hint: '', nodes: [], links: [], legend: '', fieldW: 860, fieldH: 520 },
+    { mode: 'focus', hint: '', nodes: [], links: [], legend: '', fieldW: 860, fieldH: 520, hits: true },
+  ]) {
+    calls.length = 0
+    MapModule(props, surface)
+    expect(calls).toContain('onPointer')
+    expect(calls).not.toContain('onKey')
+  }
 })
 
 test('dragging a session onto another topic moves it, with Undo', async ($, on) => {
@@ -201,6 +205,8 @@ test('in a chain a click on a step’s label, past its number, opens that sessio
   await ui.pointer({ type: 'up', x: col(step.x) + 4, y: row(step.y), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Checkout total rounding/ })).toBeDefined()
+  // The card's own hotkey is there for the next key: the click on the map took none.
+  expect((await ui.find({ type: 'Button', key: 'sc:pickup' }))?.props.hotkey).toBe('u')
   // The back pill draws its label once, not a chevron and then a label that starts with one.
   expect(await ui.find({ in: 'map', type: 'Text', text: /^‹ All topics$/ })).toBeDefined()
   expect(await ui.find({ in: 'map', type: 'Text', text: /^‹ ‹/ })).toBeUndefined()

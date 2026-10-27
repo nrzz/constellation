@@ -153,9 +153,23 @@ export function hintOf(view: View): string {
   }
   const traced = ui.hover ? model.topicById[ui.hover] : undefined
   if (traced) return `${traced.name} · ${traced.sessions.length} session${traced.sessions.length === 1 ? '' : 's'} · Enter to focus`
-  // The classic terminal renderer seats the pane inline and reports no mouse: Tab and Enter do the picking there.
-  if (view.placement === 'inline') return 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen'
-  return 'Hover or focus a topic to trace it · Enter or click to focus'
+  return pointerHint(view)
+}
+
+/**
+ * The resting hint says how picking works on this surface. The picture takes
+ * clicks on the terminal's docked map and on the Desktop with its pointer
+ * layer on. The classic terminal renderer seats the pane inline and reports
+ * no mouse. VS Code, and the Desktop with the layer off, draw a picture that
+ * takes no click: the topic buttons under it pick. Mobile has no keyboard.
+ */
+export function pointerHint(view: Pick<View, 'surface' | 'placement' | 'settings'>): string {
+  if (view.surface === 'terminal') {
+    return view.placement === 'inline' ? 'Tab to a topic · Enter focuses · the mouse works in /tui fullscreen' : 'Hover or focus a topic to trace it · Enter or click to focus'
+  }
+  if (view.surface === 'mobile') return 'Tap a topic under the map to focus it'
+  if (view.surface === 'desktop' && view.settings.pictureClicks !== 'off') return 'Hover or focus a topic to trace it · Enter or click to focus'
+  return 'Tab onto a topic to trace it · Enter or its button under the map focuses'
 }
 
 type SvgOptions = { withTooltips?: boolean; maxSessions?: number }
@@ -693,7 +707,7 @@ export const HELP_KEYS: [string, string][] = [
 ]
 
 const HELP_NOTE =
-  'Hover or Tab onto a topic to trace it. In focus the numbers follow time order and the glowing step is the latest. Select a session, then Move to topic, to move it. The terminal map takes clicks, drags and (after a click) the arrow keys in the fullscreen renderer (/tui fullscreen, the default after the first start; CLAUDE_CODE_DISABLE_MOUSE=1 turns the mouse off); the classic inline pane has no mouse, so Tab and Enter do the same work there.'
+  'Hover or Tab onto a topic to trace it. In focus the numbers follow time order and the glowing step is the latest. Select a session, then Move to topic, to move it. The terminal map takes clicks and drags in the fullscreen renderer (/tui fullscreen, the default after the first start; CLAUDE_CODE_DISABLE_MOUSE=1 turns the mouse off); the classic inline pane has no mouse, so Tab and Enter do the same work there. A click never takes the keys: every hotkey still works after one.'
 
 /** `/map help`: the help card's content as text. */
 export function helpText(): string {

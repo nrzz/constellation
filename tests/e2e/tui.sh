@@ -11,13 +11,13 @@
 #  1. The fullscreen renderer (the engine's default after its first start; `/tui fullscreen`) docks the pane
 #     beside the transcript and reports the mouse. Real SGR mouse events hover, click and walk the text map;
 #     then the commands and the handoff loop (band join, /pickup, /park, the model quoting the note, /clear).
-#  2. The drag, on its own clean fixture so its moves cannot disturb pass 1's counts: a satellite dragged onto
-#     Unsorted moves there and stays (the clustering never takes it back), and dragged back it returns.
+#  2. The drag, on its own clean fixture so its moves cannot disturb pass 1's counts: a drop on nothing moves
+#     nothing; a satellite dragged onto Unsorted moves there and stays, through a rescan; Undo, by mouse, puts it back.
 #  3. The classic renderer (`/tui default`), which seats the pane above the prompt and reports no mouse: the
-#     hint says so, a click does nothing, and the hotkeys still work.
+#     hint says so, a click does nothing, Tab and Enter pick a topic, and the hotkeys work.
 # Isolated from your own data: each pass has its own CLAUDE_CONFIG_DIR (your credentials file is copied in so
 # the engine is signed in) seeded with the three fixture transcripts.
-# Needs tmux and `claude` on PATH. Answers the engine's first-run dialogs itself. Prints PASS/FAIL per check
+# Needs tmux, python3 and `claude` on PATH. Answers the engine's first-run dialogs itself. Prints PASS/FAIL per check
 # and exits 1 on any failure; the tmux session is left running on failure for a look (`tmux attach -t e2e`),
 # and killed on success.
 set -u
@@ -103,13 +103,27 @@ if read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"; then
     click $((SC+5)) "$SR"
     expect_text right "\[1\] Checkout total rounding" "a click on a step's label, past its number, opens that session"
     expect_text right "Pick up here" "…with its card"
-    keys BSpace; sleep 1
-    expect_absent right "Pick up here" "Backspace (the map holds the keys after a click) closes the card"
-    keys Right; keys Return; sleep 1.5
-    expect_text right "\[2\] Fix flaky cart wait" "the arrow keys walk the steps and Enter opens the one under the cursor"
-    keys BSpace; sleep 1
+    # The map takes no keys, so the pane's hotkeys work straight after a click on it.
+    keys h
+    expect_text right "Close help" "a hotkey right after a click on the map works (h opens the help)"
+    keys h
+    expect_absent right "Close help" "…and h again closes it"
+    keys Escape
+    expect_absent right "Pick up here" "Esc backs one level: the card closes"
+    expect_text right "‹ All topics" "…and the chain stays"
+    keys h
+    expect_text right "Close help" "the pane keeps the keyboard after Esc: h still opens the help"
+    keys Escape
+    expect_absent right "Close help" "…and Esc closes it"
+    expect_text right "‹ All topics" "…leaving the chain"
   else
     echo "FAIL: the step label is not on the screen"; FAILED=$((FAILED+1)); right | tail -30
+  fi
+  if read -r SR SC <<<"$(locate '2 Fix flaky' 1 60)"; then
+    click $((SC+4)) "$SR"
+    expect_text right "\[2\] Fix flaky cart wait" "a click on the other step opens it"
+  else
+    echo "FAIL: the second step is not on the screen"; FAILED=$((FAILED+1)); right | tail -30
   fi
   if read -r BR BC <<<"$(locate '‹ All topics' 1 60)"; then
     click $((BC+3)) "$BR"
@@ -121,16 +135,26 @@ if read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"; then
   if read -r DR DC <<<"$(dot_near "$TR" "$TC")"; then
     click "$DC" "$DR"
     expect_text right "Pick up here" "a click on a session's dot opens its card in the chain"
-    keys BSpace; keys BSpace; sleep 1
-    expect_text right "JUMP BACK IN" "Backspace twice: the card, then the chain"
+    keys Escape; keys Escape
+    expect_text right "JUMP BACK IN" "Esc twice: the card, then the chain"
+    expect_text right "CONSTELLATION" "…and the pane stays open with nothing more to back out of yet"
   else
     echo "FAIL: no session dot near the topic"; FAILED=$((FAILED+1)); right | tail -30
+  fi
+  # The pane's own buttons take the mouse too.
+  if read -r HR HC <<<"$(locate '[ Help ]' 1 12)"; then
+    click $((HC+3)) "$HR"
+    expect_text right "Close help" "a mouse click on the header's Help button opens the help"
+    read -r HR HC <<<"$(locate 'Close help' 1 12)"; click $((HC+3)) "$HR"
+    expect_absent right "Close help" "…and a click on Close help closes it"
+  else
+    echo "FAIL: the Help button is not on the screen"; FAILED=$((FAILED+1)); right | tail -30
   fi
 else
   echo "FAIL: the topic is not on the screen"; FAILED=$((FAILED+1)); right | tail -30
 fi
 
-# /map leaves the pane focused: its letters are hotkeys.
+# The hotkeys from the keyboard alone.
 keys h
 expect_text whole "Close help" "h opens the help card (the header's button flips)"
 keys Escape
@@ -187,16 +211,29 @@ type_line "/map" 6
 expect_text right "○ Checkout Cart 2" "the clean fixture: the topic has two sessions"
 expect_text right "○ Unsorted 1" "…and Unsorted one"
 if read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)" && read -r DR DC <<<"$(dot_near "$TR" "$TC")" && read -r UR UC <<<"$(locate '○ Unsorted' 1 60)"; then
+  # A drop on nothing changes nothing.
+  drag "$DC" "$DR" $((DC-4)) $((DR+6))
+  expect_absent right "Moved" "a satellite dropped on empty space moves nothing"
+  expect_text right "○ Checkout Cart 2" "…and the topic keeps both sessions"
+  read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"; read -r DR DC <<<"$(dot_near "$TR" "$TC")"; read -r UR UC <<<"$(locate '○ Unsorted' 1 60)"
   drag "$DC" "$DR" $((UC+3)) "$UR"
   expect_text right "to Unsorted" "dragging a satellite onto Unsorted moves it"
   expect_text right "○ Unsorted 2" "…and Unsorted keeps it (the clustering never takes it back)"
   expect_text right "○ Checkout Cart 1" "…so the topic it left has one session"
-  # Drag the moved satellite back; whichever Unsorted dot is grabbed, the counts return to the clean fixture.
-  read -r UR UC <<<"$(locate '○ Unsorted' 1 60)"; read -r BR BC <<<"$(dot_near "$UR" "$UC")"; read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"
-  drag "$BC" "$BR" $((TC+3)) "$TR"
-  expect_text right "to Checkout Cart" "dragging a satellite back onto the topic moves it again"
-  expect_text right "○ Checkout Cart 2" "…and the topic has two sessions once more"
-  expect_text right "○ Unsorted 1" "…and Unsorted is back to one"
+  if read -r FR FC <<<"$(locate '↻ refresh' 1 12)"; then
+    click $((FC+3)) "$FR"; sleep 2
+    expect_text right "○ Unsorted 2" "after a rescan (↻ refresh, by mouse) the moved session is still in Unsorted"
+  else
+    echo "FAIL: the refresh button is not on the screen"; FAILED=$((FAILED+1)); right | tail -30
+  fi
+  if read -r ZR ZC <<<"$(locate '[ Undo ]' 1 60)"; then
+    click $((ZC+3)) "$ZR"
+    expect_text right "Undone" "a mouse click on Undo undoes the move"
+    expect_text right "○ Checkout Cart 2" "…and the topic has both sessions once more"
+    expect_text right "○ Unsorted 1" "…and Unsorted is back to one"
+  else
+    echo "FAIL: no Undo button after the move"; FAILED=$((FAILED+1)); right | tail -30
+  fi
 else
   echo "FAIL: could not find the topic, a dot and Unsorted for the drag"; FAILED=$((FAILED+1)); right | tail -30
 fi
@@ -213,6 +250,17 @@ if read -r TR TC <<<"$(locate '○ Checkout Cart' 1 60)"; then
   click $((TC+5)) "$TR"
   expect_absent whole "‹ All topics" "a click does nothing there, as the hint says"
 fi
+# The keyboard path the hint names: Tab walks the pane's ring until it rests on a topic (the trace names it), Enter focuses.
+traced=""
+for _ in $(seq 1 30); do
+  tmux send-keys -t "$S" Tab; sleep 0.6
+  if whole | grep -q "Checkout Cart · 2 sessions · Enter to focus"; then traced=1; break; fi
+done
+expect_eq "${traced:-0}" "1" "Tab reaches a topic and the trace names it"
+keys Enter; sleep 1
+expect_text whole "‹ All topics" "Enter on it focuses the topic"
+keys Escape; sleep 1
+expect_absent whole "‹ All topics" "Esc backs out of the topic"
 keys h
 expect_text whole "Close help" "the hotkeys work inline: h opens the help"
 keys Escape; keys Escape; sleep 2

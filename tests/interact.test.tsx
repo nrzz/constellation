@@ -4,7 +4,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import { backedOut } from '../hooks/actions'
-import { INITIAL_UI } from '../hooks/state'
+import { pointerHint } from '../hooks/draw'
+import { DEFAULT_SETTINGS, INITIAL_UI } from '../hooks/state'
 import { CHECKOUT, CWD, IDS, NOW, bandOn, paneOn, run, stubEngine } from './helpers'
 
 const ROW = {
@@ -258,4 +259,59 @@ test('the terminal map’s hint: hover and click on a docked pane; Tab, Enter an
   const inline = await $.ui.mount({ ...base, props: { ...base.props, placement: 'inline' } })
   expect(await hintOf(inline)).toBe('Tab to a topic · Enter focuses · the mouse works in /tui fullscreen')
   await inline.unmount()
+  // A Desktop pane seated inline keeps the pointer hint: its picture takes the clicks.
+  const desk = paneOn('desktop')
+  const deskInline = await $.ui.mount({ ...desk, props: { ...desk.props, placement: 'inline' } })
+  expect(await hintOf(deskInline)).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  await deskInline.unmount()
+})
+
+test('the resting hint on each surface says how picking works there, in the picture and the Client alike', async () => {
+  const settings = { ...DEFAULT_SETTINGS }
+  expect(pointerHint({ surface: 'terminal', placement: 'dock', settings })).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  expect(pointerHint({ surface: 'terminal', placement: 'inline', settings })).toBe('Tab to a topic · Enter focuses · the mouse works in /tui fullscreen')
+  expect(pointerHint({ surface: 'desktop', placement: 'dock', settings })).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  expect(pointerHint({ surface: 'desktop', placement: 'dock', settings: { ...settings, pictureClicks: 'outline' } })).toBe('Hover or focus a topic to trace it · Enter or click to focus')
+  // No pointer layer: the picture takes no click, the buttons under it do.
+  expect(pointerHint({ surface: 'desktop', placement: 'dock', settings: { ...settings, pictureClicks: 'off' } })).toBe('Tab onto a topic to trace it · Enter or its button under the map focuses')
+  expect(pointerHint({ surface: 'vscode', placement: 'dock', settings })).toBe('Tab onto a topic to trace it · Enter or its button under the map focuses')
+  expect(pointerHint({ surface: 'mobile', placement: 'dock', settings })).toBe('Tap a topic under the map to focus it')
+})
+
+test('help lies over an open card: closing it, by h or Esc, gives the card back', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(paneOn('terminal'))
+  await ui.press({ key: `t:${CHECKOUT}` })
+  await ui.press({ key: `s:${IDS.rounding}` })
+  expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
+  await ui.press({ key: 'help' })
+  expect(await ui.find({ type: 'Button', key: 'help:done' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeUndefined()
+  await ui.press({ key: 'help' })
+  expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
+  // Esc closes the help first, and the card is still there under it.
+  await ui.press({ key: 'help' })
+  expect(backedOut({ ...INITIAL_UI, showHelp: true, focusTopic: CHECKOUT, selected: IDS.rounding })).toEqual({ ...INITIAL_UI, showHelp: false, focusTopic: CHECKOUT, selected: IDS.rounding })
+  await ui.press({ key: 'help:done' })
+  expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a refresh leaves an Undo on offer, and says its piece in the engine’s toast', async ($, on) => {
+  const stubs = stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(paneOn('terminal'))
+  await ui.press({ key: `t:${CHECKOUT}` })
+  await ui.press({ key: `s:${IDS.rounding}` })
+  await ui.press({ key: 'sc:archive' })
+  expect(await ui.find({ type: 'Button', key: 'toast:undo' })).toBeDefined()
+  await ui.press({ key: 'refresh' })
+  expect(await ui.find({ type: 'Button', key: 'toast:undo' })).toBeDefined()
+  expect(stubs.toasts.some(t => t.startsWith('Refreshed:'))).toBe(true)
+  // With no Undo on offer, the refresh's line is the pane's own.
+  await ui.press({ key: 'toast:dismiss' })
+  await ui.press({ key: 'refresh' })
+  expect(await ui.find({ type: 'Text', text: /^Refreshed:/ })).toBeDefined()
+  await ui.unmount()
 })

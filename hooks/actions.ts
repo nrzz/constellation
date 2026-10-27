@@ -912,7 +912,10 @@ export async function jumpTo($: EngineInterface, sessionId: string): Promise<voi
 export async function refreshMap($: EngineInterface): Promise<void> {
   await rescan($)
   const snap = await snapshot($)
-  await toast($, `Refreshed: ${statsOf(snap.model)}.`, { quiet: true })
+  const text = `Refreshed: ${statsOf(snap.model)}.`
+  // A refresh is nothing to undo: it leaves an Undo on offer where it is and says its piece in the engine's toast.
+  if (snap.ui.toast?.hasUndo) $.ui.toast(text)
+  else await toast($, text, { quiet: true })
 }
 
 /** Esc, the back button, the close mark: one level out, or nothing left to back out of. */
@@ -1170,7 +1173,7 @@ export async function exportMarkdown($: EngineInterface, rawPath: string): Promi
   }
 }
 
-/** What the terminal's text-mode map posts (client/map.js): hover, cursor, pick, drop, back. */
+/** What the map's Client posts (client/map.js, the terminal's text map and the Desktop's pointer layer): hover, pick, drop. */
 export async function onClientMessage($: EngineInterface, data: unknown): Promise<void> {
   if (!isRecord(data) || typeof data.type !== 'string') return
   const id = typeof data.id === 'string' ? data.id : null
@@ -1178,11 +1181,6 @@ export async function onClientMessage($: EngineInterface, data: unknown): Promis
   const snap = await snapshot($)
   if (data.type === 'hover') {
     await patchUi($, { hover: id && snap.model.topicById[id] ? id : null })
-    return
-  }
-  if (data.type === 'cursor') {
-    if (snap.ui.focusTopic) await patchUi($, { selected: id && snap.model.byId[id] ? id : null })
-    else await patchUi($, { hover: id && snap.model.topicById[id] ? id : null })
     return
   }
   if (data.type === 'pick') {
@@ -1208,15 +1206,38 @@ export async function onClientMessage($: EngineInterface, data: unknown): Promis
   if (data.type === 'drop') {
     const targetId = typeof data.targetId === 'string' ? data.targetId : null
     if (id && targetId) await moveSession($, id, targetId)
-    return
   }
-  if (data.type === 'back') await back($)
+}
+
+/** The pane, opened or raised, asking for the keyboard; Escape hands the keyboard back and raises the close (see `escape`). */
+function showPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: string }> {
+  return $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
+}
+
+/**
+ * The person's close: Escape, the close mark, ctrl+x x. With something to back
+ * out of (help, an editor, a card, a focused topic, the settings) it backs out
+ * one level and keeps the pane; with nothing left, it lets the pane close.
+ *
+ * Escape hands the keyboard back to the prompt as it raises the close, so a
+ * pane that stays takes it again: otherwise the next hotkey (u, h, j) would
+ * type into the composer. The engine grants that only over an empty composer,
+ * so nothing typed is ever taken over. Returns whether it backed out.
+ */
+export async function escape($: EngineInterface): Promise<boolean> {
+  if (!(await back($))) return false
+  try {
+    await showPane($)
+  } catch (error) {
+    $.ui.log(`constellation: keys not taken back: ${String(error)}`, { to: 'debug' })
+  }
+  return true
 }
 
 /** Opens the pane (focused, Escape closes it) on the map or the focused chain, never on a card left open (unless the settings are asked for); rescans; writes the "since your last look" digest. */
 export async function openMapPane($: EngineInterface, options: { settings?: boolean } = {}): Promise<{ isPlaced: boolean; reason?: string }> {
   await patchUi($, { showSettings: options.settings === true, showHelp: false, editing: null, messageMode: false, moveMode: false, mergeFrom: null, ...(options.settings ? { selected: null } : {}) })
-  const placed = await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
+  const placed = await showPane($)
   await rescan($)
   // The "last look" moves only when a look was had.
   if (placed.isPlaced) await openDigest($)
@@ -1232,7 +1253,8 @@ export function actionsFor($: EngineInterface): Actions {
     setQuery: q => void patchUi($, { query: q }),
     setRange: days => void setSetting($, 'rangeDays', days),
     toggleSettings: () => void update($, uiAtom, u => ({ ...u, showSettings: !u.showSettings, showHelp: false, selected: null, editing: null })),
-    toggleHelp: () => void update($, uiAtom, u => ({ ...u, showHelp: !u.showHelp, showSettings: false, selected: null, editing: null, messageMode: false })),
+    // Help lies over whatever card is open, as Esc treats it: closing it gives the card back.
+    toggleHelp: () => void update($, uiAtom, u => ({ ...u, showHelp: !u.showHelp, showSettings: false })),
     toggleAdvanced: () => void update($, uiAtom, u => ({ ...u, showAdvanced: !u.showAdvanced })),
     jumpTo: sessionId => void jumpTo($, sessionId),
     myTopic: () => void focusMine($),
