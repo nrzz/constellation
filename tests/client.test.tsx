@@ -2,6 +2,14 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry, On } from 'claude-code'
 
 import MapModule, { fitText, layerFor, layoutText, nodeAtCell, nodeAtPoint, placeText, scaleFor, textOf } from '../client/map.js'
+import { placementOf } from '../hooks/actions'
+import { EMPTY_STORE, buildModel } from '../hooks/cluster'
+import { fieldOf, svgOf } from '../hooks/draw'
+import type { View } from '../hooks/draw'
+import { fieldWidthFor } from '../hooks/layout'
+import { layerAspect } from '../hooks/register'
+import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE } from '../hooks/state'
+import type { SessionSummary } from '../types'
 import { transcripts } from './fixtures/transcripts'
 import { pathOf } from './helpers'
 
@@ -473,4 +481,205 @@ test('in a narrow terminal pane the text map’s hint is cut to its width on row
   expect(text?.children.endsWith('…')).toBe(true)
   expect(text?.wrap).toBe('truncate')
   expect(fitText(hint, 100)).toBe(hint)
+})
+
+/** A session of a made-up folder, last active `hours` before NOW. */
+function sessionAt(id: string, hours: number, files: string[] = []): SessionSummary {
+  const lastAt = NOW - hours * 3600_000
+  return { id, cwd: CWD, slug: 'x', branch: 'main', firstPrompt: id, title: `Session ${id}, titled at some length`, startedAt: lastAt - 3600_000, lastAt, turns: 3, filesTouched: files, lastAssistantText: '', size: 1, mtimeMs: lastAt }
+}
+
+/** A folder of named topics, the i-th holding counts[i] sessions; one or two old sessions make a minor topic (a dot), the rest are pills. */
+function countsFolder(counts: number[]) {
+  const sessions: SessionSummary[] = []
+  const store = { ...EMPTY_STORE, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string> }
+  counts.forEach((n, i) => {
+    store.topics[`topic:m${i}`] = { name: `Map topic ${i} named at some length`, createdAt: i }
+    for (let k = 0; k < n; k += 1) {
+      const id = `m${i}-${k}`
+      sessions.push(sessionAt(id, n < 3 ? 240 + i * 10 + k : 1 + i + k))
+      store.assign[id] = `topic:m${i}`
+    }
+  })
+  return buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
+}
+
+/** A hub topic that shares a file with each of `related` others, its chain `steps` long. */
+function hubFolder(related: number, steps: number) {
+  const sessions: SessionSummary[] = []
+  const store = { ...EMPTY_STORE, topics: { 'topic:hub': { name: 'Hub topic', createdAt: 0 } } as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string> }
+  const shared = (i: number) => `src/shared/a-rather-long-module-name-${i}.ts`
+  for (let k = 0; k < steps; k += 1) {
+    sessions.push(sessionAt(`hub-${k}`, steps - k, k === 0 ? Array.from({ length: related }, (_, i) => shared(i)) : []))
+    store.assign[`hub-${k}`] = 'topic:hub'
+  }
+  for (let i = 0; i < related; i += 1) {
+    store.topics[`topic:r${i}`] = { name: `Related topic number ${i} with a long name`, createdAt: i + 1 }
+    sessions.push(sessionAt(`r${i}-1`, 30 + i, [shared(i)]))
+    store.assign[`r${i}-1`] = `topic:r${i}`
+  }
+  return buildModel(sessions, store, DEFAULT_SETTINGS, NOW, 'me')
+}
+
+/** A Desktop view of `model` laid out for a pane `columns` wide (undefined: the full 860), this session joined to `meTopic`. */
+function deskView(model: ReturnType<typeof buildModel>, columns: number | undefined, opts: { focus?: string; meTopic?: string } = {}): View {
+  const placement = placementOf(model, opts.meTopic ?? null, fieldWidthFor(columns))
+  return { model, placed: placement.placed, field: placement.size, ui: { ...INITIAL_UI, ...(opts.focus ? { focusTopic: opts.focus } : {}) }, me: { ...INITIAL_ME, sessionId: 'me', ...(opts.meTopic ? { topicId: opts.meTopic } : {}) }, settings: DEFAULT_SETTINGS, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
+}
+
+/**
+ * Where the picture draws each thing a press can pick against where the pointer layer holds it: every pill, dot,
+ * satellite, anchor, back pill and step circle within 0.51 of its `fieldOf` node, and as many of each.
+ */
+function parity(label: string, view: View): string[] {
+  const num = (s: string | undefined) => Number(s)
+  const svg = svgOf(view)
+  const nodes = fieldOf(view).nodes
+  const bad: string[] = []
+  const near = (a: number, b: number, what: string) => {
+    if (!(Math.abs(a - b) <= 0.51)) bad.push(`${label}: ${what} drawn ${a} vs layer ${b}`)
+  }
+  const same = (drawn: number, held: number, what: string) => {
+    if (drawn !== held) bad.push(`${label}: ${drawn} ${what} drawn vs ${held} in the layer`)
+  }
+  if (!view.ui.focusTopic) {
+    const pills = [...svg.matchAll(/<rect class="pill hit" x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="38"/g)].map(m => ({ cx: num(m[1]) + num(m[3]) / 2, cy: num(m[2]) + 19, w: num(m[3]) }))
+    const major = nodes.filter(n => n.kind === 'topic' && n.isMajor)
+    same(pills.length, major.length, 'pills')
+    for (const n of major) {
+      const d = pills.find(p => Math.abs(p.cx - n.x) <= 0.51 && Math.abs(p.cy - n.y) <= 0.51)
+      if (!d) bad.push(`${label}: no pill drawn at ${n.id}`)
+      else near(d.w, n.w ?? 0, `pill ${n.id} width`)
+    }
+    const dots = [...svg.matchAll(/<circle class="hit(?: ld)?" cx="([\d.-]+)" cy="([\d.-]+)" r="5.5"/g)].map(m => ({ x: num(m[1]), y: num(m[2]) }))
+    const minor = nodes.filter(n => n.kind === 'topic' && !n.isMajor)
+    same(dots.length, minor.length, 'dots')
+    for (const n of minor) if (!dots.some(p => Math.abs(p.x - n.x) <= 0.51 && Math.abs(p.y - n.y) <= 0.51)) bad.push(`${label}: no dot drawn at ${n.id}`)
+    const sats = [...svg.matchAll(/<circle class="sat" cx="([\d.-]+)" cy="([\d.-]+)"/g)].map(m => ({ x: num(m[1]), y: num(m[2]) }))
+    const held = nodes.filter(n => n.kind === 'session')
+    same(sats.length, held.length, 'satellites')
+    for (const n of held) if (!sats.some(p => Math.abs(p.x - n.x) <= 0.51 && Math.abs(p.y - n.y) <= 0.51)) bad.push(`${label}: no satellite drawn at ${n.id}`)
+  } else {
+    const fp = /<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="38" rx="19" style="fill:var\(--pill2\)"/.exec(svg)
+    const fn = nodes.find(n => n.kind === 'topic' && n.isMajor)
+    if (!fp || !fn) bad.push(`${label}: no focus pill`)
+    else {
+      near(num(fp[1]) + num(fp[3]) / 2, fn.x, 'focus pill centre x')
+      near(num(fp[2]) + 19, fn.y, 'focus pill centre y')
+      near(num(fp[3]), fn.w ?? 0, 'focus pill width')
+    }
+    const back = /<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="30" rx="15" style="fill:var\(--glass\);stroke:var\(--x\)"\/><text[^>]*>‹ All topics/.exec(svg)
+    const bn = nodes.find(n => n.kind === 'back')
+    if (!back || !bn) bad.push(`${label}: no back pill`)
+    else {
+      near(num(back[1]) + num(back[3]) / 2, bn.x, 'back pill centre x')
+      near(num(back[2]) + 15, bn.y, 'back pill centre y')
+      near(num(back[3]), bn.w ?? 0, 'back pill width')
+    }
+    const circles = [...svg.matchAll(/<circle(?: class="ring")? cx="([\d.-]+)" cy="([\d.-]+)" r="16" style="fill:/g)].map(m => ({ x: num(m[1]), y: num(m[2]) }))
+    const steps = nodes.filter(n => n.kind === 'step' || n.kind === 'you')
+    same(circles.length, steps.length, 'step circles')
+    for (const n of steps) if (!circles.some(p => Math.abs(p.x - n.x) <= 0.51 && Math.abs(p.y - n.y) <= 0.51)) bad.push(`${label}: no circle drawn at step ${n.id}`)
+    const anchors = [...svg.matchAll(/<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="32" rx="16" style="fill:var\(--glass\)"/g)].map(m => ({ cx: num(m[1]) + num(m[3]) / 2, cy: num(m[2]) + 16, w: num(m[3]) }))
+    const held = nodes.filter(n => n.isAnchor)
+    same(anchors.length, held.length, 'anchors')
+    for (const n of held) {
+      const d = anchors.find(p => Math.abs(p.cx - n.x) <= 0.51 && Math.abs(p.cy - n.y) <= 0.51)
+      if (!d) bad.push(`${label}: no anchor drawn at ${n.id}`)
+      else near(d.w, n.w ?? 0, `anchor ${n.id} width`)
+    }
+  }
+  return bad
+}
+
+const PANE_WIDTHS = [undefined, 39, 44, 60, 83, 100, 160] as const
+
+test('the pointer layer holds every pill, dot and satellite where the map draws it, at every pane width, joined or not', () => {
+  const kinds = new Set<string>()
+  const bad: string[] = []
+  for (const counts of [[5, 1, 3], [6, 2, 4, 1, 3, 1, 7, 2, 3], [3, 1, 2, 4, 1, 5, 1, 2, 6, 1, 3, 2, 1, 4, 2, 1]]) {
+    const model = countsFolder(counts)
+    for (const columns of PANE_WIDTHS) {
+      for (const meTopic of [undefined, 'topic:m0', 'topic:m1']) {
+        const view = deskView(model, columns, { meTopic })
+        for (const n of fieldOf(view).nodes) kinds.add(n.kind === 'topic' ? (n.isMajor ? 'pill' : 'dot') : n.kind)
+        bad.push(...parity(`${counts.length} topics at ${columns ?? 'full'}${meTopic ? `, you in ${meTopic}` : ''}`, view))
+      }
+    }
+  }
+  expect([...kinds].sort()).toEqual(['dot', 'pill', 'session'])
+  expect(bad).toEqual([])
+})
+
+test('the pointer layer holds the focus pill, the back pill, every step and every related anchor where the chain draws them, at every pane width', () => {
+  const kinds = new Set<string>()
+  const bad: string[] = []
+  const views: [string, View][] = []
+  for (const columns of PANE_WIDTHS) {
+    for (let related = 0; related <= 8; related += 1) views.push([`${related} related at ${columns ?? 'full'}, you in it`, deskView(hubFolder(related, 2), columns, { focus: 'topic:hub', meTopic: 'topic:hub' })])
+    for (let steps = 1; steps <= 24; steps += 1) {
+      views.push([`${steps} steps at ${columns ?? 'full'}`, deskView(hubFolder(1, steps), columns, { focus: 'topic:hub' })])
+      views.push([`${steps} steps at ${columns ?? 'full'}, you in it`, deskView(hubFolder(1, steps), columns, { focus: 'topic:hub', meTopic: 'topic:hub' })])
+    }
+  }
+  for (const [label, view] of views) {
+    for (const n of fieldOf(view).nodes) kinds.add(n.isAnchor ? 'anchor' : n.kind)
+    bad.push(...parity(label, view))
+  }
+  expect([...kinds].sort()).toEqual(['anchor', 'back', 'step', 'topic', 'you'])
+  expect(bad).toEqual([])
+})
+
+test('the focus pill stands at the field’s centre, in the picture and in the layer, at 44, 60 and 120 columns', () => {
+  for (const columns of [44, 60, 120]) {
+    const view = deskView(hubFolder(2, 5), columns, { focus: 'topic:hub', meTopic: 'topic:hub' })
+    const m = /<rect x="([\d.-]+)" y="[\d.-]+" width="([\d.]+)" height="38" rx="19" style="fill:var\(--pill2\)"/.exec(svgOf(view))
+    expect(m).not.toBeNull()
+    expect(Math.abs(Number(m?.[1]) + Number(m?.[2]) / 2 - view.field.w / 2)).toBeLessThan(0.5)
+    expect(fieldOf(view).nodes.find(n => n.id === 'topic:hub')?.x).toBe(view.field.w / 2)
+  }
+})
+
+test('a whole-cell click on the right end of a focused “· you” pill picks the topic, at every pane width', () => {
+  for (const columns of PANE_WIDTHS) {
+    const view = deskView(hubFolder(2, 3), columns, { focus: 'topic:hub', meTopic: 'topic:hub' })
+    const field = fieldOf(view)
+    const pill = field.nodes.find(n => n.id === 'topic:hub')
+    expect(svgOf(view)).toContain('· you')
+    const layer = layerFor(columns ?? 120, 0, { ...field, hits: true })
+    // The last cell whose centre lies on the pill: the one a press on the end of "· you" reports.
+    const right = (pill?.x ?? 0) + (pill?.w ?? 0) / 2
+    let col = layer.col(right)
+    while (layer.fieldX({ x: col, y: 0 }) > right) col -= 1
+    const cell = { x: col, y: layer.row(pill?.y ?? 0) }
+    const hit = nodeAtPoint(field.nodes, { x: layer.fieldX(cell), y: layer.fieldY(cell) }, layer.cell)
+    expect(`${columns ?? 'full'}: ${hit?.id}`).toBe(`${columns ?? 'full'}: topic:hub`)
+  }
+})
+
+test('a press just inside a pill’s or an anchor’s end is the pill’s, even with a dot beside that end', () => {
+  const pill = { id: 't', kind: 'topic', x: 300, y: 300, w: 160, isMajor: true, label: '' }
+  const sat = { id: 's', kind: 'session', x: 392, y: 300, label: '', topicId: 't' }
+  expect(nodeAtPoint([sat, pill], { x: 378, y: 300 })?.id).toBe('t')
+  const anchor = { id: 'a', kind: 'topic', x: 300, y: 300, w: 160, isAnchor: true, label: '' }
+  const step = { id: 'st', kind: 'step', x: 392, y: 300, label: '1' }
+  expect(nodeAtPoint([step, anchor], { x: 378, y: 300 })?.id).toBe('a')
+})
+
+test('the Layer height setting steps the layer’s cell aspect by 0.02, at most three steps either way', () => {
+  const base = 7.7 / 19.8
+  expect(Math.abs(layerAspect(0) - base)).toBeLessThan(1e-9)
+  expect(Math.abs(layerAspect(2) - (base + 0.04))).toBeLessThan(1e-9)
+  expect(Math.abs(layerAspect(-3) - (base - 0.06))).toBeLessThan(1e-9)
+  expect(Math.abs(layerAspect(9) - (base + 0.06))).toBeLessThan(1e-9)
+  expect(Math.abs(layerAspect(-9) - (base - 0.06))).toBeLessThan(1e-9)
+})
+
+test('the Layer height setting reaches the layer as its cell aspect', { options: { pictureMode: 'clicks', layerHeight: 2 } }, async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const props = (await ui.find({ type: 'Client', key: 'map' }))?.props.props as { cellAspect?: number } | undefined
+  expect(Math.abs((props?.cellAspect ?? 0) - (7.7 / 19.8 + 0.04))).toBeLessThan(1e-9)
+  await ui.unmount()
 })
