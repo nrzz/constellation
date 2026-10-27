@@ -378,21 +378,8 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     const traced = ui.hover && model.topicById[ui.hover] ? ui.hover : null
     const related = new Set<string>(traced ? relatedOf(model.links, traced).map(r => r.id) : [])
     const dropSource = ui.mergeFrom ?? (ui.moveMode && ui.selected ? model.byId[ui.selected]?.topicId : undefined)
-    for (const l of model.links) {
-      const a = placed[l.a]
-      const b = placed[l.b]
-      if (!a || !b) continue
-      const isBright = traced !== null && (l.a === traced || l.b === traced)
-      const strokeAttr = isBright ? `stroke="${model.topicById[traced ?? '']?.color ?? ACCENT}"` : 'style="stroke:var(--x)"'
-      const ia = indexOf.get(l.a) ?? 0
-      const ib = indexOf.get(l.b) ?? 0
-      parts.push(
-        `<line class="x x-${ia} x-${ib}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" ${strokeAttr} stroke-width="${isBright ? 1.2 : 1}" stroke-dasharray="2 5" opacity="${isBright ? 0.8 : traced ? 0.35 : 0.8}"/>`,
-      )
-    }
     // The idle cycle: with nobody pointing, the hint has the first four seconds, then each major topic is traced in turn,
-    // its caption following; a hover anywhere on the field stops it. The rest is not faded: that would take a timeline
-    // per topic, and a map dimming on its own is not calm.
+    // its caption following, and the rest fades softly; a hover anywhere on the field stops it.
     const cycle = new Map<string, number>()
     // A running topic is traced first.
     if (live)
@@ -401,11 +388,18 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         .sort((a, b) => Number(runningIn(b) > 0) - Number(runningIn(a) > 0))
         .forEach((t, k) => cycle.set(t.id, 4 * (k + 1)))
     if (cycle.size > 0) {
-      const period = 4 * (cycle.size + 1)
-      const s = 100 / (cycle.size + 1)
+      const n = cycle.size
+      const period = 4 * (n + 1)
+      const s = 100 / (n + 1)
       const at = (v: number) => `${Number(v.toFixed(2))}%`
       const frames = (name: string, prop: string, off: string, on: string) => `@keyframes ${name}{0%{${prop}:${off}}${at(s / 8)},${at(s - s / 8)}{${prop}:${on}}${at(s)},100%{${prop}:${off}}}`
       const run = (name: string) => `{animation:${name} ${period}s linear var(--d) infinite}`
+      // The fade: `--k` walks the slots (0 the hint, then each topic, n + 1 the hint again) on the field's one timeline,
+      // easing over 0.6 s into each slot; whatever holds slot `--k`, or the hint's, is at full, the rest at .4.
+      const ck = [`0%{--k:0}`]
+      for (let j = 1; j <= n + 1; j += 1) ck.push(`${at((100 * (4 * j - 0.6)) / period)}{--k:${j - 1}}${at((100 * 4 * j) / period)}{--k:${j}}`)
+      const lit = (v: string) => `max(0,min(1 + var(--${v},-9) - var(--k),1 + var(--k) - var(--${v},-9)))`
+      const strength = (...vs: string[]) => `.4 + .6*min(1,max(0,1 - var(--k)) + max(0,var(--k) - ${n})${vs.map(v => ` + ${lit(v)}`).join('')})`
       css.push(
         frames('cv', 'opacity', '0', '1'),
         frames('cp', 'fill', 'var(--pill)', 'var(--tx)'),
@@ -413,6 +407,24 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         frames('cl', 'stroke', 'var(--ln)', 'var(--c)'),
         `.f:not(:hover) .hint{animation:cv ${period}s linear infinite}`,
         `.f:not(:hover) .t.cy .pill${run('cp')}.f:not(:hover) .t.cy .nm${run('cn')}.f:not(:hover) .t.cy .glow${run('cv')}.f:not(:hover) .t.cy .ln${run('cl')}.f:not(:hover) .cap.cy${run('cv')}`,
+        `@property --k{syntax:'<number>';inherits:true;initial-value:0}`,
+        // A running topic's ring, halo and live dot stay through the fade, as does the hover glow's own rule.
+        `@media (prefers-reduced-motion:no-preference){@keyframes ck{${ck.join('')}}.f:not(:hover){animation:ck ${period}s ease-in-out infinite}` +
+          `.f:not(:hover) .t>:not(.rg,.rh,.ld,.glow){opacity:calc(${strength('i')})}.f:not(:hover) .x{opacity:calc(.8*(${strength('a', 'b')}))}}`,
+      )
+    }
+    for (const l of model.links) {
+      const a = placed[l.a]
+      const b = placed[l.b]
+      if (!a || !b) continue
+      const isBright = traced !== null && (l.a === traced || l.b === traced)
+      // In the cycle a link reads both its ends' slots, so it stays lit with either.
+      const ends = cycle.size > 0 ? `--a:${(cycle.get(l.a) ?? -36) / 4};--b:${(cycle.get(l.b) ?? -36) / 4}` : ''
+      const strokeAttr = isBright ? `stroke="${model.topicById[traced ?? '']?.color ?? ACCENT}"${ends ? ` style="${ends}"` : ''}` : `style="stroke:var(--x)${ends ? `;${ends}` : ''}"`
+      const ia = indexOf.get(l.a) ?? 0
+      const ib = indexOf.get(l.b) ?? 0
+      parts.push(
+        `<line class="x x-${ia} x-${ib}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" ${strokeAttr} stroke-width="${isBright ? 1.2 : 1}" stroke-dasharray="2 5" opacity="${isBright ? 0.8 : traced ? 0.35 : 0.8}"/>`,
       )
     }
     for (const t of model.topics) {
@@ -443,7 +455,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         }
       }
       const cy = d ? ` cy` : ''
-      const cyStyle = d ? `;--d:${d}s;--c:${t.color}` : ''
+      const cyStyle = d ? `;--d:${d}s;--c:${t.color};--i:${d / 4}` : ''
       const g: string[] = [`<g class="t t-${i}${running > 0 ? ' run' : ''}${cy}" opacity="${opacity.toFixed(2)}"${live ? ` style="animation-duration:${7 + (i % 5) * 0.8}s;animation-delay:-${(i * 1.9) % 7}s${cyStyle}"` : ''}>`]
       const sessions = t.sessions.slice(0, maxSessions)
       if (live && sessions.length > 0) {

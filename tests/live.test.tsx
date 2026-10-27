@@ -365,3 +365,110 @@ test('running: the four-hundred-session folder with a running topic still meets 
   expect(svg).toMatch(/<g class="t t-\d+ run/)
   expect(svg).toContain('class="rp"')
 })
+
+// The idle cycle fades the rest, softly: one registered variable, `--k`, walks the slots on the field's own timeline,
+// and every topic, link and satellite reads its own strength from it, so the fade costs no keyframes per topic.
+const fadeRule = (svg: string, sel: string) => svg.split(`.f:not(:hover) ${sel}{opacity:`)[1]?.split('}')[0] ?? ''
+/** Evaluates the CSS `calc()` the fade uses (numbers, + - *, min, max), with `var(--x)` read from `vars`. */
+const evalFade = (rule: string, vars: Record<string, number>) => {
+  const src = rule.replace(/var\(--(\w)(,-?\d+)?\)/g, (_, v: string) => `(${vars[v] ?? -9})`).replace(/calc\(/g, '(').replace(/\s+/g, '')
+  let at = 0
+  const atom = (): number => {
+    if (src[at] === '-') return (at += 1), -atom()
+    const fn = src.slice(at).match(/^(min|max)\(/)?.[1]
+    if (fn || src[at] === '(') {
+      at += fn ? 4 : 1
+      const args = [sum()]
+      while (src[at] === ',') (at += 1), args.push(sum())
+      at += 1
+      return fn === 'min' ? Math.min(...args) : fn === 'max' ? Math.max(...args) : (args[0] ?? NaN)
+    }
+    const num = src.slice(at).match(/^\d*\.?\d+/)?.[0] ?? ''
+    at += num.length
+    return num ? Number(num) : NaN
+  }
+  const product = (): number => {
+    let v = atom()
+    while (src[at] === '*') (at += 1), (v *= atom())
+    return v
+  }
+  const sum = (): number => {
+    let v = product()
+    while (src[at] === '+' || src[at] === '-') v = src[at++] === '+' ? v + product() : v - product()
+    return v
+  }
+  return sum()
+}
+const near = (got: number, want: number) => expect(Math.abs(got - want)).toBeLessThan(1e-6)
+const kAt = (svg: string, t: number) => {
+  const body = svg.match(/@keyframes ck\{(.*?)\}\}/)?.[1] ?? ''
+  const period = Number(svg.match(/\.f:not\(:hover\)\{animation:ck ([\d.]+)s/)?.[1])
+  const keys = [...body.matchAll(/([\d.]+)%\{--k:([\d.]+)/g)].map(m => [(Number(m[1]) / 100) * period, Number(m[2])] as const)
+  const after = keys.findIndex(([at]) => at >= t)
+  const [t1, k1] = keys[after] ?? keys[keys.length - 1] ?? [0, 0]
+  const [t0, k0] = keys[after - 1] ?? [t1, k1]
+  return t1 === t0 ? k1 : k0 + ((k1 - k0) * (t - t0)) / (t1 - t0)
+}
+
+test('live idle cycle fade: outside its own slot and the hint slot every topic and link fades to about .4, easing over about .6 s', () => {
+  const view = liveView()
+  const svg = svgOf(view)
+  expect(svg).toContain("@property --k{syntax:'<number>';inherits:true;initial-value:0}")
+  const topicRule = fadeRule(svg, '.t>:not(.rg,.rh,.ld,.glow)')
+  const linkRule = fadeRule(svg, '.x')
+  expect(topicRule).not.toBe('')
+  expect(linkRule).not.toBe('')
+  const majors = view.model.topics.map((t, i) => (t.isMajor ? i : -1)).filter(i => i >= 0)
+  const slotOf = new Map(majors.map(i => [i, Number(openTag(svg, i).match(/--i:(\d+)/)?.[1])]))
+  expect([...slotOf.values()].sort()).toEqual(majors.map((_, k) => k + 1))
+  const ia = view.model.topics.findIndex(t => t.id === 'topic:a')
+  const ib = view.model.topics.findIndex(t => t.id === 'topic:b')
+  const link = svg.match(new RegExp(`<line class="x x-(${ia} x-${ib}|${ib} x-${ia})"[^>]*>`))?.[0] ?? ''
+  const ends = { a: Number(link.match(/--a:(\d+)/)?.[1]), b: Number(link.match(/--b:(\d+)/)?.[1]) }
+  expect([ends.a, ends.b].sort()).toEqual([slotOf.get(ia), slotOf.get(ib)].sort())
+  // Mid-slot: the hint slot keeps all at full; a topic's own slot keeps it full and fades the rest to .4, not hover's .15.
+  for (let j = 0; j <= majors.length; j += 1) {
+    const k = kAt(svg, 4 * j + 2)
+    near(k, j)
+    for (const i of majors) near(evalFade(topicRule, { k, i: slotOf.get(i) ?? -9 }), j === 0 || slotOf.get(i) === j ? 1 : 0.4)
+    near(evalFade(linkRule, { k, ...ends }), 0.8 * (j === 0 || j === ends.a || j === ends.b ? 1 : 0.4))
+  }
+  // Softly: between two slots the strength passes through the middle, over a ramp of about .6 s.
+  const mid = evalFade(topicRule, { k: kAt(svg, 4 * 2 - 0.3), i: 1 })
+  expect(mid).toBeGreaterThan(0.45)
+  expect(mid).toBeLessThan(0.95)
+  near(kAt(svg, 4 * 2 - 0.7), 1)
+  near(kAt(svg, 4 * 2), 2)
+  // A minor topic has no slot: it fades with the rest outside the hint slot.
+  near(evalFade(topicRule, { k: 1, i: -9 }), 0.4)
+})
+
+test('live idle cycle fade: hover wins, a running ring stays, and there is no fade in clicks or under reduced motion', () => {
+  const svg = svgOf(liveView(DEFAULT_SETTINGS, ['a-0']))
+  // Every fade rule and the timeline wait for an unpointed field; a hover's own .15 fade then applies.
+  expect(svg).toContain('.f:has(.t:hover) .t:not(:hover){opacity:.15}')
+  expect(svg.match(/[^}]*\{opacity:calc\(\.[48]/g)?.every(r => r.includes('.f:not(:hover) '))).toBe(true)
+  // The running topic's ring, halo and live dot are left out of the fade, and so is the hover glow.
+  expect(svg).toContain('.f:not(:hover) .t>:not(.rg,.rh,.ld,.glow){opacity:')
+  // Only for a reader who has not asked for less motion: the timeline and the fade sit in the no-preference block.
+  const motion = svg.split('@media (prefers-reduced-motion:no-preference){')[1] ?? ''
+  expect(motion).toContain('@keyframes ck{')
+  expect(motion).toContain('.f:not(:hover){animation:ck ')
+  expect(motion).toContain('.f:not(:hover) .x{opacity:')
+  expect(svg.split('@media (prefers-reduced-motion:no-preference){')[0]).not.toMatch(/ck|\{opacity:calc/)
+  const clicks = svgOf(liveView({ ...DEFAULT_SETTINGS, pictureMode: 'clicks' }, ['a-0']))
+  expect(clicks).not.toContain('--k')
+  expect(clicks).not.toContain('--i:')
+  expect(clicks).not.toContain('opacity:calc')
+  // A focused chain has no cycle, so no fade either.
+  expect(svgOf({ ...liveView(), ui: { ...INITIAL_UI, focusTopic: 'topic:a' } })).not.toContain('--k')
+})
+
+test('live idle cycle fade: the four-hundred-session folder keeps a slot on every major topic and stays under the cap', () => {
+  const view = bigView(40, 10)
+  const svg = svgOf(view)
+  expect(svg.length).toBeLessThanOrEqual(131072)
+  const drawn = view.model.topics.filter(t => t.isMajor).length
+  expect((svg.match(/<g class="t t-\d+( run)? cy"[^>]*--i:\d+/g) ?? []).length).toBe(drawn)
+  expect(svg).toContain('@keyframes ck{')
+})
