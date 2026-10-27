@@ -69,7 +69,7 @@ test('a transcript over 4 MiB is never read: it shows as a large stub with a bad
   await ui.press({ key: 't:unsorted' })
   await ui.press({ key: `s:${id}` })
   expect(await ui.find({ type: 'Text', text: /\(large transcript\)/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /LARGE TRANSCRIPT/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^large transcript$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -249,7 +249,7 @@ test('a dismissed Desktop archive question still archives on the map; a dismisse
   await ui.press({ key: `t:${CHECKOUT}` })
   await ui.press({ key: `s:${IDS.tests}` })
   await ui.press({ key: 'sc:archive' })
-  expect(await ui.find({ type: 'Text', text: /^ARCHIVED$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^archived$/ })).toBeDefined()
   await ui.press({ key: 'toast:undo' })
   await ui.press({ key: 'back' })
   await ui.press({ key: `t:${CHECKOUT}` })

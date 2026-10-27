@@ -1230,10 +1230,24 @@ function outline(T: Table, view: View, key: string, children: (RenderElement | n
   )
 }
 
-function card(T: Table, children: (RenderElement | null | false)[], borderColor = CARD_BORDER): RenderElement {
+/**
+ * A card's one main action, its secondary ones and the rest: a chip tinted in the card's colour, outlines, plain
+ * text. The terminal draws no chips, so there the main action stays reversed, as the current view does.
+ */
+function ranked(T: Table, view: View, color: string, key: string, rank: 'main' | 'second' | 'rest', button: RenderElement): RenderElement {
+  if (rank === 'rest') return button
+  return rank === 'main' ? chip(T, view, `pb:${key}`, color, 'normal', [button]) : outline(T, view, `ob:${key}`, [button])
+}
+
+/** A card about one topic or session: a hairline and the faintest fill in its colour. */
+function tinted(color: string): { borderColor: string; fill: string } {
+  return { borderColor: rgba(color, 0.35), fill: rgba(color, 0.04) }
+}
+
+function card(T: Table, children: (RenderElement | null | false)[], borderColor = CARD_BORDER, opts: { key?: string; fill?: string } = {}): RenderElement {
   const { Box } = T
   return (
-    <Box flexDirection="column" gap="xs" borderStyle="round" borderColor={borderColor} paddingX={1}>
+    <Box key={opts.key} flexDirection="column" gap="xs" borderStyle="round" borderColor={borderColor} backgroundColor={opts.fill} paddingX={1}>
       {children.filter(c => c !== null && c !== false)}
     </Box>
   )
@@ -1322,6 +1336,9 @@ export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElemen
       ? 'No earlier session here yet. Your handoff note will be the first.'
       : 'Name it below or with /topic <name>. It appears on the map with its first handoff note.'
   const naming = !topic && me.isNewTopic
+  const framed = view.surface !== 'terminal'
+  const color = topic?.color ?? ACCENT
+  const { borderColor, fill } = topic ? tinted(color) : { borderColor: CARD_BORDER, fill: undefined }
   return card(T, [
     <Box flexDirection="row" gap="sm" alignItems="center">
       <Text color={ACCENT} mono weight="semibold">{`[${step}]`}</Text>
@@ -1333,22 +1350,24 @@ export function drawJoinedCard(T: Table, view: View, act: Actions): RenderElemen
     naming && Input ? (
       <Box flexDirection="row" gap="xs" alignItems="center">
         <Input key="topicname" placeholder="Name this topic" submitLabel="create" onSubmit={name => act.createTopic(name)} autoFocus />
-        <Button key="topicname:cancel" label="Cancel" onPress={() => act.cancelNewTopic()} />
+        {outline(T, view, 'ob:topicname:cancel', [<Button key="topicname:cancel" label="Cancel" plain={framed || undefined} onPress={() => act.cancelNewTopic()} />])}
       </Box>
     ) : null,
     me.askNote && Input ? (
       <Box flexDirection="row" gap="xs" alignItems="center">
         <Input key="park" placeholder="What is done, what is left, what to watch" submitLabel="park" onSubmit={text => act.park(text)} autoFocus />
-        <Button key="park:skip" label="Skip" onPress={() => act.skipNote()} />
+        {outline(T, view, 'ob:park:skip', [<Button key="park:skip" label="Skip" plain={framed || undefined} onPress={() => act.skipNote()} />])}
       </Box>
     ) : null,
-    <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      {topic ? <Button key="c:focus" label="Focus my topic" hotkey={hk(view, 'f')} variant="primary" onPress={() => act.focusTopic(topic.id)} /> : null}
-      {latest ? <Button key="c:draft" label="Draft next prompt" hotkey={hk(view, 'd')} onPress={() => act.draft(null)} /> : null}
-      <Button key="c:change" label="Change topic" hotkey={hk(view, 'c')} onPress={() => act.changeTopic()} />
-      {!me.askNote ? <Button key="c:park" label="Park a note" hotkey={hk(view, 'p')} onPress={() => act.parkPrompt()} /> : null}
+    <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
+      {topic
+        ? ranked(T, view, color, 'c:focus', 'main', <Button key="c:focus" label="Focus my topic" hotkey={hk(view, 'f')} plain={framed || undefined} variant={framed ? undefined : 'primary'} onPress={() => act.focusTopic(topic.id)} />)
+        : null}
+      {latest ? ranked(T, view, color, 'c:draft', 'second', <Button key="c:draft" label="Draft next prompt" hotkey={hk(view, 'd')} plain={framed || undefined} onPress={() => act.draft(null)} />) : null}
+      {ranked(T, view, color, 'c:change', 'second', <Button key="c:change" label="Change topic" hotkey={hk(view, 'c')} plain={framed || undefined} onPress={() => act.changeTopic()} />)}
+      {!me.askNote ? ranked(T, view, color, 'c:park', 'rest', <Button key="c:park" label="Park a note" hotkey={hk(view, 'p')} plain={framed || undefined} dimColor={framed || undefined} onPress={() => act.parkPrompt()} />) : null}
     </Box>,
-  ])
+  ], borderColor, { key: 'cd:joined', fill })
 }
 
 export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic): RenderElement {
@@ -1361,58 +1380,81 @@ export function drawTopicCard(T: Table, view: View, act: Actions, topic: Topic):
   const latest = latestOf(topic.sessions)
   const tidyTargets = idle.filter(s => !latest || s.id !== latest.id)
   const rel = relatedOf(model.links, topic.id)
+  const framed = view.surface !== 'terminal'
+  const { borderColor, fill } = tinted(topic.color)
   return card(T, [
-    <Box flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
+    <Box key="ch:topic" flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
       <Text color={topic.color}>●</Text>
       <Text weight="medium">{topic.name}</Text>
-      <Text dimColor mono size="footnote">
-        {isUnsorted ? 'UNSORTED' : topic.isMajor ? 'MAJOR' : 'MINOR'}
-      </Text>
-      <Text dimColor mono size="footnote">{`${topic.sessions.length} sessions · ${idle.length} idle · ${shipped} shipped`}</Text>
+      <Text dimColor mono size="footnote">{`${isUnsorted ? 'unsorted' : topic.isMajor ? 'major' : 'minor'} · ${topic.sessions.length} sessions · ${idle.length} idle · ${shipped} shipped`}</Text>
+      {runningOf(view, topic) > 0 ? (
+        <Text color={ACCENT} size="footnote">
+          live
+        </Text>
+      ) : null}
     </Box>,
     !isUnsorted ? <Text dimColor>{topic.goal ? `Goal: ${clip(topic.goal, 200)}` : 'No goal yet. A goal travels with every handoff on this topic.'}</Text> : null,
     <Text>{latest ? `Latest: ${clip(latest.title, 60)} (${ageOf(latest.lastAt, now)} ago). ${clip(noteText(latest), 220)}` : isUnsorted ? 'Sessions nothing else claimed. Select one and Move to topic to file it.' : 'No sessions yet.'}</Text>,
     ui.editing === 'rename' && Input && !isUnsorted ? (
       <Box flexDirection="row" gap="xs" alignItems="center">
         <Input key="rename" value={topic.name} placeholder="Topic name" submitLabel="rename" onSubmit={name => act.rename(topic.id, name)} autoFocus />
-        <Button key="rename:cancel" label="Cancel" onPress={() => act.edit(null)} />
+        {outline(T, view, 'ob:rename:cancel', [<Button key="rename:cancel" label="Cancel" plain={framed || undefined} onPress={() => act.edit(null)} />])}
       </Box>
     ) : null,
     ui.editing === 'goal' && Input && !isUnsorted ? (
       <Box flexDirection="row" gap="xs" alignItems="center">
         <Input key="goal" value={topic.goal ?? ''} placeholder="What this topic is for, in a sentence" submitLabel="save" onSubmit={goal => act.setGoal(topic.id, goal)} autoFocus />
-        <Button key="goal:cancel" label="Cancel" onPress={() => act.edit(null)} />
+        {outline(T, view, 'ob:goal:cancel', [<Button key="goal:cancel" label="Cancel" plain={framed || undefined} onPress={() => act.edit(null)} />])}
       </Box>
     ) : null,
     <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-      <Text dimColor mono size="footnote">
-        RELATED
+      <Text dimColor size="footnote">
+        related
       </Text>
-      {rel.length === 0 ? <Text dimColor>none</Text> : null}
+      {rel.length === 0 ? (
+        <Text dimColor size="footnote">
+          none
+        </Text>
+      ) : null}
       {rel.map(r => {
         const rt = model.topicById[r.id]
-        return rt ? (
-          <Button key={`rel:${rt.id}`} plain onPress={() => act.focusTopic(rt.id)}>
-            {clip(rt.name, 22)} <Text dimColor mono>{r.via}</Text>
-          </Button>
-        ) : null
+        return rt
+          ? chip(T, view, `kb:${rt.id}`, rt.color, 'quiet', [
+              <Text color={rt.color}>●</Text>,
+              <Button key={`rel:${rt.id}`} label={clip(rt.name, 22)} plain onPress={() => act.focusTopic(rt.id)} />,
+              <Text dimColor mono size="footnote">
+                {r.via}
+              </Text>,
+            ])
+          : null
       })}
     </Box>,
     <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-      <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} hotkey={hk(view, 'f')} variant="primary" onPress={() => (isFocused ? act.allTopics() : act.focusTopic(topic.id))} />
-      {latest ? <Button key="tc:pickup" label="Pick up latest" hotkey={hk(view, 'u')} onPress={() => act.pickUpLatest(topic.id)} /> : null}
-      {view.me.topicId !== topic.id && !isUnsorted ? <Button key="tc:join" label="Join this topic" hotkey={hk(view, 'j')} onPress={() => act.join(topic.id)} /> : null}
-      {tidyTargets.length ? <Button key="tc:tidy" label={`Archive ${tidyTargets.length} idle`} onPress={() => act.tidy(topic.id)} /> : null}
+      {ranked(
+        T,
+        view,
+        topic.color,
+        'tc:focus',
+        'main',
+        <Button key="tc:focus" label={isFocused ? 'Back to all topics' : 'Focus this topic'} hotkey={hk(view, 'f')} plain={framed || undefined} variant={framed ? undefined : 'primary'} onPress={() => (isFocused ? act.allTopics() : act.focusTopic(topic.id))} />,
+      )}
+      {latest ? ranked(T, view, topic.color, 'tc:pickup', 'second', <Button key="tc:pickup" label="Pick up latest" hotkey={hk(view, 'u')} plain={framed || undefined} onPress={() => act.pickUpLatest(topic.id)} />) : null}
+      {view.me.topicId !== topic.id && !isUnsorted
+        ? ranked(T, view, topic.color, 'tc:join', 'second', <Button key="tc:join" label="Join this topic" hotkey={hk(view, 'j')} plain={framed || undefined} onPress={() => act.join(topic.id)} />)
+        : null}
+      {tidyTargets.length
+        ? ranked(T, view, topic.color, 'tc:tidy', 'second', <Button key="tc:tidy" label={`Archive ${tidyTargets.length} idle`} plain={framed || undefined} onPress={() => act.tidy(topic.id)} />)
+        : null}
     </Box>,
     !isUnsorted ? (
-      <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
-        {Input ? <Button key="tc:rename" label="Rename" hotkey={hk(view, 'r')} onPress={() => act.edit(ui.editing === 'rename' ? null : 'rename')} /> : null}
-        {Input ? <Button key="tc:goal" label={topic.goal ? 'Edit goal' : 'Set goal'} hotkey={hk(view, 'g')} onPress={() => act.edit(ui.editing === 'goal' ? null : 'goal')} /> : null}
-        <Button key="tc:merge" label="Merge into…" hotkey={hk(view, 'e')} onPress={() => act.mergeMode(topic.id)} />
+      <Box flexDirection="row" gap="sm" flexWrap="wrap" alignItems="center">
+        {Input ? <Button key="tc:rename" label="Rename" hotkey={hk(view, 'r')} plain={framed || undefined} dimColor={framed || undefined} onPress={() => act.edit(ui.editing === 'rename' ? null : 'rename')} /> : null}
+        {Input ? <Button key="tc:goal" label={topic.goal ? 'Edit goal' : 'Set goal'} hotkey={hk(view, 'g')} plain={framed || undefined} dimColor={framed || undefined} onPress={() => act.edit(ui.editing === 'goal' ? null : 'goal')} /> : null}
+        <Button key="tc:merge" label="Merge into…" hotkey={hk(view, 'e')} plain={framed || undefined} dimColor={framed || undefined} onPress={() => act.mergeMode(topic.id)} />
         {Select ? <Select key={`color:${topic.id}`} label="Colour" options={COLOR_OPTIONS} value={PALETTE.includes(topic.color as (typeof PALETTE)[number]) ? topic.color : undefined} onSelect={hex => act.setColor(topic.id, hex)} /> : null}
       </Box>
     ) : null,
-  ])
+  ], borderColor, { key: 'cd:topic', fill })
 }
 
 export function drawSessionCard(T: Table, view: View, act: Actions, s: SessionView): RenderElement {
@@ -1421,24 +1463,34 @@ export function drawSessionCard(T: Table, view: View, act: Actions, s: SessionVi
   const topic = model.topicById[s.topicId]
   const color = topic?.color ?? ACCENT
   const n = topic ? stepNumber(view, topic, s.id) : 0
+  const framed = view.surface !== 'terminal'
+  const { borderColor, fill } = tinted(color)
   const rows: (RenderElement | null | false)[] = [
-    <Box flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
-      <Text color={color} mono weight="semibold">{`[${n > 0 ? n : '·'}]`}</Text>
-      <Text weight="medium">{s.title}</Text>
-      <Text color={s.status === 'active' ? color : MUTED} mono size="footnote">
-        {s.status.toUpperCase()}
+    <Box key="ch:session" flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
+      <Text color={color} mono weight="semibold">
+        {n > 0 ? String(n) : '·'}
       </Text>
+      <Text weight="medium">{s.title}</Text>
+      {s.status === 'active' ? (
+        <Text color={ACCENT} size="footnote">
+          live
+        </Text>
+      ) : (
+        <Text dimColor mono size="footnote">
+          {s.status}
+        </Text>
+      )}
       {s.large ? (
         <Text dimColor mono size="footnote">
-          LARGE TRANSCRIPT
+          large transcript
         </Text>
       ) : null}
     </Box>,
     <Text dimColor mono size="footnote">
       {sessionMeta(s, now, `ran ${durationOf(s.lastAt - s.startedAt)}${topic ? ` · in ${topic.name}` : ''}`)}
     </Text>,
-    <Text dimColor mono size="footnote">
-      HANDOFF NOTE
+    <Text dimColor size="footnote">
+      Handoff note
     </Text>,
     <Text>{noteText(s) || 'No note yet. The last assistant text stands in once the session has one.'}</Text>,
   ]
@@ -1454,27 +1506,27 @@ export function drawSessionCard(T: Table, view: View, act: Actions, s: SessionVi
     rows.push(
       <Box flexDirection="row" gap="xs" alignItems="center">
         <Input key="msg" placeholder={`Message “${clip(s.title, 30)}”`} submitLabel="send" onSubmit={text => act.message(s.id, text)} autoFocus />
-        <Button key="msg:cancel" label="Cancel" onPress={() => act.messageMode(false)} />
+        {outline(T, view, 'ob:msg:cancel', [<Button key="msg:cancel" label="Cancel" plain={framed || undefined} onPress={() => act.messageMode(false)} />])}
       </Box>,
     )
   }
   rows.push(
-    <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      <Button key="sc:pickup" label="Pick up here" hotkey={hk(view, 'u')} variant="primary" onPress={() => act.pickUp(s.id)} />
-      <Button key="sc:draft" label="Draft prompt" hotkey={hk(view, 'd')} onPress={() => act.draft(s.id)} />
-      <Button key="sc:new" label="New session from here" hotkey={hk(view, 'n')} onPress={() => act.newSession(s.id)} />
+    <Box flexDirection="row" gap="xs" flexWrap="wrap" alignItems="center">
+      {ranked(T, view, color, 'sc:pickup', 'main', <Button key="sc:pickup" label="Pick up here" hotkey={hk(view, 'u')} plain={framed || undefined} variant={framed ? undefined : 'primary'} onPress={() => act.pickUp(s.id)} />)}
+      {ranked(T, view, color, 'sc:draft', 'second', <Button key="sc:draft" label="Draft prompt" hotkey={hk(view, 'd')} plain={framed || undefined} onPress={() => act.draft(s.id)} />)}
+      {ranked(T, view, color, 'sc:new', 'second', <Button key="sc:new" label="New session from here" hotkey={hk(view, 'n')} plain={framed || undefined} onPress={() => act.newSession(s.id)} />)}
     </Box>,
-    <Box flexDirection="row" gap="xs" flexWrap="wrap">
-      <Button key="sc:pin" label={s.isPinned ? 'Unpin' : 'Pin'} hotkey={hk(view, 'p')} onPress={() => act.pin(s.id)} />
-      <Button key="sc:move" label={ui.moveMode ? 'Cancel move' : 'Move to topic'} hotkey={hk(view, 'v')} onPress={() => act.moveMode(!ui.moveMode)} />
-      <Button key="sc:archive" label={s.status === 'archived' ? 'Unarchive' : 'Archive'} hotkey={hk(view, 'x')} onPress={() => act.archive(s.id)} />
-      {Input ? <Button key="sc:message" label="Message" hotkey={hk(view, 't')} dimColor={s.status !== 'active'} onPress={() => act.messageMode(!ui.messageMode)} /> : null}
+    <Box flexDirection="row" gap="sm" flexWrap="wrap" alignItems="center">
+      <Button key="sc:pin" label={s.isPinned ? 'Unpin' : 'Pin'} hotkey={hk(view, 'p')} plain={framed || undefined} dimColor={framed || undefined} onPress={() => act.pin(s.id)} />
+      <Button key="sc:move" label={ui.moveMode ? 'Cancel move' : 'Move to topic'} hotkey={hk(view, 'v')} plain={framed || undefined} dimColor={framed || undefined} onPress={() => act.moveMode(!ui.moveMode)} />
+      <Button key="sc:archive" label={s.status === 'archived' ? 'Unarchive' : 'Archive'} hotkey={hk(view, 'x')} plain={framed || undefined} dimColor={framed || undefined} onPress={() => act.archive(s.id)} />
+      {Input ? <Button key="sc:message" label="Message" hotkey={hk(view, 't')} plain={framed || undefined} dimColor={s.status !== 'active'} onPress={() => act.messageMode(!ui.messageMode)} /> : null}
     </Box>,
     <Text dimColor mono size="footnote" wrap="truncate">
       {`resume it in a terminal: claude --resume ${s.id}`}
     </Text>,
   )
-  return card(T, rows, ui.selected === s.id ? rgba(color, 0.45) : CARD_BORDER)
+  return card(T, rows, borderColor, { key: 'cd:session', fill })
 }
 
 export function drawToast(T: Table, view: View, act: Actions): RenderElement | null {

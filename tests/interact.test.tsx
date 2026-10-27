@@ -218,7 +218,7 @@ test('a session active in the last five minutes offers Message at full strength'
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount(paneOn('desktop'))
   await ui.press({ key: `r:${IDS.tests}` })
-  expect(await ui.find({ type: 'Text', text: /^ACTIVE$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^live$/ })).toBeDefined()
   expect((await ui.find({ type: 'Button', key: 'sc:message' }))?.props.dimColor).toBe(false)
   await ui.unmount()
 })

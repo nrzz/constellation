@@ -119,7 +119,7 @@ test('a focused chain: back an outline chip; each step a chip with its number on
   const color = kids((await boxesOf(ui, 'tb:')).find(c => c.id === CHECKOUT)?.box).find(k => k.text === '●')?.props.color
   await ui.press({ key: `t:${CHECKOUT}` })
   await ui.press({ key: `s:${IDS.tests}` })
-  await noShouting(ui, ['RELATED', 'IDLE', 'ACTIVE', 'HANDOFF NOTE', 'LARGE TRANSCRIPT'])
+  await noShouting(ui)
   const back = (await boxesOf(ui, 'bb:'))[0]
   expect(back?.box.props.borderStyle).toBe('round')
   expect(rgbOf(back?.box.props.borderColor)).not.toBe(rgbOf(ACCENT))
@@ -173,6 +173,93 @@ test('Jump back in: a sentence-case label; each session a chip tinted in its top
   await ui.unmount()
 })
 
+/** The card's one primary action a chip tinted in `color`, its secondary ones outlines, the rest plain; no primary slab anywhere in it. */
+async function actionsRanked(ui: Ui, color: unknown, primary: string, secondary: string[], tertiary: string[]) {
+  const main = (await boxesOf(ui, 'pb:')).find(b => b.id === primary)
+  expect(rgbOf(main?.box.props.backgroundColor)).toBe(rgbOf(color))
+  expect(alphaOf(main?.box.props.backgroundColor)).toBeLessThan(0.3)
+  expect(rgbOf(hover(main?.box).backgroundColor)).toBe(rgbOf(color))
+  expect(kids(main?.box).find(k => k.type === 'Button')?.key).toBe(primary)
+  const outlines = Object.fromEntries((await boxesOf(ui, 'ob:')).map(b => [b.id, b.box]))
+  for (const key of secondary) {
+    expect(outlines[key]?.props.borderStyle).toBe('round')
+    expect(rgbOf(outlines[key]?.props.borderColor)).not.toBe(rgbOf(color))
+    expect(kids(outlines[key]).find(k => k.type === 'Button')?.key).toBe(key)
+  }
+  for (const key of tertiary) {
+    const b = await ui.find({ type: 'Button', key })
+    expect(b?.props.plain).toBe(true)
+    expect(outlines[key]).toBeUndefined()
+  }
+  expect((await ui.findAll({ type: 'Button' })).filter(b => b.props.variant === 'primary')).toEqual([])
+}
+
+test('the topic card: a hairline and faint fill in the topic colour, the kind and counts as one dim mono line in lower case, related topics as chips, Focus the one tinted action', async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  const color = kids((await boxesOf(ui, 'tb:')).find(c => c.id === CHECKOUT)?.box).find(k => k.text === '●')?.props.color
+  await ui.press({ key: `t:${CHECKOUT}` })
+  await noShouting(ui)
+  const box = (await boxesOf(ui, 'cd:')).find(b => b.id === 'topic')?.box
+  expect(rgbOf(box?.props.borderColor)).toBe(rgbOf(color))
+  expect(alphaOf(box?.props.borderColor)).toBeLessThan(0.6)
+  expect(rgbOf(box?.props.backgroundColor)).toBe(rgbOf(color))
+  expect(alphaOf(box?.props.backgroundColor)).toBeLessThan(0.08)
+  const meta = await ui.find({ type: 'Text', text: /^(major|minor) · \d+ sessions · \d+ idle · \d+ shipped$/ })
+  expect(meta?.props.mono).toBe(true)
+  expect(meta?.props.dimColor).toBe(true)
+  // This session is running in the checkout topic: the card says live, in the accent.
+  const head = kids((await boxesOf(ui, 'ch:')).find(b => b.id === 'topic')?.box)
+  expect(head.find(k => k.type === 'Text' && k.text === '●')?.props.color).toBe(color)
+  expect(head.find(k => k.type === 'Text' && k.text === 'live')?.props.color).toBe(ACCENT)
+  expect(await ui.find({ type: 'Text', text: /^related$/ })).toBeDefined()
+  const rel = await boxesOf(ui, 'kb:')
+  for (const { id, box: r } of rel) {
+    const inside = kids(r)
+    const rgb = rgbOf(inside.find(k => k.type === 'Text' && k.text === '●')?.props.color)
+    expect(rgbOf(r.props.backgroundColor)).toBe(rgb)
+    const name = inside.find(k => k.type === 'Button')
+    expect(name?.key).toBe(`rel:${id}`)
+    expect(name?.props.plain).toBe(true)
+    expect(name?.children.filter(c => typeof c === 'object')).toEqual([])
+    expect(inside.find(k => k.type === 'Text' && k.props.mono === true)?.props.dimColor).toBe(true)
+  }
+  await actionsRanked(ui, color, 'tc:focus', ['tc:pickup'], ['tc:rename', 'tc:goal', 'tc:merge'])
+  await ui.unmount()
+})
+
+test('the session card: its step in the topic colour, status in lower case (live in the accent), a sentence-case note label, Pick up the one tinted action', async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  const color = kids((await boxesOf(ui, 'tb:')).find(c => c.id === CHECKOUT)?.box).find(k => k.text === '●')?.props.color
+  await ui.press({ key: `t:${CHECKOUT}` })
+  await ui.press({ key: `s:${IDS.tests}` })
+  await noShouting(ui)
+  const box = (await boxesOf(ui, 'cd:')).find(b => b.id === 'session')?.box
+  expect(rgbOf(box?.props.borderColor)).toBe(rgbOf(color))
+  expect(rgbOf(box?.props.backgroundColor)).toBe(rgbOf(color))
+  expect(alphaOf(box?.props.backgroundColor)).toBeLessThan(0.08)
+  const head = kids((await boxesOf(ui, 'ch:')).find(b => b.id === 'session')?.box)
+  expect(head.find(k => k.type === 'Text' && /^\d+$/.test(k.text))?.props.color).toBe(color)
+  const status = head.find(k => k.type === 'Text' && /^(live|idle|archived)$/.test(k.text))
+  expect(status).toBeDefined()
+  if (status?.text === 'live') expect(status.props.color).toBe(ACCENT)
+  else expect(status?.props.dimColor).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /^Handoff note$/ })).toBeDefined()
+  await actionsRanked(ui, color, 'sc:pickup', ['sc:draft', 'sc:new'], ['sc:pin', 'sc:move', 'sc:archive'])
+  await ui.unmount()
+})
+
+test('the joined card: Focus my topic a chip in its colour, the others outlines; no primary slab', async ($, hooks) => {
+  stubEngine(hooks)
+  const ui = await joined($)
+  const color = kids((await boxesOf(ui, 'tb:')).find(c => c.id === CHECKOUT)?.box).find(k => k.text === '●')?.props.color
+  await noShouting(ui)
+  expect(rgbOf((await boxesOf(ui, 'cd:')).find(b => b.id === 'joined')?.box.props.borderColor)).toBe(rgbOf(color))
+  await actionsRanked(ui, color, 'c:focus', ['c:change'], ['c:park'])
+  await ui.unmount()
+})
+
 test('terminal: every topic and header button still shows, no chip draws a border, and the current view still stands out', async ($, hooks) => {
   stubEngine(hooks)
   const ui = await joined($, 'terminal')
@@ -186,5 +273,15 @@ test('terminal: every topic and header button still shows, no chip draws a borde
     for (const { box } of boxes) expect(box.props.borderStyle).toBeUndefined()
   }
   expect((await ui.find({ type: 'Button', key: 'view:map' }))?.props.variant).toBe('primary')
+  // The cards keep every action; there the one main action stays reversed, as the current view does.
+  for (const key of ['c:focus', 'c:change', 'c:park']) expect(await ui.find({ type: 'Button', key })).toBeDefined()
+  expect((await ui.find({ type: 'Button', key: 'c:focus' }))?.props.variant).toBe('primary')
+  await ui.press({ key: `t:${CHECKOUT}` })
+  for (const key of ['tc:focus', 'tc:pickup', 'tc:rename', 'tc:goal', 'tc:merge']) expect(await ui.find({ type: 'Button', key })).toBeDefined()
+  expect((await ui.find({ type: 'Button', key: 'tc:focus' }))?.props.variant).toBe('primary')
+  for (const prefix of ['pb:', 'ob:']) for (const { box } of await boxesOf(ui, prefix)) expect(box.props.borderStyle).toBeUndefined()
+  await ui.press({ key: `s:${IDS.tests}` })
+  for (const key of ['sc:pickup', 'sc:draft', 'sc:new', 'sc:pin', 'sc:move', 'sc:archive']) expect(await ui.find({ type: 'Button', key })).toBeDefined()
+  expect((await ui.find({ type: 'Button', key: 'sc:pickup' }))?.props.variant).toBe('primary')
   await ui.unmount()
 })

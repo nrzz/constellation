@@ -267,7 +267,7 @@ test('focus mode: steps with hotkeys, a session card, Pick up here joins and que
   expect(svg).toContain('>2</text>')
 
   await ui.press({ key: `s:${IDS.tests}` })
-  expect(await ui.find({ type: 'Text', text: /HANDOFF NOTE/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Handoff note$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Replaced the fixed/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /ran 5m/ })).toBeDefined()
   await ui.press({ key: 'sc:pickup' })
@@ -375,10 +375,10 @@ test('archive and move leave an Undo; merge folds one topic into another', async
   await ui.press({ key: `t:${CHECKOUT}` })
   await ui.press({ key: `s:${IDS.tests}` })
   await ui.press({ key: 'sc:archive' })
-  expect(await ui.find({ type: 'Text', text: /^ARCHIVED$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^archived$/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'toast:undo' })).toBeDefined()
   await ui.press({ key: 'toast:undo' })
-  expect(await ui.find({ type: 'Text', text: /^IDLE$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^idle$/ })).toBeDefined()
   expect(stubs.toasts[stubs.toasts.length - 1]).toBe('Undone.')
 
   await ui.press({ key: 'sc:move' })

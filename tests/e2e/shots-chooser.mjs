@@ -4,8 +4,9 @@
 //   chooser   the band and the pane's chooser (the default)
 //   map       the pane's header, "Jump back in" and the buttons under the map, and a merge pick
 //   focus     the header and the buttons under a focused topic's chain, a step selected
+//   cards     the joined card, the topic card and the session card
 //
-//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
+//   node tests/e2e/shots-chooser.mjs <out.png> [chooser|map|focus|cards]   # needs tsc (npx typescript@5.9.3) and Edge or Chrome
 //
 // The Desktop draws a Button's children as one flat label in the button's own colours (a `primary` one a
 // light slab, a default one a grey chip, a `plain` one as text), a hotkey as a small key cap after the
@@ -44,7 +45,7 @@ const NOW = Date.parse('2026-10-27T18:00:00.000Z')
 const MIN = 60_000
 const DAY = 86_400_000
 const TITLES = ['Live pane hover tracing', 'Join card redesign', 'Idle cycle soft fade', 'Running topic ring', 'Gates on the branch', 'Installer fixes']
-const sessionOf = (id, i, ago) => ({ id: `${id}-${i}`, topicId: id, title: `${TITLES[i % TITLES.length]}${i >= TITLES.length ? ` ${i}` : ''}`, lastAt: NOW - ago - i * DAY, startedAt: NOW - ago - (10 - i) * DAY, isInRange: true, status: id === 't1' && i === 0 ? 'active' : 'idle', turns: 12, branch: 'main' })
+const sessionOf = (id, i, ago) => ({ id: `${id}-${i}`, topicId: id, title: `${TITLES[i % TITLES.length]}${i >= TITLES.length ? ` ${i}` : ''}`, lastAt: NOW - ago - i * DAY, startedAt: NOW - ago - (10 - i) * DAY, isInRange: true, status: id === 't1' && i === 0 ? 'active' : 'idle', turns: 12, branch: 'main', lastAssistantText: 'Restyled the cards; gates green. Left: the List rows and settings.', filesTouched: ['hooks/draw.tsx', 'tests/surfaces.test.tsx'] })
 const topicOf = (id, name, color, count, ago, isMajor = true) => ({ id, name, color, isMajor, lastAt: NOW - ago, sessions: Array.from({ length: count }, (_, i) => sessionOf(id, i, ago)) })
 const topics = [
   topicOf('t1', 'Constellation Build', '#E9A23B', 10, 3 * MIN),
@@ -52,7 +53,7 @@ const topics = [
   topicOf('t3', 'Api Trading', '#3FB950', 2, 22 * DAY),
 ]
 if (WHICH !== 'chooser') topics.push(topicOf('t4', 'Notes', '#B58CFF', 1, 30 * DAY, false))
-if (WHICH === 'focus') topics[0].sessions = topics[0].sessions.slice(0, 5)
+if (WHICH === 'focus' || WHICH === 'cards') topics[0].sessions = topics[0].sessions.slice(0, 5)
 const sessions = topics.flatMap(t => t.sessions).sort((a, b) => b.lastAt - a.lastAt)
 const model = { topics, sessions, links: [], byId: Object.fromEntries(sessions.map(s => [s.id, s])), topicById: Object.fromEntries(topics.map(t => [t.id, t])) }
 const ui = { view: 'map', query: '', focusTopic: null, selected: null, mergeFrom: null, moveMode: false, showSettings: false, showHelp: false }
@@ -116,6 +117,11 @@ const SCENES = {
     ['merge pick', () => draw.drawControls(T, { ...view, ui: { ...ui, mergeFrom: 't2' } }, act)],
   ],
   focus: [['focus', () => column(draw.drawHeader(T, focused, act), field('[ the chain ]'), draw.drawControls(T, focused, act))]],
+  cards: [
+    ['joined card', () => draw.drawJoinedCard(T, view, act)],
+    ['topic card', () => draw.drawTopicCard(T, { ...focused, ui: { ...focused.ui, selected: null } }, act, topics[0])],
+    ['session card', () => draw.drawSessionCard(T, focused, act, model.byId['t1-2'])],
+  ],
 }
 const panels = []
 for (const [label, build] of SCENES[WHICH]) {
