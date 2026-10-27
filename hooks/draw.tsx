@@ -10,7 +10,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
-import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, chainRows, focusSize, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
+import { BASE, FOCUS_PILL, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, chainRows, crowdedLabels, focusSize, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
@@ -567,7 +567,18 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     }
     const chars = chainLabelChars(steps.length, size)
     // Every step labelled: each meta line keeps to its room on its row. A crowded chain labels a few steps apart from each other, which take more.
-    const metaChars = chars > 0 ? chainMetaChars(steps.length, size) : 18
+    const metaChars = chainMetaChars(steps.length, size)
+    // A crowded chain labels the steps that matter here: the selected one, then "you", then the latest, then the first.
+    // Of two too close on one row the lesser goes; the tooltips carry the rest.
+    const crowd = chars > 0
+      ? undefined
+      : crowdedLabels(steps.map((step, i) => {
+          const s = step.session
+          if (s !== undefined && ui.selected === s.id) return 4
+          if (step.isYou) return 3
+          if (s !== undefined && latest !== undefined && s.id === latest.id) return 2
+          return i === 0 ? 1 : 0
+        }), positions)
     const { upper } = chainRows(size)
     steps.forEach((step, i) => {
       const pt = positions[i]
@@ -584,16 +595,16 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const op = isYou || (s && matches(query, s)) ? 1 : 0.25
       const isTight = steps.length >= 5
       const title = isYou ? 'This session · you' : (s?.title ?? '')
-      // A crowded chain labels only the steps that matter here; the tooltips carry the rest.
-      const isLabelled = chars > 0 || isYou || isSel || isLatest || i === 0
-      const room = chars > 0 ? chars : 14
+      const crowded = crowd?.get(i)
+      const isLabelled = chars > 0 || crowded !== undefined
+      const room = crowded?.title ?? chars
       // The meta line keeps to its room on its row and to the field's edge. Where room is short it sheds its turns, then
-      // "latest" (the glow says it), before a word is cut.
-      const metaRoom = Math.max(6, Math.min(metaChars, Math.floor((2 * Math.min(pt.x, size.w - pt.x) - 8) / 6.3)))
+      // "latest" (the glow says it), before a word is cut; "you" sheds its "now".
+      const metaRoom = Math.max(6, Math.min(crowded?.meta ?? metaChars, Math.floor((2 * Math.min(pt.x, size.w - pt.x) - 8) / 6.3)))
       const age = s ? `${ageOf(s.lastAt, now)} ago` : ''
       const latestTag = isLatest ? ['latest'] : []
       const metas = isYou
-        ? ['now · you']
+        ? ['now · you', 'you']
         : s
           ? [...(isTight ? [] : [sessionMeta(s, now, isLatest ? 'latest' : '')]), [...latestTag, age, turnsOf(s)].join(' · '), [...latestTag, age].join(' · '), age]
           : ['']
