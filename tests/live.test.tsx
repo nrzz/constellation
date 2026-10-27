@@ -2,7 +2,7 @@
 // CSS; no pointer layer lies over it. The click picture (the image plus the Client layer) stays as `pictureMode: clicks`.
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY_STORE, buildModel } from '../hooks/cluster'
+import { ACCENT, EMPTY_STORE, buildModel } from '../hooks/cluster'
 import { placementOf } from '../hooks/actions'
 import { pointerHint, svgOf } from '../hooks/draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, settingValue } from '../hooks/state'
@@ -77,9 +77,10 @@ test('the settings view offers Picture: Live / Clicks under ADVANCED, and a pres
 })
 
 /** Three major topics (one with a goal, one with a parked note, one with neither), the first two sharing a file. */
-function liveView(settings = DEFAULT_SETTINGS, running: readonly string[] = []) {
+function liveView(settings = DEFAULT_SETTINGS, running: readonly string[] = [], extra: { archived?: readonly string[]; you?: string; youTopic?: string } = {}) {
   const sessions: SessionSummary[] = []
-  const store = { ...EMPTY_STORE, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string>, goals: { 'topic:a': 'Ship the <live> pane' } as Record<string, string>, notes: { 'b-0': { text: 'Left off at the caption', at: NOW, source: 'manual' as const } } }
+  const archived = Object.fromEntries((extra.archived ?? []).map(id => [id, true])) as Record<string, true>
+  const store = { ...EMPTY_STORE, archived, topics: {} as Record<string, { name: string; createdAt: number }>, assign: {} as Record<string, string>, goals: { 'topic:a': 'Ship the <live> pane' } as Record<string, string>, notes: { 'b-0': { text: 'Left off at the caption', at: NOW, source: 'manual' as const } } }
   for (const [t, name, file] of [['a', 'Alpha work', 'src/shared.ts'], ['b', 'Beta work', 'src/shared.ts'], ['c', 'Gamma work', 'src/own.ts']] as const) {
     store.topics[`topic:${t}`] = { name, createdAt: 0 }
     for (let k = 0; k < 3; k += 1) {
@@ -89,9 +90,10 @@ function liveView(settings = DEFAULT_SETTINGS, running: readonly string[] = []) 
       store.assign[id] = `topic:${t}`
     }
   }
-  const model = buildModel(sessions, store, settings, NOW, 'me')
+  const you = extra.you ?? 'me'
+  const model = buildModel(sessions, store, settings, NOW, you)
   const placement = placementOf(model, null)
-  return { model, placed: placement.placed, field: placement.size, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: 'me' }, settings, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
+  return { model, placed: placement.placed, field: placement.size, ui: INITIAL_UI, me: { ...INITIAL_ME, sessionId: you, topicId: extra.youTopic ?? null }, settings, usage: INITIAL_USAGE, now: NOW, surface: 'desktop' }
 }
 
 test('live: each topic is one group with its pill and satellites, and a hover rule of its own traces it', () => {
@@ -229,18 +231,12 @@ test('clicks: no motion at all', () => {
   expect(svg).not.toContain('class="o"')
 })
 
-test('live motion: running satellites pulse out of step, idle ones keep still, and the latest step’s glow breathes', () => {
+test('live motion: the latest step’s glow breathes, and only in live', () => {
   const view = liveView(DEFAULT_SETTINGS, ['a-0', 'b-1'])
-  const svg = svgOf(view)
-  expect(svg).toContain('@keyframes pu{')
-  // One pulsing halo per running satellite, each on its own delay; none for the seven idle ones.
-  const pulses = svg.match(/<circle class="pu" style="animation-delay:-[\d.]+s"/g) ?? []
-  expect(pulses.length).toBe(2)
-  expect(new Set(pulses).size).toBe(2)
   const focused = svgOf({ ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:a' } })
   expect(focused).toContain('@keyframes br{')
   expect((focused.match(/<circle class="br"/g) ?? []).length).toBe(1)
-  expect(svgOf({ ...view, settings: { ...DEFAULT_SETTINGS, pictureMode: 'clicks' } })).not.toMatch(/class="(pu|br)"/)
+  expect(svgOf({ ...view, settings: { ...DEFAULT_SETTINGS, pictureMode: 'clicks' } })).not.toMatch(/class="br"/)
 })
 
 test('live idle cycle: with nobody pointing, each major topic is traced in turn, four seconds apart, the caption following', () => {
@@ -271,6 +267,101 @@ test('live idle cycle: the four-hundred-session folder keeps its cycle and stays
   const svg = svgOf(view)
   expect(svg.length).toBeLessThanOrEqual(131072)
   const drawn = view.model.topics.filter(t => t.isMajor).length
-  expect((svg.match(/<g class="t t-\d+ cy"/g) ?? []).length).toBe(drawn)
+  expect((svg.match(/<g class="t t-\d+( run)? cy"/g) ?? []).length).toBe(drawn)
   expect((svg.match(/<g class="cap c-\d+ cy"/g) ?? []).length).toBe(drawn)
+})
+
+// Running things (a session written in the last five minutes, or this one; a topic holding one) are what the eye finds first.
+const groupOf = (svg: string, i: number) => svg.split(new RegExp(`<g class="t t-${i}[ "]`))[1]?.split('<g class="t t-')[0] ?? ''
+const openTag = (svg: string, i: number) => svg.match(new RegExp(`<g class="t t-${i}[ "][^>]*>`))?.[0] ?? ''
+
+test('running: a running topic carries a run class, a ring in its colour and the strongest halo; an idle topic neither', () => {
+  const view = liveView(DEFAULT_SETTINGS, ['a-0'])
+  const svg = svgOf(view)
+  const a = view.model.topics.findIndex(t => t.id === 'topic:a')
+  const c = view.model.topics.findIndex(t => t.id === 'topic:c')
+  const color = view.model.topicById['topic:a']?.color ?? ''
+  expect(openTag(svg, a)).toContain(' run')
+  expect(groupOf(svg, a)).toContain(`<rect class="rg" `)
+  expect(groupOf(svg, a)).toMatch(new RegExp(`<rect class="rg" [^>]*stroke="${color}"`))
+  // Its halo is brighter than the hover glow (.22) and the satellites' (.12), and is always on.
+  expect(groupOf(svg, a)).toMatch(/<rect class="rh" [^>]*fill="rgba\([\d, ]+0\.3\d*\)"/)
+  // The live dot before its label: the pill's dot ringed.
+  expect(groupOf(svg, a)).toContain('class="ld"')
+  expect(openTag(svg, c)).not.toContain(' run')
+  for (const cls of ['rg', 'rh', 'ld']) expect(groupOf(svg, c)).not.toContain(`class="${cls}"`)
+})
+
+test('running: one ripple per running satellite, each out of step; none on idle or archived ones; running cores are bright', () => {
+  const view = liveView(DEFAULT_SETTINGS, ['a-0', 'a-1', 'b-1'], { archived: ['c-0'] })
+  const svg = svgOf(view)
+  const ripples = svg.match(/<circle class="rp" [^>]*>/g) ?? []
+  expect(ripples.length).toBe(3)
+  // Durations of two to three seconds and delays all differ, so no two widen together.
+  const clocks = ripples.map(r => r.match(/animation:rp ([\d.]+)s ease-out -([\d.]+)s infinite/)?.slice(1).join('/') ?? '')
+  clocks.forEach(k => expect(k).not.toBe(''))
+  expect(new Set(clocks).size).toBe(3)
+  ripples.forEach(r => {
+    const d = Number(r.match(/animation:rp ([\d.]+)s/)?.[1])
+    expect(d).toBeGreaterThanOrEqual(2)
+    expect(d).toBeLessThanOrEqual(3)
+  })
+  expect((svg.match(/<circle class="co" /g) ?? []).length).toBe(3)
+  // Idle sessions stay outlined, archived ones dashed.
+  expect(svg).toMatch(/<circle class="sat" [^>]*style="fill:var\(--pill\)"[^>]*stroke-dasharray="2 2"/)
+  expect(svg).toContain('@keyframes rp{')
+})
+
+test('running: this session’s satellite is in the accent colour and ripples in it', () => {
+  const view = liveView(DEFAULT_SETTINGS, [], { you: 'b-2' })
+  const svg = svgOf(view)
+  const b = view.model.topics.findIndex(t => t.id === 'topic:b')
+  expect(openTag(svg, b)).toContain(' run')
+  expect(groupOf(svg, b)).toMatch(new RegExp(`<circle class="sat" [^>]*fill="${ACCENT}"`))
+  expect(groupOf(svg, b)).toMatch(new RegExp(`<circle class="rp" [^>]*stroke="${ACCENT}"`))
+})
+
+test('running focus: running chain steps and "you" get the core and the ripple, "you" in the accent colour', () => {
+  const view = liveView(DEFAULT_SETTINGS, ['a-0'], { youTopic: 'topic:a' })
+  const svg = svgOf({ ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:a' } })
+  const steps = svg.split(/<g class="n hit st st-/).slice(1).map(g => g.split('</g>')[0] ?? '')
+  // Three sessions and "you": two ripple (a-0 and you), the idle two do not.
+  expect(steps.length).toBe(4)
+  expect(steps.filter(g => g.includes('class="rp"')).length).toBe(2)
+  expect(steps.filter(g => g.includes('class="co"')).length).toBe(2)
+  const you = steps.find(g => g.includes('class="rp"') && g.includes(`stroke="${ACCENT}"`))
+  expect(you).toBeDefined()
+})
+
+test('running: the caption leads with live and how many run; the idle cycle starts at a running topic', () => {
+  const view = liveView(DEFAULT_SETTINGS, ['c-0', 'c-1'])
+  const svg = svgOf(view)
+  const c = view.model.topics.findIndex(t => t.id === 'topic:c')
+  const cap = svg.split(new RegExp(`<g class="cap c-${c}[ "]`))[1]?.split('</g>')[0] ?? ''
+  expect(cap).toContain('● live · 2 running · Gamma work')
+  const a = view.model.topics.findIndex(t => t.id === 'topic:a')
+  expect(svg.split(new RegExp(`<g class="cap c-${a}[ "]`))[1]?.split('</g>')[0] ?? '').not.toContain('● live')
+  expect(openTag(svg, c)).toContain('--d:4s')
+})
+
+test('running in clicks: the ring, halo and cores without motion; reduced motion keeps them and stops the ripple', () => {
+  const clicks = svgOf(liveView({ ...DEFAULT_SETTINGS, pictureMode: 'clicks' }, ['a-0']))
+  expect(clicks).toContain('class="rg"')
+  expect(clicks).toContain('class="rh"')
+  expect(clicks).toContain('class="co"')
+  expect(clicks).not.toContain('class="rp"')
+  expect(clicks).not.toContain('animation')
+  const live = svgOf(liveView(DEFAULT_SETTINGS, ['a-0']))
+  // A ripple has no resting look: with its animation stopped it is not drawn, while the ring, halo and core stay.
+  expect(live).toContain('.rp{opacity:0;')
+  expect(live).toContain('@media (prefers-reduced-motion:reduce){.f *{animation:none!important}}')
+  expect(live).not.toMatch(/\.(rg|rh|co)\{[^}]*animation/)
+})
+
+test('running: the four-hundred-session folder with a running topic still meets the cap', () => {
+  const view = bigView(40, 10)
+  const svg = svgOf(view)
+  expect(svg.length).toBeLessThanOrEqual(131072)
+  expect(svg).toMatch(/<g class="t t-\d+ run/)
+  expect(svg).toContain('class="rp"')
 })

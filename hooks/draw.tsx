@@ -316,9 +316,10 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       // Motion: calm, out of step, and stopped for a reader who asks for less.
       `@keyframes tw{50%{opacity:.25}}@keyframes rk{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}@keyframes fl{50%{transform:translate(0,-3px)}}`,
       `.tw{animation:tw 5s ease-in-out infinite}.o{transform-box:view-box;animation:rk 60s ease-in-out infinite alternate}.t{animation:fl 8s ease-in-out infinite}`,
-      // A running satellite's halo pulses; the latest step's glow breathes.
-      `@keyframes pu{50%{transform:scale(1.5);opacity:.45}}@keyframes br{50%{opacity:.4}}`,
-      `.pu{transform-box:fill-box;transform-origin:center;animation:pu 2.6s ease-in-out infinite}.br{animation:br 4s ease-in-out infinite}`,
+      // A running session ripples: a ring that widens and fades, with no resting look, so stopped motion hides it. The latest
+      // step's glow breathes.
+      `@keyframes rp{0%{transform:scale(1);opacity:.85}100%{transform:scale(2.6);opacity:0}}@keyframes br{50%{opacity:.4}}`,
+      `.rp{opacity:0;transform-box:fill-box;transform-origin:center}.br{animation:br 4s ease-in-out infinite}`,
       `@media (prefers-reduced-motion:reduce){.f *{animation:none!important}}`,
     )
   }
@@ -335,6 +336,13 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   }
   const indexOf = new Map<string, number>()
   model.topics.forEach((t, i) => indexOf.set(t.id, i))
+  // Running: a session written in the last few minutes, or this one; a topic holding one. Live draws a ripple about each.
+  const runningIn = (t: Topic) => t.sessions.filter(s => s.status === 'active').length + (view.me.topicId === t.id && !t.sessions.some(s => s.id === view.me.sessionId) ? 1 : 0)
+  const ripple = (x: number, y: number, r: number, stroke: string, seed: number) => {
+    if (!live) return ''
+    const d = 2 + (seed % 11) / 10
+    return `<circle class="rp" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="none" stroke="${stroke}" stroke-width="1.2" style="animation:rp ${d.toFixed(1)}s ease-out -${((seed * 0.37) % d).toFixed(2)}s infinite"/>`
+  }
 
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}" role="img">`,
@@ -386,7 +394,12 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     // its caption following; a hover anywhere on the field stops it. The rest is not faded: that would take a timeline
     // per topic, and a map dimming on its own is not calm.
     const cycle = new Map<string, number>()
-    if (live) model.topics.filter(t => t.isMajor && placed[t.id]).forEach((t, k) => cycle.set(t.id, 4 * (k + 1)))
+    // A running topic is traced first.
+    if (live)
+      model.topics
+        .filter(t => t.isMajor && placed[t.id])
+        .sort((a, b) => Number(runningIn(b) > 0) - Number(runningIn(a) > 0))
+        .forEach((t, k) => cycle.set(t.id, 4 * (k + 1)))
     if (cycle.size > 0) {
       const period = 4 * (cycle.size + 1)
       const s = 100 / (cycle.size + 1)
@@ -416,11 +429,12 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const countLabel = query ? `${t.sessions.filter(s => matches(query, s)).length} match` : `${t.sessions.length}${view.me.topicId === t.id ? ' · you' : ''}`
       const linked = relatedOf(model.links, t.id)
       const d = cycle.get(t.id)
+      const running = runningIn(t)
       if (live) {
         // Its spokes and its links to other topics in its colour; the rest fades (above), the caption takes the hint's place.
         css.push(`.t-${i}:hover .ln{stroke:${t.color}!important;opacity:.8!important}`, `.t-${i}:hover .sat{r:10px}`, `.f:has(.t-${i}:hover) .c-${i}{opacity:1}`)
         if (linked.length > 0) css.push(`.f:has(.t-${i}:hover) .x-${i}{stroke:${t.color}!important;opacity:.8!important}`)
-        capOf(`c-${i}${d ? ' cy' : ''}`, `${clip(t.name, 28)} · ${captionOf(t, now)}`, t.color, d ? `--d:${d}s` : '')
+        capOf(`c-${i}${d ? ' cy' : ''}`, `${running > 0 ? `● live · ${running} running · ` : ''}${clip(t.name, 28)} · ${captionOf(t, now)}`, t.color, d ? `--d:${d}s` : '')
       } else {
         css.push(`.t-${i}:hover .ln{stroke:${t.color}}`, `.t-${i}:hover .sat{r:10px}`)
         for (const r of linked) {
@@ -430,7 +444,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       }
       const cy = d ? ` cy` : ''
       const cyStyle = d ? `;--d:${d}s;--c:${t.color}` : ''
-      const g: string[] = [`<g class="t t-${i}${cy}" opacity="${opacity.toFixed(2)}"${live ? ` style="animation-duration:${7 + (i % 5) * 0.8}s;animation-delay:-${(i * 1.9) % 7}s${cyStyle}"` : ''}>`]
+      const g: string[] = [`<g class="t t-${i}${running > 0 ? ' run' : ''}${cy}" opacity="${opacity.toFixed(2)}"${live ? ` style="animation-duration:${7 + (i % 5) * 0.8}s;animation-delay:-${(i * 1.9) % 7}s${cyStyle}"` : ''}>`]
       const sessions = t.sessions.slice(0, maxSessions)
       if (live && sessions.length > 0) {
         // Its spokes and satellites sway about its centre as one group, a few degrees each way: a full turn would carry
@@ -456,16 +470,20 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         let op = s.isInRange ? 1 : 0.18
         if (traced && !isTraced) op = Math.min(op, 0.25)
         if (!isMatch) op = Math.min(op, 0.15)
-        const fillAttr = s.status === 'active' ? `fill="${t.color}"` : 'style="fill:var(--pill)"'
-        const ringAttr = s.status === 'archived' ? 'style="stroke:var(--dim)"' : `stroke="${t.color}"`
+        // This session in the accent colour, as everywhere else.
+        const tone = s.id === view.me.sessionId ? ACCENT : t.color
+        const isRun = s.status === 'active'
+        const fillAttr = isRun ? `fill="${tone}"` : 'style="fill:var(--pill)"'
+        const ringAttr = s.status === 'archived' ? 'style="stroke:var(--dim)"' : `stroke="${tone}"`
         const dash = s.status === 'archived' ? ' stroke-dasharray="2 2"' : ''
         const glow = isSel || (query && isMatch) ? `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 4}" fill="${rgba(t.color, 0.3)}"/>` : ''
-        // A running satellite's halo pulses, each on its own delay so no two beat together.
-        const pulse = live && s.status === 'active' ? ` class="pu" style="animation-delay:-${((i * 1.1 + k * 0.7) % 2.6).toFixed(1)}s"` : ''
-        const halo = `<circle${pulse} cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 5}" fill="${rgba(t.color, 0.12)}"/>`
+        const halo = `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 5}" fill="${rgba(tone, 0.12)}"/>`
+        // A running satellite: a bright core, and a ripple on a clock of its own so no two widen together.
+        const core = isRun ? `<circle class="co" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${Math.max(1, r * 0.45).toFixed(1)}" fill="#FFFFFF"/>` : ''
+        const rip = isRun ? ripple(sp.x, sp.y, r + 1.5, tone, i * 7 + k * 3) : ''
         const tip = withTooltips ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
         const pin = s.isPinned ? `<text x="${(sp.x + 5).toFixed(1)}" y="${(sp.y - 5).toFixed(1)}" font-size="9" fill="${ACCENT}">★</text>` : ''
-        g.push(`<g class="s n hit" opacity="${op.toFixed(2)}">${tip}${halo}${glow}<circle class="sat" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r}" ${fillAttr} ${ringAttr} stroke-width="1.5"${dash}/>${pin}</g>`)
+        g.push(`<g class="s n hit" opacity="${op.toFixed(2)}">${tip}${halo}${glow}${rip}<circle class="sat" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r}" ${fillAttr} ${ringAttr} stroke-width="1.5"${dash}/>${core}${pin}</g>`)
       })
       if (live && sessions.length > 0) g.push('</g>')
       if (t.isMajor) {
@@ -473,18 +491,24 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         const x = p.x - w / 2
         const y = p.y - 19
         const dashed = isDrop ? ' stroke-dasharray="4 3"' : ''
+        // A running topic: an always-on halo stronger than any other, a ring in its colour, and its dot ringed as a live dot.
+        if (running > 0) g.push(`<rect class="rh" x="${(x - 8).toFixed(1)}" y="${y - 8}" width="${(w + 16).toFixed(1)}" height="54" rx="27" fill="${rgba(t.color, 0.3)}"/>`)
         g.push(
           `<rect class="glow" x="${(x - 5).toFixed(1)}" y="${y - 5}" width="${(w + 10).toFixed(1)}" height="48" rx="24" fill="${rgba(t.color, 0.22)}"${isTraced || isDrop ? ' opacity="1"' : ''}/>`,
+          ...(running > 0 ? [`<rect class="rg" x="${(x - 3.5).toFixed(1)}" y="${y - 3.5}" width="${(w + 7).toFixed(1)}" height="45" rx="22.5" fill="none" stroke="${t.color}" stroke-width="1.5" opacity="0.9"/>`] : []),
           `<rect class="pill hit" x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="38" rx="19" style="fill:var(${isTraced ? '--pill2' : '--pill'})" stroke="${t.color}" stroke-width="1.5"${dashed}/>`,
+          ...(running > 0 ? [`<circle class="ld" cx="${(x + 17).toFixed(1)}" cy="${p.y}" r="7" fill="none" stroke="${t.color}" stroke-width="1.2" opacity="0.8"/>`] : []),
           `<circle cx="${(x + 17).toFixed(1)}" cy="${p.y}" r="4" fill="${t.color}"/>`,
           `<text class="nm" x="${(x + 28).toFixed(1)}" y="${p.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clip(t.name, 28))}</text>`,
           `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${p.y + 4}" font-size="11" font-weight="500" fill="${t.color}" text-anchor="end">${esc(countLabel)}</text>`,
         )
       } else {
         // The label hangs right of the dot; the placement reserved that room.
+        // Running: the halo and ring as a pill has them, and the dot itself filled as the live dot.
+        if (running > 0) g.push(`<circle class="rh" cx="${p.x}" cy="${p.y}" r="14" fill="${rgba(t.color, 0.3)}"/>`, `<circle class="rg" cx="${p.x}" cy="${p.y}" r="9" fill="none" stroke="${t.color}" stroke-width="1.2" opacity="0.9"/>`)
         g.push(
           `<circle class="glow" cx="${p.x}" cy="${p.y}" r="11" fill="${rgba(t.color, 0.22)}"${isTraced || isDrop ? ' opacity="1"' : ''}/>`,
-          `<circle class="hit" cx="${p.x}" cy="${p.y}" r="5.5" style="fill:var(--pill)" stroke="${t.color}" stroke-width="1.5"${isDrop ? ' stroke-dasharray="3 2"' : ''}/>`,
+          `<circle class="hit${running > 0 ? ' ld' : ''}" cx="${p.x}" cy="${p.y}" r="5.5" ${running > 0 ? `fill="${t.color}"` : 'style="fill:var(--pill)"'} stroke="${t.color}" stroke-width="1.5"${isDrop ? ' stroke-dasharray="3 2"' : ''}/>`,
           `<text class="mono lbl" x="${p.x + 16}" y="${p.y + 4}" font-size="11.5" style="fill:var(${isTraced ? '--tx' : '--mu'})">${esc(clip(t.name, 24))} <tspan fill="${t.color}">${esc(countLabel)}</tspan></text>`,
         )
       }
@@ -561,8 +585,12 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       }
       const g: string[] = [`<g class="n hit${live ? ` st st-${i}` : ''}" opacity="${op.toFixed(2)}">${tip}`]
       if (isLatest) g.push(`<circle${live ? ' class="br"' : ''} cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="21" fill="${rgba(color, 0.22)}"/>`)
+      // A running step (and "you") ripples, and wears a bright core on its rim, clear of its number.
+      const isRun = isYou || status === 'active'
+      if (isRun) g.push(ripple(pt.x, pt.y, 17, ring, i * 5 + 2))
       g.push(`<circle${live ? ' class="ring"' : ''} cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="16" style="fill:${fill};stroke:${ring}" stroke-width="2"${dash}/>`)
       g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${(pt.y + 4.5).toFixed(1)}" font-size="12.5" font-weight="600" style="fill:${numColor}" text-anchor="middle">${i + 1}</text>`)
+      if (isRun) g.push(`<circle class="co" cx="${(pt.x + 11.3).toFixed(1)}" cy="${(pt.y + 11.3).toFixed(1)}" r="3.5" fill="#FFFFFF" stroke="${ring}" stroke-width="1.5"/>`)
       if (s?.isPinned) g.push(`<text x="${(pt.x + 12).toFixed(1)}" y="${(pt.y - 10).toFixed(1)}" font-size="10" fill="${ACCENT}">★</text>`)
       const labelColor = isYou ? ACCENT : isSel ? 'var(--tx)' : status === 'archived' ? 'var(--mu)' : 'var(--lb)'
       if (isLabelled) {
