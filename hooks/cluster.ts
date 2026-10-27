@@ -606,3 +606,9 @@ export function ageOf(at: number, now: number): string {
   if (days < 60) return `${days}d`
   return `${Math.round(days / 30)}mo`
 }
+
+/** An age as a reader says it: "now" this minute, else "<age> ago"; never "now ago". */
+export function agoOf(at: number, now: number): string {
+  const age = ageOf(at, now)
+  return age === 'now' ? age : `${age} ago`
+}

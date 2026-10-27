@@ -182,6 +182,18 @@ test('/topic lists the topics numbered and /topic n joins one; /map <topic> open
   expect((await run($, 'map', 'find')).text).toContain('Usage: /map find')
 })
 
+test('a session active this minute reads "now", never "now ago", in /map here and /pickup list', async ($, on) => {
+  stubEngine(on, { now: Date.parse('2026-10-20T09:05:20.000Z') })
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const here = (await run($, 'map', 'here')).text ?? ''
+  expect(here).toMatch(/· latest: Fix flaky cart wait · now(\n|$)/)
+  await run($, 'topic', '1')
+  const steps = (await run($, 'pickup', 'list')).text ?? ''
+  expect(steps).toContain('2. Fix flaky cart wait · now · latest')
+  expect(steps).toContain('1. Checkout total rounding · 2d ago')
+  for (const text of [here, steps]) expect(text).not.toContain('now ago')
+})
+
 test('/map after /map settings and /map close opens on the map again, not on the settings card', async ($, on) => {
   stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })

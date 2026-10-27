@@ -838,15 +838,20 @@ test('the "you" meta is never cut to "now · y…": it reads "now · you", or "y
   const view = chainView(120, 21, { you: true })
   const metas = chainClashes(svgOf(view), view.field.w, '').texts.filter(t => t.y.startsWith('meta')).map(t => t.text)
   expect(metas.some(t => t === 'now · you' || t === 'you')).toBe(true)
-  // Over every width a pane gives and every chain length to 40 with "you" in it, no meta line is cut.
+  // Over every width a pane gives and every chain length to 40 with "you" in it, no meta line is cut. A pane's
+  // columns reach the picture only through its field width, so each width is drawn once, by its narrowest pane.
+  const widths = new Map<number, number>()
+  for (let columns = 40; columns <= 120; columns += 1) if (!widths.has(fieldWidthFor(columns))) widths.set(fieldWidthFor(columns), columns)
+  expect([...widths.keys()]).toEqual([520, 540, 560, 580, 600, 620, 640, 660, 680, 700, 720, 740, 760, 780, 800, 820, 840, 860])
   const cut: string[] = []
-  for (let columns = 40; columns <= 120; columns += 2) {
-    for (let n = 2; n <= 40; n += 1) {
-      const v = chainView(columns, n, { you: true })
+  for (let n = 2; n <= 40; n += 1) {
+    const model = chainFolder(n)
+    for (const columns of widths.values()) {
+      const v = chainView(columns, n, { you: true, model })
       for (const t of chainClashes(svgOf(v), v.field.w, '').texts) if (t.y.startsWith('meta') && t.text.endsWith('…')) cut.push(`${v.field.w} wide, ${n} steps: "${t.text}"`)
     }
   }
-  expect([...new Set(cut)]).toEqual([])
+  expect(cut).toEqual([])
 })
 
 test('the panes: a Desktop pane 44 columns wide draws a 520-unit picture, a wide one 860, a terminal pane the full field for its text map', async ($, on) => {
