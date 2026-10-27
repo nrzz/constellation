@@ -11,13 +11,15 @@ the band, the commands, handoff injection, auto notes, the terminal's
 text-mode map Client, and the features added beyond the brief (topic goals,
 rename, recolour, merge, a "since your last look" digest, a status line,
 Draft next prompt, `/map export`, a model-spend counter, letter hotkeys).
-`claude plugin validate --strict`, `claude plugin test` (123 tests) and `tsc`
-pass. The generated field was compared with the prototype by eye through
-the preview page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
+`claude plugin validate --strict`, `claude plugin test` (135 tests) and `tsc`
+pass, and so do the two end-to-end suites against the real engine:
+`tests/e2e/tui.sh` (the terminal, with real mouse events) and
+`tests/e2e/desktop.mjs` (the Desktop's own wire, its map Client clicked). The
+generated field was compared with the prototype by eye through the preview
+page (https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u).
 
-What is left needs a local Desktop session (see "Next steps" at the end):
-load the mod, open `/map`, compare the live pane with the prototype, check
-whether a Client over the Svg can take clicks on the Desktop, and release.
+What is left is the release checklist at the end: one look at a real Desktop
+window, then the release.
 
 ## Design reference (the visual and interaction spec)
 
@@ -450,8 +452,8 @@ declarations it embeds as a zstd frame), to settle how a Desktop Client works:
    validator reads them off the file). The settings type is `MapSettings`
    because the engine's module already exports a `Settings`.
 6. `client/map.js` (Phase 2): the terminal's text-mode map. Pointer hover
-   traces, a click picks, a drag moves a session onto a topic, arrows walk
-   topics or steps, Enter picks, Backspace backs out; posts answered by a
+   traces, a click picks, a drag moves a session onto a topic (it takes no
+   keys since the clicks pass: see below); posts answered by a
    `ui.message` hook. The Desktop keeps the Svg plus buttons: whether an
    absolutely placed Client can sit over the Svg there could not be tried in
    the cloud.
@@ -591,16 +593,88 @@ Lessons for the next build: a test's `$` has only the event nouns (no
 key }`; the terminal's resolve table carries an `Svg` entry, so pick elements
 by `e.surface`; a Client's props must hold no `undefined`.
 
+## Done in the cloud session (2026-10-27, the clicks pass)
+
+Asked: is a topic click really working, end to end, with every edge case. Every
+claim below was checked against the real engine (2.1.311), in tmux for the
+terminal and over the Desktop's stdio wire for the Desktop.
+
+Engine facts found on the way (not in the API docs, or easy to miss):
+
+- The terminal reports the mouse only under the fullscreen renderer (SGR,
+  any motion; `CLAUDE_CODE_DISABLE_MOUSE` and `..._CLICKS` turn it off or to
+  the wheel). The classic renderer (`tui: default`) reports none. Fullscreen
+  docks a pane from 110 columns and seats it inline below that, mouse on:
+  `viewport.isFullscreen`, not `placement`, says whether the mouse works.
+- A Client with an `onKey` listener holds the keyboard after every click on
+  it until Escape, so the pane's hotkeys go dead. The map takes no keys now.
+- A pane opened with `closeOnEscape` gets `ui.close` (origin person) both
+  for Escape in the pane, after the engine has handed the keyboard to the
+  prompt, and for Escape at an idle empty prompt. The engine raises the close
+  a few milliseconds before it redraws the pane unfocused, so the hook must
+  read the last drawing's `isFocused` before it awaits anything. A pane that
+  held the keyboard asks for it again (`$.ui.open({ focus })`); one that did
+  not must not.
+- The test kit cannot raise `ui.close` (its `$.ui` offers render, scroll,
+  focus, press, input, select, mount), so Escape is checked end to end only.
+- The Desktop's wire is the stdio control channel (`claude -p --input-format
+  stream-json --output-format stream-json --verbose`): `ui_attach {surface}`,
+  `ui_render`, `ui_client_module` (the module's source, compiled, with the
+  `claude:surface-runtime` driver), `ui_message` (a Client's posts),
+  `ui_press` / `ui_select`, pushes `ui_invalidate`, `ui_panes`, `ui_status`.
+  A client must redraw on `ui_invalidate`: a `ui_render` straight after a
+  `ui_message` answer can come before the state change lands. The runtime
+  installs once per realm (it claims a global), as a Desktop frame is one.
+  Env vars that mark a hosted or remote worker gate the channel; the harness
+  strips them.
+- A Client module's default export must not be named `Map`: it hides the
+  built-in `Map` everywhere in the module.
+
+Found and fixed (each with a test, unit or end to end):
+
+- The map held the keyboard after a click; help discarded the open card;
+  Escape gave the keyboard to the prompt (the next hotkey typed into the
+  composer); a refresh hid Undo; ‹ All topics backed out one level instead of
+  going back to every topic.
+- An independent review of the diff found five more: Escape at an empty prompt
+  pulled the keyboard into the pane; in a long chain a click on a step's
+  number opened another step; the no-mouse hint keyed on placement; the old
+  stub check could catch a real large transcript; a `/map here` snapshot said
+  "click". All fixed.
+- A transcript over 4 MiB went to Unsorted even when its slices were read;
+  only a stub does now. A session moved to Unsorted by hand stays there.
+- The picture, rendered from the real engine for a 140-session folder:
+  satellites crossed other topics and the hint, spokes crossed labels, the
+  focused chain's rows were 52 apart so labels sat under the other row's
+  circles, arrows sat on the numbers, "1 turns". Now each topic keeps a halo,
+  spokes start at the pill's edge, the chain has two rows with labels above
+  and below wrapped to their room, arrows run edge to edge.
+- The terminal text map: step labels ran into each other; labels pulled in
+  from the right edge moved their numbers off their cells; rows were spent on
+  the field's empty top and bottom. Labels now stop before the next node,
+  glyphs stay put, rows fit the nodes (zooming in no further than 20 field
+  units a row, so a few topics keep their satellites beside them).
+- The test harness counted bytes, not cells, so its clicks on buttons missed:
+  `tests/e2e/cells.py` measures the screen in cells.
+
+Results: 135 unit tests; `tests/e2e/tui.sh` 67 checks in three passes
+(fullscreen with real mouse events, an isolated drag, the classic renderer),
+the model turn among them, run as installed; `tests/e2e/desktop.mjs` 80 checks
+over the Desktop's wire;
+the README's pictures drawn by the real engine (`tests/e2e/shots.mjs`,
+`tests/e2e/shots-terminal.mjs`).
+
 ## Release checklist
 
 1. `/plugin install constellation --marketplace nrzz/constellation` in any
    Claude Code (or `install.sh` / `install.ps1`); `/map` in a folder with
    sessions. `tests/e2e/tui.sh` with `E2E_INSTALL=1` does the same from a
    checkout, unattended.
-2. On the Desktop, a click on a pill, a satellite and a step on the picture
-   should pick; the buttons under the field do the same either way, and
-   settings, Advanced, **Clicks on the picture: Outline** shows what the
-   layer sees.
+2. On a real Desktop window, look at the layer over the picture once: the
+   wire, the module and every click are checked by `tests/e2e/desktop.mjs`;
+   only the Desktop's own layout of the layer is not. Settings, Advanced,
+   **Clicks on the picture: Outline** draws its edge; the buttons under the
+   field do the same work either way.
 3. Watch the first real folder: large transcripts, the auto topic names, the
    join suggestions; tune the stopword list and the scoring if needed.
 4. Release: tag v0.1.0, confirm the marketplace install on a clean machine.

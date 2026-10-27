@@ -1233,13 +1233,39 @@ function showPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: str
  */
 export async function escape($: EngineInterface, hadKeys: boolean): Promise<boolean> {
   if (!(await back($))) return false
-  if (!hadKeys) return true
-  try {
-    await showPane($)
-  } catch (error) {
-    $.ui.log(`constellation: keys not taken back: ${String(error)}`, { to: 'debug' })
-  }
+  if (hadKeys) reclaimKeys($)
   return true
+}
+
+/** Per surface: did the pane hold the keyboard at its last drawing? The engine raises Escape's close before it redraws the pane without the keyboard, so this says who had it. */
+const keysHeld = new Map<string, boolean>()
+export function notePaneFocus(surface: string, isFocused: boolean): void {
+  keysHeld.set(surface, isFocused)
+}
+export function paneHadKeys(): boolean {
+  return [...keysHeld.values()].some(Boolean)
+}
+
+let reclaimTimer: Timer | undefined
+/**
+ * The engine hands the keyboard to the prompt once Escape's close hook has
+ * returned, so a request made inside the hook is lost to that handoff. Ask a
+ * moment after, and once more if the pane still shows no keyboard then (a
+ * slower machine); the engine grants it only over an empty composer.
+ */
+function reclaimKeys($: EngineInterface): void {
+  reclaimTimer?.cancel()
+  const ask = (): void => {
+    if (paneHadKeys()) return
+    showPane($).catch(error => $.ui.log(`constellation: keys not taken back: ${String(error)}`, { to: 'debug' }))
+  }
+  reclaimTimer = $.clock.after(60, () => {
+    ask()
+    reclaimTimer = $.clock.after(300, () => {
+      reclaimTimer = undefined
+      ask()
+    })
+  })
 }
 
 /** Opens the pane (focused, Escape closes it) on the map or the focused chain, never on a card left open (unless the settings are asked for); rescans; writes the "since your last look" digest. */

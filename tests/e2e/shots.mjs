@@ -5,7 +5,8 @@
 //   node tests/e2e/shots.mjs [outDir]     # default docs/images; needs `claude` and Playwright's Chromium
 //
 // Writes desktop-map.png (the whole folder), desktop-trace.png (a topic traced under the pointer) and
-// desktop-focus.png (that topic focused: its sessions as a numbered chain), each with its .svg beside it.
+// desktop-focus.png (that topic focused: its sessions as a numbered chain).
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -74,11 +75,16 @@ try {
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: WIDTH + 56, height: 800 }, deviceScaleFactor: 2, colorScheme: 'dark' })
 for (const [name, svg] of Object.entries(shots)) {
-  fs.writeFileSync(path.join(OUT, `${name}.svg`), svg)
   const sized = svg.replace(/<svg ([^>]*?)width="[\d.]+" height="[\d.]+"/, `<svg $1width="${WIDTH}"`)
   await page.setContent(`<!doctype html><html><body style="margin:0;background:${BACKGROUND}"><div id="shot" style="padding:28px;display:inline-block">${sized}</div></body></html>`)
   await page.locator('#shot').screenshot({ path: path.join(OUT, `${name}.png`) })
+  squeezePng(path.join(OUT, `${name}.png`))
   console.log(`wrote ${path.relative(REPO, path.join(OUT, `${name}.png`))}`)
 }
 await browser.close()
 for (const t of temps) fs.rmSync(t, { recursive: true, force: true })
+
+/** Pictures for a README stay light: a 256-colour palette where Pillow is there (sharp on these flat dark pictures), else as rendered. */
+function squeezePng(file) {
+  spawnSync('python3', ['-c', "import sys\ntry:\n from PIL import Image\nexcept Exception:\n sys.exit(0)\nim = Image.open(sys.argv[1]).convert('RGB')\nim.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(sys.argv[1], optimize=True)", file])
+}

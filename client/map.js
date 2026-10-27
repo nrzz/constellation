@@ -32,20 +32,37 @@ const DIM = '#6F7988'
 /** What the last render of each instance drew: the handlers are registered once and must hit-test the nodes of the latest props, not the first. */
 const latest = new WeakMap()
 
-function scale(surface, props) {
-  const columns = Math.max(20, surface.columns || 100)
-  const rows = Math.max(6, surface.rows || 24)
+/**
+ * The cell grid over the field. On the Desktop (`hits`) the whole region is the
+ * picture, so a cell maps to the field in proportion. On the terminal the text
+ * map's rows span the nodes, not the whole field: a tall field's empty top and
+ * bottom would waste a pane's few rows. Row 0 holds the hint, the last row the
+ * legend.
+ */
+export function scaleFor(columns0, rows0, props) {
+  const columns = Math.max(20, columns0 || 100)
+  const rows = Math.max(6, rows0 || 24)
   const fieldW = props.fieldW > 0 ? props.fieldW : 860
   const fieldH = props.fieldH > 0 ? props.fieldH : 520
   const hits = props.hits === true
+  const ys = (Array.isArray(props.nodes) ? props.nodes : []).map(n => n.y).filter(Number.isFinite)
+  let yLo = 0
+  let span = fieldH
+  if (!hits && ys.length > 0) {
+    // Fit the nodes, but zoom in no further than 20 field units a row, or a few topics' satellites drift rows away from them.
+    const lo = Math.max(0, Math.min(...ys) - 20)
+    const hi = Math.min(fieldH, Math.max(...ys) + 20)
+    span = Math.min(fieldH, Math.max(hi - lo, (rows - 3) * 20))
+    yLo = Math.max(0, Math.min(fieldH - span, (lo + hi) / 2 - span / 2))
+  }
+  span = Math.max(1, span)
   return {
     columns,
     rows,
     fieldW,
     fieldH,
-    // The text map keeps row 0 for the hint and the last row for the legend.
     col: x => Math.max(0, Math.min(columns - 1, Math.round((x / fieldW) * (columns - 1)))),
-    row: y => Math.max(1, Math.min(rows - 2, Math.round((y / fieldH) * (rows - 3)) + 1)),
+    row: y => Math.max(1, Math.min(rows - 2, Math.round(((y - yLo) / span) * (rows - 3)) + 1)),
     // A pointer position back to field units: the whole region is the picture on the Desktop; the text grid elsewhere.
     fieldX: e => {
       const x = e.fine ? e.fine.x : e.x + 0.5
@@ -53,9 +70,13 @@ function scale(surface, props) {
     },
     fieldY: e => {
       const y = e.fine ? e.fine.y : e.y + 0.5
-      return hits ? (y / rows) * fieldH : ((e.fine ? e.fine.y : e.y) - 1) / Math.max(1, rows - 3) * fieldH
+      return hits ? (y / rows) * fieldH : yLo + (((e.fine ? e.fine.y : e.y) - 1) / Math.max(1, rows - 3)) * span
     },
   }
+}
+
+function scale(surface, props) {
+  return scaleFor(surface.columns, surface.rows, props)
 }
 
 /** What the text map draws for a node: its glyph, with its label where one is drawn beside it (a topic's, a step's, the back pill's own). */
@@ -68,15 +89,16 @@ export function textOf(n) {
 }
 
 /**
- * Where a node's text sits in the region: at its cell, pulled left where it
- * would run past the right edge (a wrapped label is unreadable), and cut with
- * an ellipsis where it still cannot fit. The hit test counts the same cells.
+ * Where a node's text sits in the region: its glyph (a step's number, a dot)
+ * at its own cell, always, and the label after it cut with an ellipsis where it
+ * would run past the right edge (a wrapped label is unreadable). The hit test
+ * counts the same cells.
  */
 export function placeText(n, s, rowOffset = 0) {
   let text = textOf(n)
-  let left = s.col(n.x)
-  if (left + text.length > s.columns) left = Math.max(0, s.columns - text.length)
-  if (left + text.length > s.columns) text = text.slice(0, Math.max(1, s.columns - left - 1)) + '…'
+  const left = s.col(n.x)
+  const room = s.columns - left
+  if (text.length > room) text = room >= 3 ? `${text.slice(0, room - 1)}…` : text.slice(0, Math.max(1, room))
   return { left, top: Math.min(s.rows - 2, s.row(n.y) + rowOffset), text }
 }
 
@@ -85,15 +107,41 @@ function anchorsOf(nodes, mode) {
   return mode === 'focus' ? nodes.filter(n => n.kind === 'topic' && n.isDim) : []
 }
 
+/**
+ * Every node's text as the text map draws it: placed at its cell (see
+ * placeText), then cut one cell short of the next node on its row that draws
+ * at the same layer or above, so two steps' labels never run into each other.
+ * A satellite's dot never cuts a topic's name: the name draws over it.
+ */
+export function layoutText(nodes, s, mode) {
+  const anchors = anchorsOf(nodes, mode)
+  const items = inDrawingOrder(nodes).map(n => {
+    const i = anchors.indexOf(n)
+    return { n, ...placeText(n, s, i >= 0 ? i % 2 : 0) }
+  })
+  const byRow = new Map()
+  for (const it of items) byRow.set(it.top, [...(byRow.get(it.top) ?? []), it])
+  for (const row of byRow.values()) {
+    row.sort((a, b) => a.left - b.left)
+    row.forEach((a, i) => {
+      const layer = DRAW_ORDER[a.n.kind] ?? 0
+      const next = row.slice(i + 1).find(b => b.left > a.left && (DRAW_ORDER[b.n.kind] ?? 0) >= layer)
+      if (!next) return
+      const room = next.left - a.left - 1
+      if (a.text.length > room) a.text = room >= 3 ? `${a.text.slice(0, room - 1)}…` : a.text.slice(0, Math.max(1, room))
+    })
+  }
+  return new Map(items.map(it => [it.n, { left: it.left, top: it.top, text: it.text }]))
+}
+
 /** The node whose drawn text is nearest the pointer on the text map, within two cells; labels count along their length. */
 export function nodeAtCell(nodes, s, x, y, mode) {
   let best = null
   let bestD = 3
-  const anchors = anchorsOf(nodes, mode)
+  const laid = layoutText(nodes, s, mode)
   // In drawing order, a later node winning a tie: where labels overlap, the one on top is the one under the pointer.
   for (const n of inDrawingOrder(nodes)) {
-    const anchorIndex = anchors.indexOf(n)
-    const { left: c, top: r, text } = placeText(n, s, anchorIndex >= 0 ? anchorIndex % 2 : 0)
+    const { left: c, top: r, text } = laid.get(n)
     const width = Math.max(1, text.length)
     const dx = x < c ? c - x : x > c + width - 1 ? x - (c + width - 1) : 0
     const dy = Math.abs(y - r)
@@ -168,7 +216,7 @@ function describe(e) {
   return `${e.type} at ${e.x},${e.y}${e.fine ? ` (${e.fine.x.toFixed(1)},${e.fine.y.toFixed(1)})` : ''}`
 }
 
-export default function Map(props, surface) {
+export default function ConstellationMap(props, surface) {
   const { Box, Text } = surface.elements
   const state = surface.state || { hover: null, drag: null, pressed: null, last: '', at: null }
   const nodes = Array.isArray(props.nodes) ? props.nodes : []
@@ -242,13 +290,11 @@ export default function Map(props, surface) {
     // One dim dot midway marks a link between topics; the text grid has no lines.
     children.push(Box({ position: 'absolute', top: s.row((l.y1 + l.y2) / 2), left: s.col((l.x1 + l.x2) / 2), children: [Text({ color: DIM, children: '┄' })] }))
   }
-  const anchors = anchorsOf(nodes, props.mode)
+  const laid = layoutText(nodes, s, props.mode)
   for (const n of inDrawingOrder(nodes)) {
-    const anchorIndex = anchors.indexOf(n)
-    const rowOffset = anchorIndex >= 0 ? anchorIndex % 2 : 0
     const isHover = state.hover !== null && (n.id === state.hover || n.topicId === state.hover)
     const color = n.isArchived ? DIM : n.color || ACCENT
-    const { left, top, text } = placeText(n, s, rowOffset)
+    const { left, top, text } = laid.get(n)
     children.push(
       Box({
         position: 'absolute',

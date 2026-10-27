@@ -18,16 +18,46 @@ Desktop sidebar and nothing is lost between them.
   zero-token path is one setting away, and the settings view counts what the
   model was asked.
 
-Status: built against Claude Code 2.1.310 and run end to end on 2.1.311.
-`claude plugin validate --strict`, `claude plugin test` (123 tests, including
-an edge-case suite), `tsc` and `tests/e2e/tui.sh` (the real Claude Code TUI
-driven in tmux, the plugin installed with the one-line install, a real model
-turn that quotes the injected handoff note) pass. The rendered field was
-checked against the approved prototype
-([preview](https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u),
-[prototype](https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0)).
-The Desktop surface is exercised through the engine's own desktop surface in
-the test kit and the engine facts recorded in `PLAN.md`.
+![A folder of 140 sessions on the Desktop: fifteen topics as coloured pills, each with its sessions in orbit](docs/images/desktop-map.png)
+
+Status: built against Claude Code 2.1.310 and run end to end on 2.1.311, every
+picture on this page drawn by the real engine. `claude plugin validate
+--strict`, `claude plugin test` (135 tests, including an edge-case suite),
+`tsc` and two end-to-end suites pass:
+
+- `tests/e2e/tui.sh` drives the real Claude Code TUI in tmux with real mouse
+  events: hover, clicks on topics, steps, dots and buttons, a drag, the
+  keyboard after a click and after Escape, the band, every command, a real
+  model turn that quotes the injected handoff note, `/clear`, and the classic
+  renderer that has no mouse (67 checks, run as installed with the one-line
+  install by `E2E_INSTALL=1`).
+- `tests/e2e/desktop.mjs` runs the engine the way Claude Desktop does, over
+  its stdio wire, and acts as the Desktop's frame: it loads the map's Client
+  with the runtime the engine serves and clicks the picture through it, over
+  the fixture folder, a 140-session folder with a transcript over 4 MiB, an
+  empty folder, and new sessions opening the map on Desktop, VS Code and
+  mobile (80 checks).
+
+## What it looks like
+
+On the Desktop the map is a picture you can click. Point at a topic and it is
+traced; click it and its sessions line up as a numbered chain, the latest
+glowing:
+
+![A topic traced under the pointer: its sessions take its colour, the rest dim](docs/images/desktop-trace.png)
+
+![The topic focused: eleven sessions as a numbered two-row chain, labels above and below, the latest glowing](docs/images/desktop-focus.png)
+
+In a terminal the same map is drawn in text, beside the transcript, and takes
+the mouse: hover traces, a click focuses, a click on a step opens its card,
+Escape and ‹ All topics go back.
+
+![The terminal pane: a topic hovered, clicked, a step opened, and back](docs/images/terminal-clicks.gif)
+
+Every new session starts with the band above the prompt, offering the
+folder's topics; a digit or a click joins one:
+
+![The band: the folder's topics as join buttons, with + New topic and Open map](docs/images/band.png)
 
 ## Install
 
@@ -116,9 +146,11 @@ and under the settings or help cards.
 
 **Map**: the field, sized to the pane's width, drawn transparent on the pane's
 own surface and following the app's light or dark scheme (`fieldBackground:
-night` paints the prototype's solid ground instead). Topics are packed into
-rows with room for their satellites, so pills never overlap; a crowded folder
-gets a taller field. Session titles are the ones the Desktop sidebar shows.
+night` paints the prototype's solid ground instead). Each topic keeps a halo
+around its pill for its satellites, and the halos are packed into rows, so no
+satellite lands on another topic or on the hint, and the spokes start at the
+pill's edge, never across its name; a crowded folder gets a taller field (up
+to the engine's 4096 px picture, past which rows close up). Session titles are the ones the Desktop sidebar shows.
 Major topics are labelled pills with a session count
 (and "· you" on your topic), minor topics small dots with a mono label,
 sessions satellites around their topic (filled = active in the last five
@@ -129,9 +161,13 @@ everything else dims, and its card shows under the field. Searching dims
 non-matches and shows match counts on the pills.
 
 **Focus mode**: pick a topic and it alone stays, its in-range sessions laid out
-as a numbered zigzag chain with arrows, the latest glowing, this session as the
-dashed accent step. Related topics hang along the bottom as anchors; the
-topic's goal reads under the chain. **‹ All topics** or Escape goes back.
+as a numbered chain on two rows with arrows from step to step, each label above
+or below its step and cut to the room before its neighbour, the latest glowing,
+this session as the dashed accent step. A chain of more than about two dozen
+labels only the latest, the selected step and this session; the tooltips carry
+the rest. Related topics hang along the bottom as anchors; the topic's goal
+reads under the pill. **‹ All topics** (or `b`) goes straight back to every
+topic; Escape backs out one level.
 
 **Cards under the field**, by state:
 
@@ -151,6 +187,8 @@ topic's goal reads under the chain. **‹ All topics** or Escape goes back.
   that reopens the session in a terminal.
 - Help (`h`, or `/map help` as text): every command and key.
 
+![A step's card in the terminal: its handoff note, files and actions, under the chain with that step selected](docs/images/terminal-card.png)
+
 **Digest**: when the pane opens it says what changed since you last looked at
 this folder. **Status line**: your topic and step, with a tick once your note
 exists.
@@ -161,9 +199,14 @@ Enter focuses it. Digits 1–9 pick chain steps or chooser topics. Letters:
 `u` pick up, `d` draft, `j` join, `r` rename, `g` goal, `e` merge,
 `t` message, `n` new topic or new session, `p` pin or park, `v` move,
 `x` archive, `z` undo, `o` open the map from the band. Escape backs out one
-level (help, field, selection, focus) before it closes the pane. The keys
+level (help, an editor, the selection, the focused topic, the settings) and
+keeps the pane, and the keyboard, until nothing is left; then it closes the
+pane. Help lies over an open card and gives it back when it closes. The keys
 fire while the pane or the band has the focus (a click or ctrl+x tab gives
-it); a bare digit in an empty prompt also answers the band.
+it); a click on the map never takes the keyboard, so every key works straight
+after one. Escape at an empty prompt backs the pane out too but leaves the
+keyboard with the prompt. A bare digit in an empty prompt also answers the
+band.
 
 ## Settings
 
@@ -206,12 +249,17 @@ false`. The mod never approves tool calls and never touches the network.
 
 | | Desktop app (and VS Code) | Terminal |
 | --- | --- | --- |
-| Field | One SVG drawn as an image at the pane's width: pills, satellites, chain, glow; tracing from the focus ring; on the Desktop an invisible pointer layer lies over it | A text-mode map (a Client module) with real pointer and arrow-key input |
-| Picking | Desktop: a click on a pill, a satellite, a step, an anchor or ‹ All topics on the picture, or the buttons under it; VS Code: the buttons, Tab/Enter, hotkeys | Click a topic or session, drag a session onto a topic, arrows walk topics or steps, Enter picks, Backspace goes back |
+| Field | One SVG drawn as an image at the pane's width: pills, satellites, chain, glow; tracing from the focus ring; on the Desktop an invisible pointer layer lies over it | A text-mode map (a Client module) that takes the mouse; its rows fit the topics, its labels never run into each other |
+| Picking | Desktop: a click on a pill, a satellite, a step, an anchor or ‹ All topics on the picture, or the buttons under it; VS Code: the buttons, Tab/Enter, hotkeys | Hover traces; click a topic, a session or a step; drag a session onto a topic; the buttons under the map, Tab/Enter and the hotkeys work too |
 | Everything else | Header, cards, settings, band, commands | The same |
 
-Mobile has the SVG and the buttons but no text fields, so renaming, goals and
-messaging are not offered there.
+The terminal reports the mouse only under its fullscreen renderer, the
+default after the first start (`/tui fullscreen`; `CLAUDE_CODE_DISABLE_MOUSE=1`
+turns the mouse off). The classic renderer (`/tui default`) seats the pane
+above the prompt with no mouse: Tab walks to a topic and Enter focuses it.
+The map's hint says which way picking works on each surface. Mobile has the
+SVG and the buttons but no text fields, so renaming, goals and messaging are
+not offered there.
 
 ## How topics form
 
@@ -219,8 +267,9 @@ Unassigned sessions are clustered from what they share: the words of their
 titles and first prompts, the files they edited, a non-main branch. A word or
 a file that more than 60 % of the folder shares counts for nothing (the
 project's name, "bug", a README); files under `.claude/`, `CLAUDE.md`,
-`AGENTS.md`, lockfiles and env files never count; a transcript too large to
-read stays Unsorted. A session joins the cluster it relates to best, and
+`AGENTS.md`, lockfiles and env files never count. A transcript over 4 MiB is
+read in slices and clusters on what they held; only one that could not be read
+at all stays Unsorted, and so does a session you moved to Unsorted yourself. A session joins the cluster it relates to best, and
 only when it relates to enough of that cluster's members (one while the
 cluster holds up to three, a third of them beyond), so one shared word never
 chains a folder into a single blob. Joining, moving, renaming or `/topic`
@@ -236,7 +285,10 @@ satellite or a step opens that session, on an anchor focuses the related
 topic, on ‹ All topics goes back. `pictureClicks: outline` draws the layer's
 edge, its size in cells and the last pointer event, for anyone curious; `off`
 removes the layer. Either way the buttons under the field do everything a
-click on the picture does.
+click on the picture does. `tests/e2e/desktop.mjs` checks all of this over the
+Desktop's own wire, with the layer's module run under the runtime the engine
+serves the Desktop; what only a real Desktop window shows is its own layout of
+the layer over the picture.
 
 ## Known limits
 
@@ -259,8 +311,9 @@ click on the picture does.
   Constellation also hears `session.end` on `/clear` and a resume, and checks
   the session id on every command, press and turn and every three seconds,
   so it starts over for the new session either way.
-- Arrow keys cannot be bound by a mod on the Desktop; the terminal map gets
-  them through its Client.
+- The map takes no keys of its own: a key listener on it would hold the
+  keyboard after every click and leave the pane's hotkeys dead. The pane's
+  focus ring walks the topic buttons with Tab and the arrows on every surface.
 - Transcripts over 4 MiB cannot be read whole by a mod. Constellation reads
   such a transcript in slices through the shell (its head, its title rows and
   its tail; `sh` on macOS and Linux, PowerShell on Windows), so the session
@@ -289,9 +342,12 @@ click on the picture does.
 claude plugin validate --strict .
 claude plugin test .
 npx -y typescript@5.9.3 tsc -p .          # needs .claude-plugin/types laid by the engine or the plugin-authoring skill
-bash tests/e2e/tui.sh                    # the real Claude Code TUI in tmux, end to end (about three minutes, one model turn)
+bash tests/e2e/tui.sh                    # the real Claude Code TUI in tmux, three passes (about six minutes, one model turn; tmux, python3)
 E2E_INSTALL=1 bash tests/e2e/tui.sh      # the same after the one-line install from this checkout, run as installed
 E2E_SKIP_MODEL=1 bash tests/e2e/tui.sh   # the same without the model turn
+node tests/e2e/desktop.mjs               # the Desktop's wire against the real engine, the map's Client clicked (about a minute)
+node tests/e2e/shots.mjs                 # this page's Desktop pictures, drawn by the real engine (Playwright)
+node tests/e2e/shots-terminal.mjs        # this page's terminal pictures and clip, from tmux (Playwright, ffmpeg)
 node tests/fixtures/sync.mjs             # after editing a *.jsonl fixture
 node tests/preview/render.mjs            # SVGs of the field for demo data, under tests/out
 node tests/preview/shots.mjs             # PNGs of them (Playwright)

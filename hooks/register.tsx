@@ -13,6 +13,7 @@ import {
   describeTopics,
   ensureSession,
   escape,
+  notePaneFocus,
   INLINE_TEXT,
   exportMarkdown,
   inlineMapText,
@@ -23,6 +24,7 @@ import {
   openMapFind,
   openMapPane,
   openOnAttach,
+  paneHadKeys,
   parkNote,
   periodicRescan,
   pickUpStep,
@@ -91,9 +93,6 @@ async function canOpenPane($: EngineInterface, e: { surface: string | null; isIn
     return false
   }
 }
-
-/** Per surface: did the pane hold the keyboard at its last drawing? */
-const keysHeld = new Map<string, boolean>()
 
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
@@ -207,7 +206,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     // Whether the person has given the pane the keyboard, as of its last drawing on each surface (see the close below).
-    keysHeld.set(e.surface, e.props.isFocused === true)
+    notePaneFocus(e.surface, e.props.isFocused === true)
     const view: View = { ...(await viewOf($, e.surface)), placement: e.props.placement, ...(e.viewport ? { isFullscreen: e.viewport.isFullscreen } : {}) }
     if (e.surface === 'terminal') {
       // No Svg here: the text-mode map Client stands in for the field and takes the pointer; the pane's ring takes the keys.
@@ -270,11 +269,13 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.close', { id: PANE }, async ($, e, next) => {
+    // Read first, before anything is awaited: the engine redraws the pane without the keyboard a few milliseconds
+    // after raising this close, so only now does the last drawing say whether the pane held the keyboard.
+    const hadKeys = paneHadKeys()
     if (e.origin.kind !== 'person') return next(e)
     await ensureSession($)
     // One level back, keeping the pane (and the keyboard, when it held it); with nothing left to back out of, the pane closes.
-    // The engine raises this close before it redraws the pane without the keyboard, so the last drawing says who had it.
-    if (!(await escape($, [...keysHeld.values()].some(Boolean)))) return next(e)
+    if (!(await escape($, hadKeys))) return next(e)
     return { value: undefined }
   })
 }

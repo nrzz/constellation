@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { FsEntry, On } from 'claude-code'
 
-import MapModule, { nodeAtCell, placeText, textOf } from '../client/map.js'
+import MapModule, { layoutText, nodeAtCell, placeText, scaleFor, textOf } from '../client/map.js'
 import { transcripts } from './fixtures/transcripts'
 import { pathOf } from './helpers'
 
@@ -29,9 +29,12 @@ const PANE = {
 
 type Node = { id: string; kind: string; x: number; y: number; label: string; topicId?: string }
 
-/** The same cell mapping client/map.js uses for the text map in a 100x24 region. */
-const col = (x: number) => Math.max(0, Math.min(COLUMNS - 1, Math.round((x / 860) * (COLUMNS - 1))))
-const row = (y: number) => Math.max(1, Math.min(ROWS - 2, Math.round((y / 520) * (ROWS - 3)) + 1))
+/** A node's cell on the text map, by the module's own mapping over the props it was last handed (rows fit the nodes). */
+async function at(ui: { find: (q: { type?: string; key?: string }) => Promise<{ props: Record<string, unknown> } | undefined> }, n: Node, dx = 0): Promise<{ x: number; y: number }> {
+  const field = await fieldOfMount(ui)
+  const s = scaleFor(COLUMNS, ROWS, field)
+  return { x: s.col(n.x) + dx, y: s.row(n.y) }
+}
 /** The pointer layer's mapping: the whole region is the picture. */
 const hcol = (x: number, fieldW = 860) => Math.max(0, Math.min(COLUMNS - 1, Math.floor((x / fieldW) * COLUMNS)))
 const hrow = (y: number, fieldH = 520) => Math.max(0, Math.min(ROWS - 1, Math.floor((y / fieldH) * ROWS)))
@@ -102,7 +105,7 @@ test('pointer hover traces a topic; a click on a session focuses its chain with 
   const topic = (await nodesOf(ui)).find(n => n.id === CHECKOUT)
   expect(topic).toBeDefined()
   if (!topic) return
-  await ui.pointer({ type: 'move', x: col(topic.x) + 2, y: row(topic.y), in: 'map' })
+  await ui.pointer({ type: 'move', ...(await at(ui, topic, 2)), in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'tc:focus' })).toBeDefined()
   await ui.pointer({ type: 'move', x: 0, y: ROWS - 1, in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'tc:focus' })).toBeUndefined()
@@ -110,8 +113,8 @@ test('pointer hover traces a topic; a click on a session focuses its chain with 
   const session = (await nodesOf(ui)).find(n => n.id === IDS.tests)
   expect(session).toBeDefined()
   if (!session) return
-  await ui.pointer({ type: 'down', x: col(session.x), y: row(session.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: col(session.x), y: row(session.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'down', ...(await at(ui, session)), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', ...(await at(ui, session)), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
   expect((await nodesOf(ui)).some(n => n.kind === 'step')).toBe(true)
@@ -154,9 +157,9 @@ test('dragging a session onto another topic moves it, with Undo', async ($, on) 
   expect(session).toBeDefined()
   expect(docs).toBeDefined()
   if (!session || !docs) return
-  await ui.pointer({ type: 'down', x: col(session.x), y: row(session.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'move', x: col(docs.x) + 1, y: row(docs.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: col(docs.x) + 1, y: row(docs.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'down', ...(await at(ui, session)), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'move', ...(await at(ui, docs, 1)), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', ...(await at(ui, docs, 1)), button: 'left', in: 'map' })
   expect(toasts[toasts.length - 1]).toContain('Moved')
   expect((await nodesOf(ui)).find(n => n.id === IDS.orders)?.topicId).toBe('topic:docs')
   expect(await ui.find({ type: 'Button', key: 'toast:undo' })).toBeDefined()
@@ -174,9 +177,9 @@ test('a session dropped on Unsorted stays there (it is never clustered again), a
   expect(session?.topicId).toBe(CHECKOUT)
   expect(unsorted).toBeDefined()
   if (!session || !unsorted) return
-  await ui.pointer({ type: 'down', x: col(session.x), y: row(session.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'move', x: col(unsorted.x) + 1, y: row(unsorted.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: col(unsorted.x) + 1, y: row(unsorted.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'down', ...(await at(ui, session)), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'move', ...(await at(ui, unsorted, 1)), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', ...(await at(ui, unsorted, 1)), button: 'left', in: 'map' })
   expect(toasts[toasts.length - 1]).toContain('to Unsorted')
   expect((await nodesOf(ui)).find(n => n.id === IDS.rounding)?.topicId).toBe('unsorted')
   // The topic it left is still there, with the other session, and no longer an auto topic that could take it back.
@@ -194,15 +197,15 @@ test('in a chain a click on a step’s label, past its number, opens that sessio
   const topic = (await nodesOf(ui)).find(n => n.id === CHECKOUT)
   expect(topic).toBeDefined()
   if (!topic) return
-  await ui.pointer({ type: 'down', x: col(topic.x) + 2, y: row(topic.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: col(topic.x) + 2, y: row(topic.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'down', ...(await at(ui, topic, 2)), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', ...(await at(ui, topic, 2)), button: 'left', in: 'map' })
   const steps = (await nodesOf(ui)).filter(n => n.kind === 'step')
   expect(steps.length).toBe(2)
   const step = steps[0]
   if (!step) return
   // The label hangs right of the number: "1 Checkout total rounding". Four cells in is on the label, not the number.
-  await ui.pointer({ type: 'down', x: col(step.x) + 4, y: row(step.y), button: 'left', in: 'map' })
-  await ui.pointer({ type: 'up', x: col(step.x) + 4, y: row(step.y), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'down', ...(await at(ui, step, 4)), button: 'left', in: 'map' })
+  await ui.pointer({ type: 'up', ...(await at(ui, step, 4)), button: 'left', in: 'map' })
   expect(await ui.find({ type: 'Button', key: 'sc:pickup' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Checkout total rounding/ })).toBeDefined()
   // The card's own hotkey is there for the next key: the click on the map took none.
@@ -223,16 +226,16 @@ test('the text map’s text, where it sits, and what a cell hits', async () => {
   expect(textOf(step)).toBe('2 Fix flaky cart wait')
   expect(textOf(topic)).toBe('○ Checkout Cart')
   expect(textOf(dot)).toBe('○')
-  // A label that would run past the right edge is pulled in, whole; one wider than the region is cut with an ellipsis.
+  // The glyph stays at its own cell; a label that would run past the right edge is cut there with an ellipsis.
   const placed = placeText(step, s)
+  expect(placed.left).toBe(s.col(step.x))
   expect(placed.left + placed.text.length).toBeLessThanOrEqual(40)
-  expect(placed.text).toBe('2 Fix flaky cart wait')
-  const wide = placeText({ ...step, label2: 'A title far longer than the forty cells this region has' }, s)
-  expect(wide.left).toBe(0)
-  expect(wide.text.endsWith('…')).toBe(true)
-  expect(wide.text.length).toBeLessThanOrEqual(40)
-  // The hit test counts the drawn cells: the end of the pulled-in label hits the step; the dot hits only near itself.
-  expect(nodeAtCell([back, step, topic, dot], s, 38, placed.top, 'focus')?.id).toBe('s1')
+  expect(placed.text.startsWith('2 ')).toBe(true)
+  expect(placed.text.endsWith('…')).toBe(true)
+  const room = placeText({ ...step, x: 100 }, s)
+  expect(room.text).toBe('2 Fix flaky cart wait')
+  // The hit test counts the drawn cells: the end of the cut label hits the step; the dot hits only near itself.
+  expect(nodeAtCell([back, step, topic, dot], s, 39, placed.top, 'focus')?.id).toBe('s1')
   expect(nodeAtCell([back, step, topic, dot], s, s.col(topic.x) + 10, s.row(topic.y), 'map')?.id).toBe('t')
   expect(nodeAtCell([back, step, topic, dot], s, s.col(dot.x) + 6, s.row(dot.y), 'map')).toBeNull()
   expect(nodeAtCell([back, step, topic, dot], s, 3, s.row(back.y), 'focus')?.id).toBe('back')
@@ -244,6 +247,34 @@ test('the text map’s text, where it sits, and what a cell hits', async () => {
   expect(placeText(first, narrow).left + placeText(first, narrow).text.length).toBeGreaterThan(narrow.col(third.x))
   expect(nodeAtCell([first, third], narrow, narrow.col(third.x), narrow.row(250), 'focus')?.id).toBe('s3')
   expect(nodeAtCell([first, third], narrow, narrow.col(first.x) + 3, narrow.row(250), 'focus')?.id).toBe('s1')
+})
+
+test('the text map cuts a label short of the next step on its row, lets a topic’s name draw over its satellites, and fits its rows to the nodes', async () => {
+  const s = scaleFor(72, 26, { fieldW: 860, fieldH: 520, nodes: [] })
+  const steps = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(i => ({ id: `s${i}`, kind: 'step', x: 90 + i * 85, y: i % 2 === 0 ? 250 : 342, label: i + 1, label2: 'A long step title that runs on' }))
+  const laid = layoutText(steps, s, 'focus')
+  const upper = steps.filter((_, i) => i % 2 === 0).map(n => laid.get(n))
+  for (let i = 1; i < upper.length; i += 1) {
+    const a = upper[i - 1]
+    const b = upper[i]
+    if (!a || !b) continue
+    expect(a.left + a.text.length).toBeLessThan(b.left)
+    expect(a.text.startsWith(String(steps[(i - 1) * 2]?.label))).toBe(true)
+  }
+  // A satellite under a topic's name does not cut it.
+  const topic = { id: 't', kind: 'topic', x: 300, y: 200, label: 'Orders List 9', isMajor: true }
+  const dot = { id: 'd', kind: 'session', x: 330, y: 200, label: '' }
+  expect(layoutText([dot, topic], s, 'map').get(topic)?.text).toBe('● Orders List 9')
+  // Rows fit the nodes: a tall field whose nodes sit between 300 and 700 uses the region's rows, not a band of them.
+  const tall = scaleFor(100, 24, { fieldW: 860, fieldH: 1200, nodes: [{ y: 300 }, { y: 700 }] })
+  expect(tall.row(300)).toBeLessThanOrEqual(3)
+  expect(tall.row(700)).toBeGreaterThanOrEqual(20)
+  // …but never zooms in past 20 field units a row: two topics close together keep their satellites near them.
+  const few = scaleFor(100, 24, { fieldW: 860, fieldH: 520, nodes: [{ y: 240 }, { y: 260 }, { y: 210 }, { y: 290 }] })
+  expect(Math.abs(few.row(290) - few.row(240))).toBeLessThanOrEqual(3)
+  // The Desktop layer keeps the picture's own mapping, whatever the nodes.
+  const hits = scaleFor(100, 24, { fieldW: 860, fieldH: 1200, hits: true, nodes: [{ y: 300 }, { y: 700 }] })
+  expect(hits.fieldY({ x: 0, y: 12 })).toBe((12.5 / 24) * 1200)
 })
 
 test('the Desktop pointer layer is on by default: a picture sized from the pane, a Client of the same size over it that draws nothing, traces on hover and picks on a click; a step and the back pill pick too', async ($, on) => {
