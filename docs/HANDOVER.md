@@ -17,7 +17,7 @@ API facts and every pass's record; `README.md` is what users read.
 
    ```bash
    git -C /d/Projects/constellation-fixes log --oneline -1
-   git -C /d/Projects/constellation-fixes merge-base --is-ancestor 2eb38f4 HEAD && echo ok
+   git -C /d/Projects/constellation-fixes merge-base --is-ancestor 8c9f146 HEAD && echo ok
    ```
 
 2. **Point the tools at the Desktop's own Claude Code** (section 5). Neither
@@ -76,14 +76,15 @@ The work ran unattended as the scheduled tasks `constellation-build`(`-b`,
 `fix/windows-retest`, `fix/lane-b`, `fix/lane-c`, merged into each other at
 the start of every run).
 
-### Commits on `fix/windows-retest` since 4c378de (45, oldest first, by theme)
+### Commits on `fix/windows-retest` since 4c378de (49 before this update, oldest first, by theme)
 
 | Theme | Commits |
 | --- | --- |
 | Re-test fixes (S-1, S-2, installers, non-Latin ids) | 9690493, 1f8bd3f, b02e1c0, 62312f3 |
 | The live picture (L2, L3, L3a, L3b) and its harness (L4) | 528bbe1, 29a90d8, d1f80dd, 766a0aa, 079c7f7, 722442f, 9d1b5b0, 8e922cb |
 | Every surface restyled (L4a, L4b) | f60772b, ba40e61, 4c679ff, 845306c, b321dcd, 927a592 |
-| The review's fixes (R1-R24, section 9) | 3e735d8 … 2eb38f4 |
+| The review's fixes (R1-R26, section 9) | 3e735d8 … 2eb38f4, cde1c9a, 8c9f146 |
+| README pictures as the live picture (L5) and this file (L7) | 6876673, 8f59569 |
 
 ### What the re-test (REPORT.md) found and what was done
 
@@ -97,13 +98,14 @@ the start of every run).
 | O-1 | After an install the engine prints "N userConfig options not yet set": every option has a default | L6 says so in the README |
 | Install | The engine copies the plugin to the cache; a user-scope install hot-loads into open Desktop sessions; auto notes (haiku) work on Windows | Recorded (section 1.3) |
 
-### Gates at 2eb38f4 (Windows 11, Claude Code 2.1.308, Git Bash)
+### Gates at dc5303d (Windows 11, Claude Code 2.1.308, Git Bash)
 
-- `plugin validate --strict .`: passes. `plugin test .`: **254 pass**, 0 fail.
+- `plugin validate --strict .`: passes. `plugin test .`: **255 pass**, 0 fail.
 - `tsc` (TypeScript 5.9.3): clean.
-- `tests/e2e/desktop.mjs`: **264 passed**, 0 failed, exit 0 (the Desktop's
+- `tests/e2e/desktop.mjs`: **265 passed**, 0 failed, exit 0 (the Desktop's
   wire against the real engine: a live scenario on a big folder with a running
-  session, the click layer compared with the picture, narrow panes clicked by
+  session, `enter` before the first move as the Desktop sends it, the click
+  layer compared with the picture, narrow panes clicked by
   whole cells at six widths and a 300-350 px sweep).
 - `tests/e2e/installers.ps1`: 56 (PowerShell 5.1 only; more with pwsh 7).
 - `bash tests/e2e/installers.sh`: 78 (sh, dash and bash, in Git Bash).
@@ -200,10 +202,9 @@ Queue items (in `analysis-4c378de\QUEUE.md`) still open when this was written:
 
 | Item | Lane | What |
 | --- | --- | --- |
-| R25 | B | A test for the `enter` pointer event (the rest of A5-3) |
-| L5 | B | Regenerate every Desktop picture in `docs/images`, add a live frame (a topic traced, a running topic) and the motion if cheap; terminal pictures need WSL |
-| L6 | C | README (Live/Clicks, `pictureMode`, running look, the new chooser, Known limits, A3-6's `*`, "in a crowded chain", O-1), PLAN.md's Windows record and Environment facts, CLAUDE.md's 35 % hand-over rule |
-| L7 | A | This file (the `enter` row of section 9 fills in once R25 is ticked) |
+| R27 | C | A narrow chain's step label never splits a word ("Idempote" / "ncy key…" in desktop-narrow.png); then redraw the Desktop pictures once |
+| L6 | B | README (Live/Clicks, `pictureMode`, running look, the new chooser, Known limits, A3-6's `*`, "in a crowded chain", O-1), PLAN.md's Windows record and Environment facts, CLAUDE.md's 35 % hand-over rule |
+| L7 | A | This file (R27's row in section 9 fills in once R27 is ticked) |
 | L8 | A | Merge the lanes a last time; every gate, desktop.mjs four times, both installer suites |
 | L9 | A | Fast-forward `main`, `plugin update`, OWNER-CHECK.md (section 4), the monitor's check |
 | L10 | A | Fix what the check finds, push `main`, BUILD-DONE.md, disable the tasks |
@@ -299,7 +300,7 @@ refuted; **To verify** = fixed from the code, needs a machine we lack.
 | A2-6 | Every non-Latin name had the key "" and clashed | holds | Fixed (62312f3) |
 | A1-2 | Narrow panes: a dot's own cell picked its pill or a neighbour | holds | Fixed: the in-cell dot wins (R1 3e735d8) |
 | A5-2, A5-4 | Narrow panes and fractional cells were never clicked by whole cell | holds | Fixed: six widths and a 300-350 px sweep; unreachable dots take the nearest free cell (R8 8104ba1) |
-| A5-3 | A right or middle click focused a topic | partly | Fixed: left only, an absent button counts as left (R1); `enter` untested: R25 (queued); the dead `drag` branch and `flush`: not a defect |
+| A5-3 | A right or middle click focused a topic | partly | Fixed: left only, an absent button counts as left (R1); `enter` traces as a `move` does, in a unit test and the harness (R25 cde1c9a); the dead `drag` branch and `flush`: not a defect |
 | A1-4 | The README's pill-edge rule was wrong | holds | Fixed (R18 8e5ff51) |
 | A1-5 | The by-box path is one-sided, `reported` an echo | refuted | Not a defect: no host sizes the layer by its box; the one-sided check keeps the echo harmless |
 | A3-2, A3-5 | A reclaim already asking could reopen a closed pane, or undo a move to the prompt | holds / holds in logic | Fixed: a run counter stops a stale ask; the 360 ms ask skips after a focused drawing (R4 424fc3b) |
@@ -317,14 +318,17 @@ refuted; **To verify** = fixed from the code, needs a machine we lack.
 | A5-1 | The harness never compared the layer with the picture | holds | Fixed: viewBox, transforms and every node checked (R7 0d0bdec, R22 db977d1) |
 | A5-5, A5-6, A5-7, A5-10 | The harness could pass with nothing run, time out silently, accept a too-tall layer | holds | Fixed (R6 f1bd61e) |
 | A5-8 | Coverage holes behind the labels (anchors, box hosts, Layer height -2) | holds | Fixed (R9 df99994) |
-| A5-9 | The narrow pane's width disagreed across files | holds | Fixed (R9, R18); the README picture goes with L5 |
+| A5-9 | The narrow pane's width disagreed across files | holds | Fixed (R9, R18); the narrow README picture redrawn at its slot (L5 6876673) |
 | A1-3, A2-9 | Tests passed while hit boxes drifted; surviving mutants | holds | Fixed: parity over 7 widths and K1 (R3 b8f2d17), K2b/K2c (R10), K4 (R5), the goal clip (R14); each mutant killed |
 | A2-10 | Doc slips (comments, specs pointing at 860) | holds | Fixed (R13, R18); README:193-195 in L6 |
 
 Found on the way and fixed: ages that read "now ago" (R19 bb99852), a test
 that timed out under load (R21 4dcd1ce), two transcript files with one id drawn
 several times (R24 2eb38f4), the soft fade's `@property` breaking the sheet
-(R16 67038ee).
+(R16 67038ee), the legend's amber "active" mark unlike the map's running
+satellite (R26 8c9f146: now filled with a light core, in the idle ring's grey).
+Found by L5's pictures and still open: a narrow chain's step label split
+mid-word (R27, lane C).
 
 ## 10. Prompt to continue
 
