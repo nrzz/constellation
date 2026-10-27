@@ -457,7 +457,7 @@ test('/map toggles: open when closed, closed when open, settings view on request
   expect(closed.text).toBe('Constellation closed.')
   expect(stubs.closed).toBe(1)
   const settings = await run($, 'map', 'settings')
-  expect(settings.text).toBe('Constellation opened.')
+  expect(settings.text).toContain('Constellation opened.')
   expect(stubs.opened).toBe(1)
   const ui = await $.ui.mount(paneOn('desktop'))
   expect(await ui.find({ type: 'Button', key: 'settings:done' })).toBeDefined()
@@ -508,4 +508,63 @@ test('four hundred sessions in forty topics stay under the Svg cap and the Clien
   const focused = svgOf({ ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:t0' } })
   expect(focused.length).toBeLessThanOrEqual(131072)
   expect(focused).toContain('>10</text>')
+})
+
+const ROW = {
+  plugin: 'constellation',
+  component: 'CommandOutput',
+  requestId: 'msg-1',
+  props: { command: 'map', args: 'here', text: 'Constellation map (as of now). /map opens the live pane.', isErrored: false },
+} as const
+
+test('/map here prints the field as a row in the main chat: Svg and buttons on desktop, the outline on the terminal, plain text for other args', async ($, on) => {
+  const stubs = stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const printed = await run($, 'map', 'here')
+  expect(printed.text).toContain('Constellation map')
+  expect(stubs.opened).toBe(0)
+  const row = await $.ui.mount({ ...ROW, surface: 'desktop' })
+  expect(await row.find({ type: 'Svg' })).toBeDefined()
+  expect(await row.find({ type: 'Text', text: /opens the live pane/ })).toBeDefined()
+  expect(await row.find({ type: 'Button', key: `t:${CHECKOUT}` })).toBeDefined()
+  expect(await row.find({ type: 'Button', key: `j:${CHECKOUT}` })).toBeDefined()
+  await row.press({ key: `t:${CHECKOUT}` })
+  expect(await row.find({ type: 'Button', key: 'back' })).toBeDefined()
+  await row.unmount()
+  const terminal = await $.ui.mount({ ...ROW, surface: 'terminal' })
+  expect(await terminal.find({ type: 'Svg' })).toBeUndefined()
+  expect(await terminal.find({ type: 'Client' })).toBeUndefined()
+  expect(await terminal.find({ type: 'Button', key: `t:${CHECKOUT}` })).toBeDefined()
+  await terminal.unmount()
+  const plain = await $.ui.mount({ ...ROW, surface: 'desktop', props: { ...ROW.props, args: '' } })
+  expect((await plain.find({ type: 'Text' }))?.text).toBe('engine')
+  await plain.unmount()
+})
+
+test('the start band has an Open map button that opens the pane', async ($, on) => {
+  const stubs = stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount(bandOn('terminal'))
+  expect((await band.find({ type: 'Button', key: 'j:map' }))?.props.hotkey).toBe('o')
+  await band.press({ key: 'j:map' })
+  expect(stubs.opened).toBe(1)
+  await band.unmount()
+})
+
+test('the field is transparent and theme-aware by default; the night setting paints the solid ground', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount(paneOn('desktop'))
+  let svg = String((await ui.find({ type: 'Svg' }))?.props.source)
+  expect(svg).not.toContain('fill="#0B0E13"')
+  expect(svg).toContain('prefers-color-scheme:light')
+  expect(svg).toContain('url(#glow)')
+  expect(svg).toContain('style="fill:var(--tx)"')
+  await ui.press({ key: 'settings' })
+  await ui.press({ key: 'set:fieldBackground:night' })
+  await ui.press({ key: 'settings' })
+  svg = String((await ui.find({ type: 'Svg' }))?.props.source)
+  expect(svg).toContain('fill="#0B0E13"')
+  expect(svg).not.toContain('prefers-color-scheme')
+  await ui.unmount()
 })

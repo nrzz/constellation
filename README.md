@@ -19,7 +19,7 @@ Desktop sidebar and nothing is lost between them.
   model was asked.
 
 Status: built in Claude Code 2.1.310. `claude plugin validate --strict`,
-`claude plugin test` (83 tests, including an edge-case suite) and `tsc` pass. The rendered field was checked
+`claude plugin test` (86 tests, including an edge-case suite) and `tsc` pass. The rendered field was checked
 against the approved prototype
 ([preview](https://claude.ai/artifact/AVQhQM9n6QjMsQZKaePe6u),
 [prototype](https://claude.ai/artifact/EAVPtFffcFroUfjiKKp7C6#play-b8188f0249b0));
@@ -43,8 +43,9 @@ developing: `claude --plugin-dir <path to this repo>`.
 
 1. A new session starts with no topic. A band above the prompt asks
    "New session in `<folder>` · continuing which topic?" and lists the folder's
-   topics by recent activity, with digit hotkeys, plus **New topic** and
-   **Dismiss**. (The same chooser is the card under the map.)
+   topics by recent activity, with digit hotkeys, plus **New topic**,
+   **Open map** (`o`) and **Dismiss**. (The same chooser is the card under the
+   map.)
 2. If you type a prompt first, Constellation scores it against each topic's
    titles, goal, notes and file names and marks the best match **suggested**.
    With `autoJoin: auto`, a clear match joins at once and the note rides along
@@ -60,7 +61,8 @@ developing: `claude --plugin-dir <path to this repo>`.
 
 | Command | What it does |
 | --- | --- |
-| `/map` | Opens or closes the Constellation pane |
+| `/map` | Opens or closes the Constellation pane (the live sidebar) |
+| `/map here` | Prints the map, its buttons and the chooser as a row in the main chat, as of that moment |
 | `/map settings` | Opens the pane on its settings view |
 | `/map close` | Closes the pane |
 | `/map export [path]` | Writes the folder's topics, goals and notes as Markdown (default `constellation-map.md`) |
@@ -75,7 +77,9 @@ developing: `claude --plugin-dir <path to this repo>`.
 files and branches, a time-range picker (7, 14, 30 days or all time; pinned
 sessions ignore it), Map/List, Settings.
 
-**Map**: the field. Major topics are labelled pills with a session count
+**Map**: the field, drawn transparent on the pane's own surface and following
+the app's light or dark scheme (`fieldBackground: night` paints the
+prototype's solid ground instead). Major topics are labelled pills with a session count
 (and "· you" on your topic), minor topics small dots with a mono label,
 sessions satellites around their topic (filled = active in the last five
 minutes, hollow = idle, dashed = archived, ★ = pinned), dashed lines between
@@ -132,6 +136,7 @@ Set them in `/config`, or live in the pane's settings view (saved to the store).
 | `useModelForTitles` | true, false | false | Name auto topics with one short haiku call instead of their most frequent words |
 | `openOnStart` | band, pane, none | band | What a new session shows: the chooser band, the pane, or nothing |
 | `desktopHits` | true, false | false | Experimental: an invisible pointer layer over the map on the Desktop, so clicks and drags on the picture itself trace, pick and move. Off until a local check confirms it covers the picture |
+| `fieldBackground` | transparent, night | transparent | transparent sits on the pane's own surface and follows light or dark; night is the prototype's solid ground |
 
 ## Model use and cost
 
@@ -160,6 +165,10 @@ messaging are not offered there.
 
 ## Known limits
 
+- A plugin cannot take over the main chat: the live map is the pane beside
+  the transcript (or above the prompt in a narrow window). `/map here` prints
+  the map as a row in the chat, which scrolls with the conversation and shows
+  the map as of that moment.
 - A node on the map can never switch the Desktop app to an existing session;
   Claude Code has no API for it. A node can message that session while it
   runs, pick up its note into this chat, or start a new session from it.

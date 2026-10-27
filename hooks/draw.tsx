@@ -149,6 +149,21 @@ export function hintOf(view: View): string {
 
 type SvgOptions = { withTooltips?: boolean; maxSessions?: number }
 
+/**
+ * The field's colours as CSS variables inside the Svg. `transparent` (the
+ * default) uses translucent tints that sit on any host surface and follows the
+ * viewer's light or dark scheme; `night` is the prototype's solid ground.
+ */
+export function themeCss(background: MapSettings['fieldBackground']): string {
+  if (background === 'night') {
+    return `:root{--tx:${TEXT};--lb:${LABEL};--mu:${MUTED};--dim:${DIM};--inv:#12161D;--grid:#151A22;--star:#3A4252;--star2:#55607A;--pill:#161B23;--pill2:#1C2230;--line:${BORDER};--x:#2A3240;--ln:#2E3644;--glass:rgba(16,20,26,.9)}`
+  }
+  return (
+    `:root{--tx:#E8ECF2;--lb:#C9D1DC;--mu:#8B95A5;--dim:#6F7988;--inv:#12161D;--grid:rgba(255,255,255,.055);--star:rgba(255,255,255,.22);--star2:rgba(255,255,255,.38);--pill:rgba(255,255,255,.06);--pill2:rgba(255,255,255,.12);--line:rgba(255,255,255,.09);--x:rgba(255,255,255,.14);--ln:rgba(255,255,255,.16);--glass:rgba(255,255,255,.07)}` +
+    `@media (prefers-color-scheme:light){:root{--tx:#141A24;--lb:#2B3442;--mu:#5C6676;--dim:#8891A0;--inv:#FFFFFF;--grid:rgba(0,0,0,.06);--star:rgba(0,0,0,.16);--star2:rgba(0,0,0,.28);--pill:rgba(0,0,0,.045);--pill2:rgba(0,0,0,.09);--line:rgba(0,0,0,.11);--x:rgba(0,0,0,.16);--ln:rgba(0,0,0,.2);--glass:rgba(255,255,255,.75)}}`
+  )
+}
+
 function pillWidth(name: string, count: string): number {
   return 46 + Math.min(name.length, 28) * 7.4 + count.length * 6.8
 }
@@ -162,11 +177,12 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   const query = ui.query.trim()
   const parts: string[] = []
   const css: string[] = [
+    themeCss(view.settings.fieldBackground),
     `.t,.x,.s{transition:opacity .25s}`,
     `.hit{cursor:pointer}`,
     `.glow{opacity:0;transition:opacity .25s}`,
     `.t:hover .glow{opacity:1}`,
-    `.t:hover .lbl{fill:${TEXT}}`,
+    `.t:hover .lbl{fill:var(--tx)}`,
     `.t:hover .ln{opacity:.75}`,
     `svg:has(.t:hover) .t:not(:hover){opacity:.3}`,
     `svg:has(.t:hover) .x{opacity:.35}`,
@@ -178,7 +194,8 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
 
   parts.push(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${FIELD_W}" height="${FIELD_H}" viewBox="0 0 ${FIELD_W} ${FIELD_H}" role="img">`,
-    `<defs><pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse"><path d="M60 0H0V60" fill="none" stroke="#151A22" stroke-width="1"/></pattern>`,
+    `<defs><pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse"><path d="M60 0H0V60" fill="none" style="stroke:var(--grid)" stroke-width="1"/></pattern>`,
+    `<radialGradient id="glow" cx="24%" cy="20%" r="62%"><stop offset="0" stop-color="${ACCENT}" stop-opacity="0.11"/><stop offset="1" stop-color="${ACCENT}" stop-opacity="0"/></radialGradient>`,
     `<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1L9 5L1 9z" fill="${focus ? focus.color : ACCENT}"/></marker>`,
     `<clipPath id="field"><rect width="${FIELD_W}" height="${FIELD_H}" rx="16"/></clipPath>`,
   )
@@ -186,10 +203,12 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
   parts.push('')
   parts.push(`</defs>`)
   parts.push(`<g clip-path="url(#field)">`)
-  parts.push(`<rect width="${FIELD_W}" height="${FIELD_H}" fill="${BG}"/>`)
+  // Transparent by default: the field sits on the pane's own surface; `night` paints the prototype's solid ground.
+  if (view.settings.fieldBackground === 'night') parts.push(`<rect width="${FIELD_W}" height="${FIELD_H}" fill="${BG}"/>`)
+  parts.push(`<rect width="${FIELD_W}" height="${FIELD_H}" fill="url(#glow)"/>`)
   parts.push(`<rect width="${FIELD_W}" height="${FIELD_H}" fill="url(#grid)"/>`)
-  parts.push(`<path d="${starPath(70, 137.5, 11)}" stroke="#3A4252" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.6"/>`)
-  parts.push(`<path d="${starPath(18, 211.7, 53)}" stroke="#55607A" stroke-width="2.4" stroke-linecap="round" fill="none" opacity="0.6"/>`)
+  parts.push(`<path d="${starPath(70, 137.5, 11)}" style="stroke:var(--star)" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.8"/>`)
+  parts.push(`<path d="${starPath(18, 211.7, 53)}" style="stroke:var(--star2)" stroke-width="2.4" stroke-linecap="round" fill="none" opacity="0.8"/>`)
 
   if (!focus) {
     const traced = ui.hover && model.topicById[ui.hover] ? ui.hover : null
@@ -200,11 +219,11 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const b = placed[l.b]
       if (!a || !b) continue
       const isBright = traced !== null && (l.a === traced || l.b === traced)
-      const color = isBright ? (model.topicById[traced ?? '']?.color ?? ACCENT) : '#2A3240'
+      const strokeAttr = isBright ? `stroke="${model.topicById[traced ?? '']?.color ?? ACCENT}"` : 'style="stroke:var(--x)"'
       const ia = indexOf.get(l.a) ?? 0
       const ib = indexOf.get(l.b) ?? 0
       parts.push(
-        `<line class="x x-${ia} x-${ib}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${color}" stroke-width="${isBright ? 1.2 : 1}" stroke-dasharray="2 5" opacity="${isBright ? 0.8 : traced ? 0.35 : 0.8}"/>`,
+        `<line class="x x-${ia} x-${ib}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" ${strokeAttr} stroke-width="${isBright ? 1.2 : 1}" stroke-dasharray="2 5" opacity="${isBright ? 0.8 : traced ? 0.35 : 0.8}"/>`,
       )
     }
     for (const t of model.topics) {
@@ -230,7 +249,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       sessions.forEach((s, k) => {
         const sp = satellitePosition(p, t.id, k, t.isMajor, half)
         if (s.isInRange) {
-          g.push(`<line class="ln" x1="${p.x}" y1="${p.y}" x2="${sp.x.toFixed(1)}" y2="${sp.y.toFixed(1)}" stroke="${isTraced ? t.color : '#2E3644'}" stroke-width="${isTraced ? 1.2 : 1}" opacity="${isTraced ? 0.75 : traced ? 0.35 : 0.8}"/>`)
+          g.push(`<line class="ln" x1="${p.x}" y1="${p.y}" x2="${sp.x.toFixed(1)}" y2="${sp.y.toFixed(1)}" ${isTraced ? `stroke="${t.color}"` : 'style="stroke:var(--ln)"'} stroke-width="${isTraced ? 1.2 : 1}" opacity="${isTraced ? 0.75 : traced ? 0.35 : 0.8}"/>`)
         }
       })
       sessions.forEach((s, k) => {
@@ -243,14 +262,14 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         let op = s.isInRange ? 1 : 0.18
         if (traced && !isTraced) op = Math.min(op, 0.25)
         if (!isMatch) op = Math.min(op, 0.15)
-        const fill = s.status === 'active' ? t.color : s.status === 'idle' ? '#161B23' : '#1C222C'
-        const ring = s.status === 'archived' ? DIM : t.color
+        const fillAttr = s.status === 'active' ? `fill="${t.color}"` : 'style="fill:var(--pill)"'
+        const ringAttr = s.status === 'archived' ? 'style="stroke:var(--dim)"' : `stroke="${t.color}"`
         const dash = s.status === 'archived' ? ' stroke-dasharray="2 2"' : ''
         const glow = isSel || (query && isMatch) ? `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 4}" fill="${rgba(t.color, 0.3)}"/>` : ''
         const halo = `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r + 5}" fill="${rgba(t.color, 0.12)}"/>`
         const tip = withTooltips ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
         const pin = s.isPinned ? `<text x="${(sp.x + 5).toFixed(1)}" y="${(sp.y - 5).toFixed(1)}" font-size="9" fill="${ACCENT}">★</text>` : ''
-        g.push(`<g class="s n hit" opacity="${op.toFixed(2)}">${tip}${halo}${glow}<circle class="sat" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r}" fill="${fill}" stroke="${ring}" stroke-width="1.5"${dash}/>${pin}</g>`)
+        g.push(`<g class="s n hit" opacity="${op.toFixed(2)}">${tip}${halo}${glow}<circle class="sat" cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="${r}" ${fillAttr} ${ringAttr} stroke-width="1.5"${dash}/>${pin}</g>`)
       })
       if (t.isMajor) {
         const w = pillWidth(t.name, countLabel)
@@ -259,9 +278,9 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         const dashed = isDrop ? ' stroke-dasharray="4 3"' : ''
         g.push(
           `<rect class="glow" x="${(x - 5).toFixed(1)}" y="${y - 5}" width="${(w + 10).toFixed(1)}" height="48" rx="24" fill="${rgba(t.color, 0.22)}"${isTraced || isDrop ? ' opacity="1"' : ''}/>`,
-          `<rect class="pill hit" x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="38" rx="19" fill="${isTraced ? '#1C2230' : '#161B23'}" stroke="${t.color}" stroke-width="1.5"${dashed}/>`,
+          `<rect class="pill hit" x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="38" rx="19" style="fill:var(${isTraced ? '--pill2' : '--pill'})" stroke="${t.color}" stroke-width="1.5"${dashed}/>`,
           `<circle cx="${(x + 17).toFixed(1)}" cy="${p.y}" r="4" fill="${t.color}"/>`,
-          `<text x="${(x + 28).toFixed(1)}" y="${p.y + 4.5}" font-size="13" font-weight="600" fill="${TEXT}">${esc(clip(t.name, 28))}</text>`,
+          `<text x="${(x + 28).toFixed(1)}" y="${p.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clip(t.name, 28))}</text>`,
           `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${p.y + 4}" font-size="11" font-weight="500" fill="${t.color}" text-anchor="end">${esc(countLabel)}</text>`,
         )
       } else {
@@ -269,16 +288,16 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         const lx = onRight ? p.x - 16 : p.x + 16
         g.push(
           `<circle class="glow" cx="${p.x}" cy="${p.y}" r="11" fill="${rgba(t.color, 0.22)}"${isTraced || isDrop ? ' opacity="1"' : ''}/>`,
-          `<circle class="hit" cx="${p.x}" cy="${p.y}" r="5.5" fill="#161B23" stroke="${t.color}" stroke-width="1.5"${isDrop ? ' stroke-dasharray="3 2"' : ''}/>`,
-          `<text class="mono lbl" x="${lx}" y="${p.y + 4}" font-size="11.5" fill="${isTraced ? TEXT : MUTED}" text-anchor="${onRight ? 'end' : 'start'}">${esc(clip(t.name, 24))} <tspan fill="${t.color}">${esc(countLabel)}</tspan></text>`,
+          `<circle class="hit" cx="${p.x}" cy="${p.y}" r="5.5" style="fill:var(--pill)" stroke="${t.color}" stroke-width="1.5"${isDrop ? ' stroke-dasharray="3 2"' : ''}/>`,
+          `<text class="mono lbl" x="${lx}" y="${p.y + 4}" font-size="11.5" style="fill:var(${isTraced ? '--tx' : '--mu'})" text-anchor="${onRight ? 'end' : 'start'}">${esc(clip(t.name, 24))} <tspan fill="${t.color}">${esc(countLabel)}</tspan></text>`,
         )
       }
       g.push('</g>')
       parts.push(g.join(''))
     }
     if (model.topics.length === 0) {
-      parts.push(`<text x="430" y="250" font-size="15" font-weight="500" fill="${TEXT}" text-anchor="middle">No sessions on this map yet</text>`)
-      parts.push(`<text x="430" y="276" font-size="12" fill="${MUTED}" text-anchor="middle">Sessions in this folder appear here once they have run; /topic names this one.</text>`)
+      parts.push(`<text x="430" y="250" font-size="15" font-weight="500" style="fill:var(--tx)" text-anchor="middle">No sessions on this map yet</text>`)
+      parts.push(`<text x="430" y="276" font-size="12" style="fill:var(--mu)" text-anchor="middle">Sessions in this folder appear here once they have run; /topic names this one.</text>`)
     }
   } else {
     const steps = chainOf(view, focus)
@@ -290,7 +309,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const pt = positions[i]
       if (!pt) return
       points.push(`${pt.x.toFixed(1)},${pt.y.toFixed(1)}`)
-      parts.push(`<line x1="${FOCUS_PILL.x}" y1="${FOCUS_PILL.y}" x2="${pt.x.toFixed(1)}" y2="${pt.y.toFixed(1)}" stroke="#2E3644" stroke-width="1" opacity="0.8"/>`)
+      parts.push(`<line x1="${FOCUS_PILL.x}" y1="${FOCUS_PILL.y}" x2="${pt.x.toFixed(1)}" y2="${pt.y.toFixed(1)}" style="stroke:var(--ln)" stroke-width="1" opacity="0.8"/>`)
     })
     if (points.length > 1) {
       parts.push(`<polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" marker-mid="url(#arrow)" marker-end="url(#arrow)" opacity="0.9"/>`)
@@ -303,9 +322,9 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const isLatest = s !== undefined && latest !== undefined && s.id === latest.id
       const status = s?.status ?? 'active'
       const isYou = step.isYou
-      const fill = isYou ? rgba(ACCENT, 0.16) : isSel ? color : status === 'active' ? rgba(color, 0.25) : '#161B23'
-      const numColor = isYou ? ACCENT : isSel ? '#12161D' : status === 'archived' ? '#9AA3B2' : TEXT
-      const ring = isYou ? ACCENT : status === 'archived' ? DIM : color
+      const fill = isYou ? rgba(ACCENT, 0.16) : isSel ? color : status === 'active' ? rgba(color, 0.25) : 'var(--pill)'
+      const numColor = isYou ? ACCENT : isSel ? 'var(--inv)' : status === 'archived' ? 'var(--mu)' : 'var(--tx)'
+      const ring = isYou ? ACCENT : status === 'archived' ? 'var(--dim)' : color
       const dash = isYou || status === 'archived' ? ' stroke-dasharray="4 3"' : ''
       const op = isYou || (s && matches(query, s)) ? 1 : 0.25
       const isTight = steps.length >= 5
@@ -321,13 +340,13 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
       const tip = withTooltips && s && !isYou ? `<title>${esc(s.title)}\n${esc(sessionMeta(s, now))}${noteText(s) ? `\n${esc(clip(noteText(s), 160))}` : ''}</title>` : ''
       const g: string[] = [`<g class="n hit" opacity="${op.toFixed(2)}">${tip}`]
       if (isLatest) g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="21" fill="${rgba(color, 0.22)}"/>`)
-      g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="16" fill="${fill}" stroke="${ring}" stroke-width="2"${dash}/>`)
-      g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${(pt.y + 4.5).toFixed(1)}" font-size="12.5" font-weight="600" fill="${numColor}" text-anchor="middle">${i + 1}</text>`)
+      g.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="16" style="fill:${fill};stroke:${ring}" stroke-width="2"${dash}/>`)
+      g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${(pt.y + 4.5).toFixed(1)}" font-size="12.5" font-weight="600" style="fill:${numColor}" text-anchor="middle">${i + 1}</text>`)
       if (s?.isPinned) g.push(`<text x="${(pt.x + 12).toFixed(1)}" y="${(pt.y - 10).toFixed(1)}" font-size="10" fill="${ACCENT}">★</text>`)
       const ty = pt.y + 32
-      const labelColor = isYou ? ACCENT : isSel ? TEXT : status === 'archived' ? MUTED : LABEL
-      g.push(`<text x="${pt.x.toFixed(1)}" y="${ty}" font-size="11.5" fill="${labelColor}" text-anchor="middle">${lines.map((l, k) => `<tspan x="${pt.x.toFixed(1)}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)
-      g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${ty + lines.length * 14}" font-size="10.5" fill="${isLatest ? color : MUTED}" text-anchor="middle">${esc(clip(meta, isTight ? 27 : 34))}</text>`)
+      const labelColor = isYou ? ACCENT : isSel ? 'var(--tx)' : status === 'archived' ? 'var(--mu)' : 'var(--lb)'
+      g.push(`<text x="${pt.x.toFixed(1)}" y="${ty}" font-size="11.5" style="fill:${labelColor}" text-anchor="middle">${lines.map((l, k) => `<tspan x="${pt.x.toFixed(1)}" dy="${k === 0 ? 0 : 14}">${esc(l)}</tspan>`).join('')}</text>`)
+      g.push(`<text class="mono" x="${pt.x.toFixed(1)}" y="${ty + lines.length * 14}" font-size="10.5" style="fill:${isLatest ? color : 'var(--mu)'}" text-anchor="middle">${esc(clip(meta, isTight ? 27 : 34))}</text>`)
       g.push('</g>')
       parts.push(g.join(''))
     })
@@ -337,16 +356,16 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     const y = FOCUS_PILL.y - 19
     parts.push(
       `<rect x="${(x - 6).toFixed(1)}" y="${y - 6}" width="${(w + 12).toFixed(1)}" height="50" rx="25" fill="${rgba(color, 0.2)}"/>`,
-      `<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="38" rx="19" fill="#161B23" stroke="${color}" stroke-width="1.5"/>`,
+      `<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="38" rx="19" style="fill:var(--pill2)" stroke="${color}" stroke-width="1.5"/>`,
       `<circle cx="${(x + 17).toFixed(1)}" cy="${FOCUS_PILL.y}" r="4" fill="${color}"/>`,
-      `<text x="${(x + 28).toFixed(1)}" y="${FOCUS_PILL.y + 4.5}" font-size="13" font-weight="600" fill="${TEXT}">${esc(clip(focus.name, 28))}</text>`,
+      `<text x="${(x + 28).toFixed(1)}" y="${FOCUS_PILL.y + 4.5}" font-size="13" font-weight="600" style="fill:var(--tx)">${esc(clip(focus.name, 28))}</text>`,
       `<text class="mono" x="${(x + w - 14).toFixed(1)}" y="${FOCUS_PILL.y + 4}" font-size="11" font-weight="500" fill="${color}" text-anchor="end">${esc(countLabel)}</text>`,
     )
     if (focus.goal) {
-      parts.push(`<text x="${FOCUS_PILL.x}" y="408" font-size="11.5" fill="${LABEL}" text-anchor="middle"><tspan class="mono" fill="${MUTED}">GOAL</tspan>  ${esc(clip(focus.goal, 96))}</text>`)
+      parts.push(`<text x="${FOCUS_PILL.x}" y="408" font-size="11.5" style="fill:var(--lb)" text-anchor="middle"><tspan class="mono" style="fill:var(--mu)">GOAL</tspan>  ${esc(clip(focus.goal, 96))}</text>`)
     }
     if (steps.length === 0) {
-      parts.push(`<text x="430" y="262" font-size="12.5" fill="${MUTED}" text-anchor="middle">No sessions in the time range. Widen the range, or pin one.</text>`)
+      parts.push(`<text x="430" y="262" font-size="12.5" style="fill:var(--mu)" text-anchor="middle">No sessions in the time range. Widen the range, or pin one.</text>`)
     }
     if (view.settings.showRelated) {
       const rel = relatedOf(model.links, focus.id)
@@ -358,33 +377,33 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
         const label = `${clip(rt.name, 20)}  ${clip(r.via, 18)}`
         const aw = 40 + label.length * 6.4
         parts.push(
-          `<g class="hit" opacity="0.85"><rect x="${(ap.x - aw / 2).toFixed(1)}" y="${ANCHOR_Y - 16}" width="${aw.toFixed(1)}" height="32" rx="16" fill="rgba(22,27,35,0.9)" stroke="${rt.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
+          `<g class="hit" opacity="0.9"><rect x="${(ap.x - aw / 2).toFixed(1)}" y="${ANCHOR_Y - 16}" width="${aw.toFixed(1)}" height="32" rx="16" style="fill:var(--glass)" stroke="${rt.color}" stroke-width="1" stroke-dasharray="4 3"/>`,
           `<circle cx="${(ap.x - aw / 2 + 15).toFixed(1)}" cy="${ANCHOR_Y}" r="3.5" fill="${rt.color}"/>`,
-          `<text x="${(ap.x - aw / 2 + 25).toFixed(1)}" y="${ANCHOR_Y + 4}" font-size="12" fill="${LABEL}">${esc(clip(rt.name, 20))} <tspan class="mono" font-size="10.5" fill="${MUTED}">${esc(clip(r.via, 18))}</tspan></text></g>`,
+          `<text x="${(ap.x - aw / 2 + 25).toFixed(1)}" y="${ANCHOR_Y + 4}" font-size="12" style="fill:var(--lb)">${esc(clip(rt.name, 20))} <tspan class="mono" font-size="10.5" style="fill:var(--mu)">${esc(clip(r.via, 18))}</tspan></text></g>`,
         )
       })
     }
     parts.push(
-      `<g class="hit"><rect x="14" y="12" width="96" height="30" rx="15" fill="rgba(16,20,26,0.9)" stroke="#2A3240"/><text x="30" y="31" font-size="12" fill="${LABEL}">‹ All topics</text></g>`,
+      `<g class="hit"><rect x="14" y="12" width="96" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/><text x="30" y="31" font-size="12" style="fill:var(--lb)">‹ All topics</text></g>`,
     )
   }
 
   const hint = hintOf(view)
   const hw = 24 + hint.length * 6.3
   parts.push(
-    `<rect x="${(FIELD_W / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" fill="rgba(16,20,26,0.9)" stroke="#2A3240"/>`,
-    `<text x="${FIELD_W / 2}" y="33" font-size="12" fill="${LABEL}" text-anchor="middle">${esc(hint)}</text>`,
+    `<rect x="${(FIELD_W / 2 - hw / 2).toFixed(1)}" y="14" width="${hw.toFixed(1)}" height="30" rx="15" style="fill:var(--glass);stroke:var(--x)"/>`,
+    `<text x="${FIELD_W / 2}" y="33" font-size="12" style="fill:var(--lb)" text-anchor="middle">${esc(hint)}</text>`,
   )
   const ly = FIELD_H - 16
   parts.push(
-    `<g font-size="11" fill="${MUTED}">`,
+    `<g font-size="11" style="fill:var(--mu)">`,
     `<circle cx="20" cy="${ly - 4}" r="4" fill="${ACCENT}"/><text x="29" y="${ly}">active</text>`,
-    `<circle cx="78" cy="${ly - 4}" r="4" fill="none" stroke="${MUTED}" stroke-width="1.5"/><text x="87" y="${ly}">idle</text>`,
-    `<circle cx="124" cy="${ly - 4}" r="4" fill="none" stroke="${DIM}" stroke-width="1.5" stroke-dasharray="2 2"/><text x="133" y="${ly}">shipped</text>`,
+    `<circle cx="78" cy="${ly - 4}" r="4" fill="none" style="stroke:var(--mu)" stroke-width="1.5"/><text x="87" y="${ly}">idle</text>`,
+    `<circle cx="124" cy="${ly - 4}" r="4" fill="none" style="stroke:var(--dim)" stroke-width="1.5" stroke-dasharray="2 2"/><text x="133" y="${ly}">shipped</text>`,
     `<text x="186" y="${ly}" fill="${ACCENT}">★</text><text x="199" y="${ly}">pinned</text>`,
     `</g>`,
   )
-  parts.push(`<rect x="0.5" y="0.5" width="${FIELD_W - 1}" height="${FIELD_H - 1}" rx="16" fill="none" stroke="${BORDER}"/>`)
+  parts.push(`<rect x="0.5" y="0.5" width="${FIELD_W - 1}" height="${FIELD_H - 1}" rx="16" fill="none" style="stroke:var(--line)"/>`)
   parts.push('</g></svg>')
   parts[styleAt] = `<style>${css.join('')}</style>`
   const svg = parts.join('')
@@ -398,7 +417,7 @@ export function svgOf(view: View, options: SvgOptions = {}): string {
     ]
     const next = ladder.find(step => step.withTooltips !== withTooltips || (step.maxSessions ?? 60) < maxSessions)
     if (next) return svgOf(view, next)
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${FIELD_W}" height="${FIELD_H}" viewBox="0 0 ${FIELD_W} ${FIELD_H}"><rect width="${FIELD_W}" height="${FIELD_H}" rx="16" fill="${BG}"/><text x="430" y="260" font-size="13" fill="${MUTED}" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${FIELD_W}" height="${FIELD_H}" viewBox="0 0 ${FIELD_W} ${FIELD_H}"><style>${themeCss(view.settings.fieldBackground)}</style><rect width="${FIELD_W}" height="${FIELD_H}" rx="16" fill="none" style="stroke:var(--line)"/><text x="430" y="260" font-size="13" style="fill:var(--mu)" text-anchor="middle">Too many topics to draw at once: narrow the time range or search.</text></svg>`
   }
   return svg
 }
@@ -463,6 +482,7 @@ export type Actions = {
   dismissToast: () => void
   dismissDigest: () => void
   back: () => void
+  openMap: () => void
 }
 
 const RANGE_OPTIONS = [
@@ -656,6 +676,7 @@ const SETTING_ROWS: { key: keyof MapSettings; label: string; help: string; optio
   { key: 'useModelForTitles', label: 'Topic names', help: 'name auto topics with haiku', options: [{ value: false, label: 'Frequent words' }, { value: true, label: 'Model' }] },
   { key: 'openOnStart', label: 'On session start', help: 'what shows when a session begins', options: [{ value: 'band', label: 'Band' }, { value: 'pane', label: 'Pane' }, { value: 'none', label: 'Nothing' }] },
   { key: 'desktopHits', label: 'Desktop hit layer', help: 'experimental: clicks on the picture itself', options: [{ value: false, label: 'Off' }, { value: true, label: 'On' }] },
+  { key: 'fieldBackground', label: 'Field background', help: 'the pane’s own surface, or the solid night ground', options: [{ value: 'transparent', label: 'Transparent' }, { value: 'night', label: 'Night' }] },
 ]
 
 function tokens(n: number): string {
@@ -743,6 +764,7 @@ export function drawChooser(T: Table, view: View, act: Actions, where: 'pane' | 
         )
       })}
       <Button key="j:new" label="+ New topic" hotkey="n" onPress={() => act.newTopic()} />
+      {where === 'band' ? <Button key="j:map" label="Open map" hotkey="o" onPress={() => act.openMap()} /> : null}
       {where === 'band' ? <Button key="j:dismiss" label="Dismiss" role="dismiss" onPress={() => act.dismissBand()} /> : null}
     </Box>,
   )
@@ -973,6 +995,29 @@ export function drawPane(T: Table, view: View, act: Actions, field?: RenderEleme
       ) : null}
       {drawCard(T, view, act)}
       {toast}
+    </Box>
+  )
+}
+
+/**
+ * `/map here`: the field, its controls and the card as a row in the main
+ * conversation. The row is as wide as the transcript, scrolls with the chat,
+ * and redraws while it is on screen; the pane stays the live sidebar.
+ */
+export function drawInlineRow(T: Table, view: View, act: Actions): RenderElement {
+  const { Box, Text, Svg } = T
+  const { model, me } = view
+  return (
+    <Box flexDirection="column" gap="xs">
+      <Box flexDirection="row" gap="sm" alignItems="center" flexWrap="wrap">
+        <Text weight="semibold" mono>
+          CONSTELLATION
+        </Text>
+        <Text dimColor size="footnote">{`${me.folder || 'folder'} · ${statsOf(model)} · /map opens the live pane`}</Text>
+      </Box>
+      {Svg ? <Svg source={svgOf(view)} alt={altOf(view)} isInteractive /> : null}
+      {Svg ? drawControls(T, view, act) : drawList(T, view, act)}
+      {drawCard(T, view, act)}
     </Box>
   )
 }

@@ -401,7 +401,7 @@ test('/map opens the pane with a first-look digest and /map export writes a Mark
   const stubs = stubEngine(on)
   await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
   const opened = await run($, 'map', '')
-  expect(opened.text).toBe('Constellation opened.')
+  expect(opened.text).toContain('Constellation opened.')
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /First look at web-app: 3 sessions across 1 topic/ })).toBeDefined()
   await ui.press({ key: 'digest:ok' })

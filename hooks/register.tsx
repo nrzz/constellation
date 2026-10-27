@@ -16,7 +16,7 @@ import {
   describeTopics,
   exportMarkdown,
   onClientMessage,
-  openDigest,
+  openMapPane,
   parkNote,
   periodicRescan,
   pickUpStep,
@@ -26,7 +26,7 @@ import {
   suggestFor,
   viewOf,
 } from './actions'
-import { altOf, drawBand, drawPane, fieldOf, svgOf } from './draw'
+import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, svgOf } from './draw'
 import type { Table } from './draw'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
 
@@ -39,7 +39,7 @@ const meAtom = atom({ plugin: 'constellation', key: 'me' } as const, INITIAL_ME,
 const HIT_ROWS = 30
 
 const COMMANDS = [
-  { name: 'map', description: 'Open or close the Constellation topic map', argumentHint: '[settings|close|export [path]]' },
+  { name: 'map', description: 'Open or close the Constellation topic map; "here" prints it in the chat', argumentHint: '[here|settings|close|export [path]]' },
   { name: 'topic', description: 'Join or create a Constellation topic for this session', argumentHint: '[name]' },
   { name: 'park', description: 'Save a handoff note for this session on the Constellation map', argumentHint: '<note>' },
   { name: 'pickup', description: 'Add the handoff note of a step of your Constellation topic to the next prompt', argumentHint: '[n]' },
@@ -69,12 +69,6 @@ function tableOf<E extends ResolveInput>($: EngineInterface, e: E): Table {
   return { Box: T.Box, Text: T.Text, Button: T.Button, Input: T.Input, Select: T.Select, Svg: T.Svg }
 }
 
-async function openPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: string }> {
-  const placed = await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
-  void rescan($).then(() => openDigest($))
-  return placed
-}
-
 async function start($: EngineInterface, options: PluginOptions, cwd: string, isInteractive: boolean): Promise<void> {
   try {
     await bootstrap($, options, cwd)
@@ -84,7 +78,7 @@ async function start($: EngineInterface, options: PluginOptions, cwd: string, is
   const settings = await read($, settingsAtom)
   if (settings.openOnStart === 'pane' && isInteractive) {
     try {
-      await openPane($)
+      await openMapPane($)
     } catch (error) {
       $.ui.log(`constellation: pane not opened: ${String(error)}`, { to: 'debug' })
     }
@@ -111,6 +105,11 @@ export const register: Register = (on, options) => {
     const [word = '', ...rest] = args.split(/\s+/)
     const arg = word.toLowerCase()
     if (arg === 'export') return { text: await exportMarkdown($, rest.join(' ')) }
+    if (arg === 'here' || arg === 'inline') {
+      // The CommandOutput hook below draws this row as the field; the text stands where a surface draws no tree.
+      await rescan($)
+      return { text: 'Constellation map (as of now). /map opens the live pane.' }
+    }
     const isOpen = (await $.ui.panes()).some(p => p.id === PANE)
     if (arg === 'close') {
       if (isOpen) await $.ui.close({ id: PANE })
@@ -122,8 +121,8 @@ export const register: Register = (on, options) => {
       await $.ui.close({ id: PANE })
       return { text: 'Constellation closed.' }
     }
-    const placed = await openPane($)
-    return { text: placed.isPlaced ? 'Constellation opened.' : `Constellation is open but not drawn: ${placed.reason ?? 'no surface'}` }
+    const placed = await openMapPane($)
+    return { text: placed.isPlaced ? 'Constellation opened. /map here prints the map in the chat.' : `Constellation is open but not drawn: ${placed.reason ?? 'no surface'}` }
   })
 
   on('command.run', { command: 'topic' }, async ($, e) => {
@@ -196,6 +195,13 @@ export const register: Register = (on, options) => {
   on('ui.message', { element: 'map' }, async ($, e, next) => {
     await onClientMessage($, e.data)
     return next(e)
+  })
+
+  on('ui.render', { component: 'CommandOutput', props: { command: 'map' } }, async ($, e, next) => {
+    const word = e.props.args.trim().split(/\s+/)[0]?.toLowerCase()
+    if (word !== 'here' && word !== 'inline') return next(e)
+    const view = await viewOf($, e.surface)
+    return drawInlineRow(tableOf($, e), view, actionsFor($))
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

@@ -134,6 +134,16 @@
       "title": "Desktop hit layer (experimental)",
       "description": "Lays an invisible pointer layer over the map on the Desktop so clicks and drags on the picture itself trace, pick and move; off until a local check confirms it sits over the picture",
       "default": false
+    },
+    "fieldBackground": {
+      "type": "string",
+      "title": "Field background",
+      "description": "transparent lets the map sit on the pane's own surface and follow light or dark; night paints the prototype's solid ground",
+      "options": [
+        "transparent",
+        "night"
+      ],
+      "default": "transparent"
     }
   }
 }

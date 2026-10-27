@@ -923,6 +923,14 @@ export async function onClientMessage($: EngineInterface, data: unknown): Promis
   if (data.type === 'back') await back($)
 }
 
+/** Opens the pane (focused, Escape closes it), rescans, and writes the "since your last look" digest. */
+export async function openMapPane($: EngineInterface): Promise<{ isPlaced: boolean; reason?: string }> {
+  const placed = await $.ui.open({ id: PANE, title: 'Constellation', focus: true, closeOnEscape: true, columns: 96 })
+  await rescan($)
+  await openDigest($)
+  return placed
+}
+
 /** The drawing's presses, bound to `$`. */
 export function actionsFor($: EngineInterface): Actions {
   return {
@@ -963,5 +971,6 @@ export function actionsFor($: EngineInterface): Actions {
     dismissToast: () => void patchUi($, { toast: null }),
     dismissDigest: () => void patchUi($, { digest: null }),
     back: () => void back($),
+    openMap: () => void openMapPane($).catch(error => $.ui.log(`constellation: pane not opened: ${String(error)}`, { to: 'debug' })),
   }
 }

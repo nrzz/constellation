@@ -58,6 +58,7 @@ export type MapSettings = {
   useModelForTitles: boolean
   openOnStart: 'band' | 'pane' | 'none'
   desktopHits: boolean
+  fieldBackground: 'transparent' | 'night'
 }
 
 export type ToastState = { text: string; hasUndo: boolean }

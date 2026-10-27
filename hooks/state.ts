@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: MapSettings = {
   useModelForTitles: false,
   openOnStart: 'band',
   desktopHits: false,
+  fieldBackground: 'transparent',
 }
 
 export const EMPTY_STORE: StoreData = { topics: {}, assign: {}, notes: {}, archived: {}, pins: {}, titles: {}, goals: {}, seen: {} }
@@ -71,6 +72,7 @@ const CHOICES: { [K in keyof MapSettings]: readonly MapSettings[K][] | 'number' 
   useModelForTitles: 'boolean',
   openOnStart: ['band', 'pane', 'none'],
   desktopHits: 'boolean',
+  fieldBackground: ['transparent', 'night'],
 }
 
 const RANGES: Partial<Record<keyof MapSettings, [number, number]>> = {
