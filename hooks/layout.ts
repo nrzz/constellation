@@ -38,12 +38,36 @@ export const MIN_FIELD_W = 520
  * a wider pane, or none known, gets the full 860.
  */
 export function fieldWidthFor(columns?: number): number {
-  if (!columns || !Number.isFinite(columns) || columns <= 0) return FIELD_W
-  // The picture's slot: the pane's body less its padding.
-  const slotPx = columns * DESKTOP_CELL.w - 40
+  const slotPx = slotWidthFor(columns)
+  if (slotPx === undefined) return FIELD_W
   // Field units the slot may hold for 13-unit text to draw at about 9 px.
   const w = Math.round((slotPx * 1.45) / 20) * 20
   return Math.max(MIN_FIELD_W, Math.min(FIELD_W, w))
+}
+
+/** The picture's slot in a pane `columns` cells wide, in CSS px: the pane's body less its padding; none when unknown. */
+export function slotWidthFor(columns?: number): number | undefined {
+  if (!columns || !Number.isFinite(columns) || columns <= 0) return undefined
+  return columns * DESKTOP_CELL.w - 40
+}
+
+/** The engine's bound on an Svg's width and height, in CSS px. */
+export const SVG_MAX_PX = 4096
+
+/**
+ * The live picture's frame in CSS px. The Desktop draws an interactive Svg in
+ * an iframe sized by the Svg's width and height alone, and an iframe has no
+ * size of its own: unsized, it is as wide as its column and 150 px tall, and
+ * the picture shrinks to fit inside. So the frame takes the size the Clicks
+ * picture's image takes by itself: the field at the slot's width (never wider
+ * than its own), at the field's aspect, within the engine's bound.
+ */
+export function frameSize(size: FieldSize, columns?: number): { width: number; height: number } {
+  const slot = slotWidthFor(columns) ?? size.w
+  const width = Math.max(1, Math.floor(Math.min(size.w, slot)))
+  const height = Math.max(1, Math.round((width * size.h) / size.w))
+  if (height <= SVG_MAX_PX) return { width, height }
+  return { width: Math.max(1, Math.floor((SVG_MAX_PX * size.w) / size.h)), height: SVG_MAX_PX }
 }
 
 /** A focused topic's field: as wide as the map's, the base height, and a band taller for each band a chain of `steps` wraps into. */

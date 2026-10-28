@@ -36,7 +36,7 @@ import {
   suggestFor,
   viewOf,
 } from './actions'
-import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, helpText, isLive, svgOf } from './draw'
+import { altOf, drawBand, drawInlineRow, drawPane, fieldOf, frameSizeOf, helpText, isLive, svgOf } from './draw'
 import type { Table, View } from './draw'
 import { DESKTOP_CELL } from './layout'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, PANE } from './state'
@@ -241,9 +241,11 @@ export const register: Register = (on, options) => {
       return drawPane(tableOf($, e), view, actionsFor($), field)
     }
     // Elsewhere the picture alone, and the buttons under it pick. Live, it is drawn in the script-less frame, so hover and
-    // motion work in its CSS; nothing lies over it, since a layer would take the pointer from the frame. Else an image.
+    // motion work in its CSS; nothing lies over it, since a layer would take the pointer from the frame. The frame has no
+    // size of its own (unsized, the Desktop draws it 150 px tall), so it takes the picture's. Else an image, sized by itself.
     const T = tableOf($, e)
-    const field = T.Svg ? <T.Svg source={svgOf(view)} alt={altOf(view)} {...(isLiveFrame ? { isInteractive: true } : {})} /> : undefined
+    const live = isLiveFrame ? { isInteractive: true, ...frameSizeOf(view, e.props.bodyColumns) } : {}
+    const field = T.Svg ? <T.Svg source={svgOf(view)} alt={altOf(view)} {...live} /> : undefined
     return drawPane(T, view, actionsFor($), field)
   })
 

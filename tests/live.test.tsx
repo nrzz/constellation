@@ -4,7 +4,8 @@ import { expect, test } from 'claude-code/testing'
 
 import { ACCENT, EMPTY_STORE, buildModel, satellitesPerTopic } from '../hooks/cluster'
 import { handoffText, placementOf } from '../hooks/actions'
-import { captionOf, fieldOf, pointerHint, sessionMeta, svgOf } from '../hooks/draw'
+import { captionOf, fieldOf, frameSizeOf, pointerHint, sessionMeta, svgOf } from '../hooks/draw'
+import { SVG_MAX_PX, frameSize } from '../hooks/layout'
 import { DEFAULT_SETTINGS, INITIAL_ME, INITIAL_UI, INITIAL_USAGE, settingValue } from '../hooks/state'
 import type { SessionSummary } from '../types'
 import { CWD, NOW, boxesOf, paneOn, stubEngine } from './helpers'
@@ -33,6 +34,57 @@ test('clicks: the picture is an image with the Client layer over it, as before',
   const ui = await $.ui.mount(paneOn('desktop'))
   expect((await ui.find({ type: 'Svg' }))?.props.isInteractive).toBeUndefined()
   expect(await ui.find({ type: 'Client', key: 'map' })).toBeDefined()
+  await ui.unmount()
+})
+
+/** An Svg source's viewBox size: the field the picture draws. */
+function viewBoxOf(source: unknown): [number, number] {
+  const m = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(String(source ?? ''))
+  return m ? [Number(m[1]), Number(m[2])] : [Number.NaN, Number.NaN]
+}
+
+// The Desktop draws an interactive Svg as <iframe sandbox srcdoc> sized only by the Svg's width and height (4.29.0's
+// renderer, read from its ion-dist bundle): an iframe has no size of its own, so unsized it is as wide as the column
+// and 150 px tall, and the picture inside, drawn at 100% × 100% of it, shrinks to fit 150 px (an 860×820 map 157 px wide).
+test('the live frame takes the picture’s size: the field at the slot’s width, at its own aspect', async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  for (const columns of [120, 80, 44]) {
+    const pane = paneOn('desktop')
+    const ui = await $.ui.mount({ ...pane, props: { ...pane.props, bodyColumns: columns } })
+    const svg = await ui.find({ type: 'Svg' })
+    const [w, h] = viewBoxOf(svg?.props.source)
+    // What the Clicks picture's image takes by itself: never wider than the field, nor than the slot (layout.ts).
+    expect(svg?.props.width).toBe(Math.floor(Math.min(w, columns * 7.7 - 40)))
+    expect(Math.abs(Number(svg?.props.height) - (Number(svg?.props.width) * h) / w)).toBeLessThanOrEqual(0.5)
+    await ui.unmount()
+  }
+})
+
+test('a focused topic’s frame keeps its own, taller field’s aspect at every pane width', () => {
+  const view = liveView()
+  const focused = { ...view, ui: { ...INITIAL_UI, focusTopic: 'topic:a' } }
+  const [w, h] = viewBoxOf(svgOf(focused))
+  expect(h).toBeGreaterThan(0)
+  for (const columns of [undefined, 160, 120, 80, 44]) {
+    const size = frameSizeOf(focused, columns)
+    expect(size.width).toBe(Math.floor(Math.min(w, columns === undefined ? w : columns * 7.7 - 40)))
+    expect(Math.abs(size.height - (size.width * h) / w)).toBeLessThanOrEqual(0.5)
+  }
+})
+
+test('a field taller than the engine’s 4096 px bound is scaled down whole, at its aspect', () => {
+  expect(frameSize({ w: 520, h: 9000 }, 120)).toEqual({ width: Math.floor((SVG_MAX_PX * 520) / 9000), height: SVG_MAX_PX })
+  expect(frameSize({ w: 860, h: 520 }, 120)).toEqual({ width: 860, height: 520 })
+})
+
+test('clicks: the image sizes itself, so its Svg carries no width or height', { options: { pictureMode: 'clicks' } }, async ($, on) => {
+  stubEngine(on)
+  await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount(paneOn('desktop'))
+  const svg = await ui.find({ type: 'Svg' })
+  expect(svg?.props.width).toBeUndefined()
+  expect(svg?.props.height).toBeUndefined()
   await ui.unmount()
 })
 

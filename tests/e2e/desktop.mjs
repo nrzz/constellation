@@ -1208,6 +1208,14 @@ async function livePictureChecks() {
     const source = svg?.props.source ?? ''
     check(counted(r.tree) === sessions.length, `the live map holds all ${sessions.length} sessions`, `${counted(r.tree)} counted`)
     check(svg?.props.isInteractive === true, 'with no setting, the Desktop’s Svg arrives interactive (the live picture)', svg?.props && { isInteractive: svg.props.isInteractive })
+    // The Desktop draws it in an iframe sized by these alone (no size of its own: unsized, 150 px tall, the map inside
+    // shrunk to fit): the field at the slot's width, never wider than its own, at the field's aspect.
+    const [vbW, vbH] = (/viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(source) ?? []).slice(1).map(Number)
+    const slotW = Math.floor(Math.min(vbW, VIEWPORT.columns * 7.7 - 40))
+    check(svg?.props.width === slotW && Math.abs(svg.props.height - (slotW * vbH) / vbW) <= 0.5, `…its frame sized to the picture: ${slotW} px wide at the field’s ${vbW}×${vbH} aspect`, svg?.props && { width: svg.props.width, height: svg.props.height })
+    // What the Desktop's scrub (DOMPurify with its svg profile, as 4.29.0 calls it) drops: the source carries none of it.
+    const scrubbed = [/<(script|foreignObject|image|a|iframe)[\s>/]/i, /\sdata-[\w-]+\s*=/, /\son[a-z]+\s*=/i, /\s(?:xlink:)?href\s*=\s*"(?!#)/].filter(re => re.test(source)).map(String)
+    check(scrubbed.length === 0, '…nothing in it the Desktop’s scrub drops (forbidden tags, data-* or on* attributes, hrefs off the page)', scrubbed)
     check(!find(r.tree, n => n.type === 'Client'), '…and no Client layer is mounted over it')
     check(findAll(r.tree, n => n.type === 'Button' && /^t:/.test(n.props?.key ?? '')).length > 0, '…the topic buttons under it pick instead')
     check(/Hover a topic to trace it · its button below focuses it/.test(source), '…and its hint says so')

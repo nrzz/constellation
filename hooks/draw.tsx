@@ -10,7 +10,7 @@ import type { Elements, RenderElement } from 'claude-code'
 
 import { ACCENT, ALL_TIME_DAYS, MINOR_COLOR, PALETTE, UNSORTED_ID, ageOf, agoOf, chainSteps, latestOf, orderChain, satellitesPerTopic } from './cluster'
 import type { ChainStep, Link, Model, SessionView, Topic } from './cluster'
-import { BASE, FOCUS_PILL, LINK_CLEAR, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, crowdedLabels, focusSize, isUpperStep, labelSide, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
+import { BASE, FOCUS_PILL, LINK_CLEAR, anchorSlots, chainLabelChars, chainMetaChars, chainPositions, crowdedLabels, focusSize, frameSize, isUpperStep, labelSide, pillWidth, satellitePosition, starPath, unitCentre, unitEdge } from './layout'
 import type { FieldSize, PlacedTopic, Point } from './layout'
 import { durationOf } from './state'
 import type { MapSettings, MeState, NoteRecord, UiState, UsageState } from '../types'
@@ -261,6 +261,11 @@ export function marks(view: Pick<View, 'surface'>): { gear: string; refresh: str
 export function sizeOf(view: View): FieldSize {
   const focus = view.ui.focusTopic ? view.model.topicById[view.ui.focusTopic] : undefined
   return focus ? focusSize(view.field, chainOf(view, focus).length) : view.field
+}
+
+/** The live frame's CSS size for this drawing in a pane `columns` cells wide (see frameSize). */
+export function frameSizeOf(view: View, columns?: number): { width: number; height: number } {
+  return frameSize(sizeOf(view), columns)
 }
 
 /** The focused topic's pill: its count ("3 of 4", "· you" on your own topic) and its width, the same in the picture and the pointer layer. */
