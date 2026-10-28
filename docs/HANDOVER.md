@@ -1,4 +1,4 @@
-# Constellation: handover (2026-10-28, the Windows re-test and the live pane)
+# Constellation: handover (2026-10-28, the live pane checked in the Desktop's own frame)
 
 This file is the place to start: where things stand, the two machines, how to
 run everything on Windows, what is left to check, and the review's findings
@@ -9,16 +9,17 @@ API facts and every pass's record; `README.md` is what users read.
 
 ## 1. Start here
 
-1. **Find the code.** The work of 27-28 October is on the branch
-   `fix/windows-retest` (worktree `D:\Projects\constellation-fixes` on the
-   owner's Windows 11 machine; section 2). Item L9 fast-forwarded `main` to
-   it and L10 pushed `main` to origin on 28 October, on the harness's
-   evidence: the Desktop check of section 4 was not done by hand (the
-   owner's word at 09:06 IST; computer use cannot drive Claude's own window).
+1. **Find the code.** The work is on the branch `fix/windows-retest`
+   (worktree `D:\Projects\constellation-fixes` on the owner's Windows 11
+   machine; section 2), and `main` (`D:\Projects\constellation`, pushed) is
+   the same commit. The 28 October session checked the live pane in the
+   Desktop's own frame code (section 3), found the live picture drawn 150 px
+   tall, fixed it (R28, 894c250) and pushed. The owner does not do hand
+   checks: what no tool here can see is listed in section 4.
 
    ```bash
    git -C /d/Projects/constellation-fixes log --oneline -1
-   git -C /d/Projects/constellation-fixes merge-base --is-ancestor 8c9f146 HEAD && echo ok
+   git -C /d/Projects/constellation-fixes merge-base --is-ancestor 894c250 HEAD && echo ok
    ```
 
 2. **Point the tools at the Desktop's own Claude Code** (section 5). Neither
@@ -40,7 +41,7 @@ API facts and every pass's record; `README.md` is what users read.
 | | Windows 11 (this work) | Windows 10 (the first report) |
 | --- | --- | --- |
 | User, hardware | `nares`, 16 GB (little free with three build lanes) | `Lenovo`, 1366×768 at 96 DPI |
-| Desktop | 3.6556.2, **installer app** (`%LOCALAPPDATA%\AnthropicClaude`) | 3.6556, **Store app** |
+| Desktop | 3.6556.2 running, **installer app** (`%LOCALAPPDATA%\AnthropicClaude`); 4.29.0 staged by the updater on 28 Oct (runs after a restart; its renderer is on disk, `resources\ion-dist.asar`) | 3.6556, **Store app** |
 | Desktop's Claude Code | `%APPDATA%\Claude\claude-code\2.1.308\c17a819afb40\claude.exe` (2.1.304 beside it) | `%LOCALAPPDATA%\Claude-Data\claude_pzs8sxrjxfjjc\claude-code\2.1.308\<build>\claude.exe` |
 | `claude` on PATH | none | 2.1.283 (too old) |
 | PowerShell | 5.1 only (no pwsh 7) | 5.1 |
@@ -77,6 +78,39 @@ The work ran unattended as the scheduled tasks `constellation-build`(`-b`,
 `fix/windows-retest`, `fix/lane-b`, `fix/lane-c`, merged into each other at
 the start of every run).
 
+### The 28 October check in the Desktop's own frame (this session)
+
+The owner asked for the section 4 check to be done remotely, not by hand.
+Computer use still cannot (re-tested: the grant goes to the launcher stub and
+Claude's window is masked from screenshots), and claude.ai in a browser draws
+no mod surfaces (they go through the Desktop's bridge; the Remote Control log
+shows no client ever polled). But the 4.29.0 Desktop the updater staged
+carries its renderer on disk, so the Svg leaf was read (section 7) and
+rebuilt around the real engine's pictures in Chromium:
+
+- **R28, fixed (894c250):** the live frame was the pane's width by 150 px,
+  the map shrunk inside it (157 px wide for 860×820). The live Svg now carries
+  `width`/`height` (`frameSize`, hooks/layout.ts). Tests failed first.
+- **Seen in that frame (`tests/e2e/frame.mjs`, 24 checks):** the scrub keeps
+  every element (only the root's `role` goes); the frame is the picture's
+  size in a 120-column and a 44-column pane; hover lights the pill and its
+  satellites, swaps the caption ("Auth Cookie · 10 sessions · last 57m ago")
+  and fades the rest; the trace follows the pointer; the idle cycle walks the
+  topics and eases the rest 1 → 0.49 → 0.40 (R16's question closed); the
+  running topic keeps its ring, its session's ripple animates.
+- **The join card after the first message** (the owner's screenshot): not
+  the mod's doing. The Desktop starts a session's Claude Code when the first
+  message is sent (`LocalSessions.start … trigger=first_turn` in
+  `%LOCALAPPDATA%\Claude\logs\main.log`), so no mod can draw before it. The
+  README now says so and offers `/topic` as the first message to choose
+  before asking anything. The harness never saw this: it attaches before any
+  message.
+
+Gates at ba8f5bd (Windows 11, Claude Code 2.1.308): validate --strict ok,
+plugin test 260/260, tsc clean, desktop.mjs 267/267 exit 0 four times,
+frame.mjs 24/24; installers.ps1 56/56 and installers.sh 78/78 at 2fd9c7d
+(the installers did not change).
+
 ### Commits on `fix/windows-retest` since 4c378de (oldest first, by theme; merges left out)
 
 | Theme | Commits |
@@ -86,6 +120,7 @@ the start of every run).
 | Every surface restyled (L4a, L4b) | f60772b, ba40e61, 4c679ff, 845306c, b321dcd, 927a592 |
 | The review's fixes (R1-R27, section 9) | 3e735d8 … 2eb38f4, cde1c9a, 8c9f146, 9e4eb86 |
 | README pictures (L5, redrawn for R26/R27), docs (L6) and this file (L7) | 6876673, 58f1703, 5fc1a61, 8f59569, 378f028 |
+| The frame check: R28, frame.mjs, docs and this file | 894c250, 6ea1aa5, ba8f5bd, and the commit that rewrote this file |
 
 ### What the re-test (REPORT.md) found and what was done
 
@@ -99,7 +134,7 @@ the start of every run).
 | O-1 | After an install the engine prints "N userConfig options not yet set": every option has a default | The README says so (L6 5fc1a61) |
 | Install | The engine copies the plugin to the cache; a user-scope install hot-loads into open Desktop sessions; auto notes (haiku) work on Windows | Recorded (section 1.3) |
 
-### Gates at e8c3b3d, the final branch (Windows 11, Claude Code 2.1.308, Git Bash)
+### Gates at e8c3b3d, before the frame check (Windows 11, Claude Code 2.1.308, Git Bash)
 
 - `plugin validate --strict .`: passes. `plugin test .`: **256 pass**, 0 fail.
 - `tsc` (TypeScript 5.9.3): clean.
@@ -116,41 +151,32 @@ the start of every run).
 L8 (2026-10-28) ran every gate on the final branch with lanes B and C merged in:
 all green, nothing to fix.
 
-## 4. What is left to see with eyes (L9's OWNER-CHECK.md)
+## 4. What no tool here can see (the owner does not do hand checks)
 
-The harness models the Desktop; these need a real Desktop window. L9 writes
-them as steps for the monitor session (the owner's word: it drives the mouse
-itself) into `analysis-4c378de\OWNER-CHECK.md`, in a NEW Desktop session on
-`D:\Projects` after the plugin update. Not done by hand: the owner said at
-09:06 IST on 28 October to push without it, so every check below is still
-open for the next person with a Desktop window in front of them.
+The 28 October session did L9's checks (`analysis-4c378de\OWNER-CHECK.md`)
+remotely, as far as the tools reach. Done in the Desktop's own frame code
+(`tests/e2e/frame.mjs`, section 3): 1 hover, 2 motion and the idle cycle,
+3 the running topic, 5 tooltips (every `<title>` survives the scrub; the
+native tooltip itself is not drawn headless), 6 a focused chain, 7 a narrow
+pane. Still unseen, each with why:
 
-1. **Hover** a topic: instant trace in its colour, the rest fades, the caption
-   swaps to its goal (else its latest note, else count and last activity).
-2. **Motion and the idle cycle**: with nothing pointed the trace walks the
-   major topics and the others ease to about 0.4 over about 0.6 s (R16 made the
-   fade work without `@property`; whether the Desktop's scrub keeps the rest of
-   the sheet is seen only here).
-3. **Running things stand out**: a running topic's ring and glow, its running
-   sessions' cores and ripples, "● live" in its caption, the cycle starting there.
-4. **Every surface** against `analysis-4c378de\design-before-*.png` /
-   `design-after-*.png`: the join card, header, buttons under the map, cards,
-   List, settings, band states, toasts, empty states. Also how the Desktop
-   draws a `plain` Button with a hotkey inside a tinted Box (L4a's question).
-5. **Tooltips** on satellites and chain steps.
-6. **Focus a topic** with its button under the map; hover its steps.
-7. **A narrow pane** (about 300 px): labels readable, chains clear.
-8. **Settings › Advanced › Picture: Clicks**: the old picture and layer;
-   Outline's edge meets the picture's bottom (report the Layer height if not);
-   clicks at the top, middle and bottom focus the topic clicked.
-9. **Terminal** (conhost, the Desktop's claude.exe, `/map`): the hint on one
-   line, no boxes for marks, the status line `♦ <topic> · step N · note saved`.
-10. **Closed stays closed (F5).** `/map close` cannot meet a pending reclaim
-    (refute-A3's A3-1: a command closes before any reclaim is scheduled). The
-    case that reproduced F5 is a quick Escape, Escape on a one-level state:
-    open `/map`, press `?` for the help, then Escape twice within about 0.2 s:
-    the pane closes and does not come back half a second later. `tests/e2e/tui.sh`
-    does the same in tmux (not run on Windows).
+1. **The pointer leaving the picture.** In headless Chromium a synthetic
+   pointer that leaves the sandboxed frame leaves its `:hover` set (the trace
+   stays lit, the idle cycle paused); an unsandboxed frame clears it. Whether
+   the Desktop's real mouse clears it is unmeasured. If it does not, every
+   interactive Svg has it (the platform's own example too), and the mod cannot
+   see the pointer leave: it would be a platform report.
+2. **Every surface (item 4)** against `design-after-*.png`: the cards, List,
+   settings, band states and toasts are drawn by the Desktop's Box/Text/Button
+   renderer (`gf` and its neighbours in the same 4.29.0 chunk as the Svg
+   leaf); the harness checks their trees, nothing has drawn them through it.
+3. **Picture: Clicks (item 8)**: the image and its layer; the harness checks
+   parity, not the Desktop's drawing.
+4. **The terminal (items 9, 10)**: conhost with the Desktop's claude.exe.
+   Computer use may only click terminals, not type; tmux needs a WSL distro.
+5. **4.29.0 itself**: the check read 4.29.0's renderer while 3.6556.2 runs.
+   After the Desktop restarts into 4.29.0, `/map` in a new session should show
+   the full-size picture (R28).
 
 ## 5. Running everything on Windows
 
@@ -185,6 +211,11 @@ $env:CLAUDE_BIN = (@(Get-Item "$env:LOCALAPPDATA\Claude-Data\*\claude-code\*\*\c
   `E2E_KEEP` (keeps and prints the temp folders).
 - If the unit suite shows failures that each took about 5 s, the machine was
   loaded (timeouts): run it again before believing them.
+- **frame.mjs** (the live pictures in the Desktop's own frame, about 60 s):
+  `npm i -g playwright dompurify@3.4.13` once, then, with `P` found as above,
+  `NODE_PATH="$(npm root -g)" CLAUDE_BIN="$(cygpath -w "$P")" node tests/e2e/frame.mjs [shotsDir]`
+  (Edge when Playwright's Chromium is not downloaded; the pictures land in
+  `shotsDir`, else a temp folder it prints).
 - **tsc** needs the engine's types: `.claude-plugin/types/claude-code/index.d.ts`
   (gitignored). If missing, copy
   `$(cygpath "$TEMP")/claude/bundled-skills/<version>/*/plugin-authoring/types/claude-code.d.ts`
@@ -202,21 +233,26 @@ $env:CLAUDE_BIN = (@(Get-Item "$env:LOCALAPPDATA\Claude-Data\*\claude-code\*\*\c
 
 ## 6. Open items, most important first
 
-The build queue (`analysis-4c378de\QUEUE.md`) is finished: L10 pushed `main`.
-Open: the Desktop check of section 4, by hand in a real Desktop window.
+The build queue (`analysis-4c378de\QUEUE.md`) is finished and its three
+scheduled tasks are disabled. On the owner's word after the push (28 Oct,
+09:54 IST: "windows 10 enough"), Windows is the only platform to verify on:
+the macOS bundle (R11, A4-10), the Linux Desktop store and the WSL terminal
+pictures and `tui.sh` are dropped, not open.
 
-To verify elsewhere (fixed from the code with a test; nobody here can see it):
-
-| What | Where | How |
-| --- | --- | --- |
-| R11, A4-10: install.sh finds the Desktop's Claude Code in a macOS `.app` bundle | a Mac with the Desktop | `ls -R ~/Library/Application\ Support/Claude/claude-code`, then the one-line installer with no or an old `claude` on PATH |
-| The Linux Desktop store `~/.config/Claude/claude-code/<ver>/<build>/claude` | a Linux Desktop | `ls -R` of it |
-| R16: the idle fade in the Desktop's scrubbed frame | the Desktop | section 4 item 2 |
-| R1: a right or middle press posts no pick; whether the Desktop sends `button` at all is unmeasured (an absent button counts as left) | the Desktop, Clicks mode | right-click a topic: nothing happens; left-click focuses it |
-| The terminal's pictures and `tui.sh` (67 checks at 4363174) | WSL with a distro | section 5 |
-
-Then the release checklist (PLAN.md, last section): install from the
-marketplace on a clean machine, watch the first real folder, tag v0.1.0.
+1. **The pointer leaving the live picture** (section 4.1): the one behaviour
+   that could look wrong to a person and that nothing here can measure. A way
+   to measure it with a real mouse: a small Electron app (the Desktop's own
+   Electron version) showing the frame, driven by computer use, which may
+   control any app but Claude's window.
+2. **The rest of section 4**, for whoever has a Desktop window in front of
+   them; none blocks a release.
+3. **The release checklist** (PLAN.md, last section; the owner's call):
+   install from the marketplace on a clean machine, watch the first real
+   folder, tag v0.1.0.
+4. Optional cleanup (the owner's call): the worktrees
+   `D:\Projects\constellation-fixes-b` and `-c` hold nothing beyond main
+   (`git worktree remove` each, then delete `fix/lane-b` and `fix/lane-c`);
+   the three disabled scheduled tasks can be deleted.
 
 ## 7. Facts to code against (measured or read; details in PLAN.md)
 
@@ -226,6 +262,23 @@ marketplace on a clean machine, watch the first real folder, tag v0.1.0.
   satellites one at a time). No pointer position reaches the mod. A `<` inside
   a `<style>` (such as `@property`'s `syntax:'<number>'`) cuts the sheet in
   Chromium and breaks the SVG as XML (R16).
+- **The Desktop's Svg leaf** (read from 4.29.0's `resources\ion-dist.asar`,
+  chunk with `case"Svg"`; PLAN.md "the Desktop's frame read and checked"):
+  interactive, an `<iframe sandbox="">` whose srcdoc is a CSP, a sheet that
+  stretches the svg over the frame, and the scrubbed source; sized by the
+  Svg's `width`/`height` alone (unsized: the column's width × 150 px, hence
+  R28); the scrub DOMPurify 3.4.13 (no `data-*`, `on*`, off-page hrefs,
+  script/foreignObject/image/a/iframe; one svg root or the alt text alone).
+  An image Svg is an `<img>` of a data URL, sized by the svg itself.
+- **The Desktop starts a session's Claude Code on its first message**
+  (`LocalSessions.start` with `trigger=first_turn` in
+  `%LOCALAPPDATA%\Claude\logs\main.log`; before it only short "temporary
+  query" engines and a folderless spare run). No mod draws before that message.
+- **What can look at the Desktop from here**: not computer use (Claude's
+  window is masked and never controllable; the grant goes to the launcher
+  stub), not claude.ai in a browser (no mod surfaces without the Desktop's
+  bridge; the built-in browser is not signed in there). The renderer on disk
+  plus Chromium is the way (`tests/e2e/frame.mjs`).
 - **Desktop Client sizing**: width from its box, height from what it draws.
 - **Desktop cell**: 7.7 × 19.8 px at 100 % scaling; the picture is
   `columns × 7.7` px wide; a narrow pane's slot is about `columns × 7.7 - 40`.
@@ -260,7 +313,7 @@ marketplace on a clean machine, watch the first real folder, tag v0.1.0.
 | --- | --- |
 | `hooks/scan.ts` | Reads `~/.claude/projects/<slug>/*.jsonl` (large ones in slices); `promptOf` (pastes, scheduled runs); `distinctSessions` (one summary per id) |
 | `hooks/cluster.ts` | Topics: signals, clustering, links, `uniqueNames`, `nameKey`, `statusOf` (running = active in the last 5 minutes), `agoOf` |
-| `hooks/layout.ts` | Field geometry: `fieldWidthFor`, placement, satellites, `chainPositions` (bands), `labelSide`, `crowdedLabels`, anchor slots, `DESKTOP_CELL` |
+| `hooks/layout.ts` | Field geometry: `fieldWidthFor`, `slotWidthFor`, `frameSize` (the live frame's size), placement, satellites, `chainPositions` (bands), `labelSide`, `crowdedLabels`, anchor slots, `DESKTOP_CELL` |
 | `hooks/draw.tsx` | The Svg (`svgOf`: live groups, the per-topic hover sheet, motion, the idle cycle, the running look, the shed ladder), `fieldOf` (the layer's props, from what `svgOf` kept), `clipName`, the pane, band, chips, cards, List, settings, toasts, empty states; `marks`, `pointerHint` |
 | `hooks/actions.ts` | Every press and post; `viewOf`, `placementOf`, `renameTopic`, `createTopic`, the reclaim (`scheduleReclaim` with its run counter), `closePane` |
 | `hooks/register.tsx` | Events, commands, renders; `isLive`, `layerAspect`; the `ui.close` hook calls `closePane` |
@@ -268,7 +321,8 @@ marketplace on a clean machine, watch the first real folder, tag v0.1.0.
 | `client/map.js` | The terminal's text map and the Desktop's click layer (`layerFor`, `nodeAtPoint`, `pickAtCell`) |
 | `install.sh`, `install.ps1` | One-line installers with the Desktop fallback (incl. the macOS bundle) |
 | `tests/*.test.ts(x)` | Unit tests; `live.test.tsx` (the live picture), `surfaces.test.tsx` (the restyled surfaces), `helpers.tsx` the engine stub |
-| `tests/e2e/desktop.mjs` | The Desktop's wire against the real engine; parity, narrow panes, live scenario |
+| `tests/e2e/desktop.mjs` | The Desktop's wire against the real engine; parity, narrow panes, live scenario (the frame's size, the scrub's rules) |
+| `tests/e2e/frame.mjs` | The real engine's live pictures through the Desktop's own frame in Chromium: size, scrub, hover, idle cycle, running, focus, narrow |
 | `tests/e2e/tui.sh`, `lib.sh`, `cells.py` | The real TUI in tmux (WSL) |
 | `tests/e2e/installers.sh`, `installers.ps1` | The installers against stand-in `claude` commands |
 | `tests/e2e/shots.mjs`, `shots-chooser.mjs`, `shots-terminal.mjs` | Pictures: the README's, the surfaces', the terminal's |
@@ -325,34 +379,37 @@ several times (R24 2eb38f4), the soft fade's `@property` breaking the sheet
 satellite (R26 8c9f146: now filled with a light core, in the idle ring's grey),
 a narrow chain's step label split mid-word, "Idempote" over "ncy key…" (R27
 9e4eb86: a word too long for a line is clipped with "…", the next words take
-the second line; the Desktop pictures redrawn once for R26 and R27, 58f1703).
+the second line; the Desktop pictures redrawn once for R26 and R27, 58f1703). Found by the frame check of 28 October: the live picture drawn in a
+frame 150 px tall, the map shrunk inside it (R28 894c250: the live Svg carries
+the picture's width and height).
 
 ## 10. Prompt to continue
 
-Paste this into a new Claude Code session opened in the worktree (or, after
-L9, the main checkout) on the Windows 11 machine.
+Paste this into a new Claude Code session on the Windows 11 machine, opened in
+`D:\Projects` (where the context guard reads the folder's handover) or in the
+worktree.
 
 ```text
 You are continuing the Constellation mod (github.com/nrzz/constellation) on my
 Windows 11 machine with Claude Desktop (installer app). The work is on branch
-fix/windows-retest in D:\Projects\constellation-fixes; the plugin is installed
-at user scope from D:\Projects\constellation (main), which the engine copies to
+fix/windows-retest in D:\Projects\constellation-fixes, the same commit as main
+in D:\Projects\constellation (pushed), which the plugin is installed from at
+user scope; the engine copies it to
 ~/.claude/plugins/cache/constellation/constellation/0.1.0.
 
 1. Read .claude/CLAUDE.md, then docs/HANDOVER.md in full. PLAN.md holds the
    spec and every pass's record: read only what the handover points to.
-2. Check D:\Projects\constellation\analysis-4c378de\QUEUE.md: if the build
-   tasks (constellation-build, -b, -c) are still working it, do not touch the
-   worktrees or their locks; tell me where the queue stands instead.
-3. Otherwise find the Desktop's newest claude.exe (handover section 5, the
-   Git Bash one-liner) and run every gate: validate --strict, plugin test,
-   tsc, tests/e2e/desktop.mjs four times (exit 0 each), installers.ps1 and
-   installers.sh.
-4. Work the open items in handover section 6, most important first. Every fix
-   gets a test that fails without it; conventional commits ending with the
-   attribution lines Claude Code gives, no model named elsewhere.
-5. Do the Desktop check of section 4 by hand first (main was pushed without
-   it). Push main only when every gate passes and that check is clean. When the stretch ends, rewrite docs/HANDOVER.md and this prompt.
+2. Find the Desktop's newest claude.exe (handover section 5, the Git Bash
+   one-liner; after a Desktop restart a newer one may be there) and run every
+   gate: validate --strict, plugin test, tsc, tests/e2e/desktop.mjs four
+   times (exit 0 each), tests/e2e/frame.mjs, installers.ps1 and installers.sh.
+3. I do not do hand checks. Work the open items in handover section 6, most
+   important first, with the tools you have (computer use controls any app
+   but Claude's own window); never claim a check you could not make.
+4. Every fix gets a test that fails without it; conventional commits ending
+   with the attribution lines Claude Code gives, no model named elsewhere.
+   Push main when every gate passes. When the stretch ends, rewrite
+   docs/HANDOVER.md and this prompt.
    Past 35 % context: finish the step, write the handover, continue fresh.
 
 Short progress reports; decide by evidence; never skip a check.
