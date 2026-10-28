@@ -798,6 +798,43 @@ that failed first:
 Results at the end of the lanes: plugin test 255, desktop.mjs 265 checks,
 installers.ps1 56, installers.sh 78; tui.sh not run (no WSL distro).
 
+## Done on Windows (2026-10-28, the Desktop's frame read and checked)
+
+Computer use still cannot see or drive Claude's own window (re-tested: the
+grant goes to the launcher stub, the window is masked from screenshots), and a
+browser on claude.ai draws no mod surfaces (they go through the Desktop's
+bridge). But Desktop 4.29.0, staged by its updater, carries its renderer on
+disk (`resources\ion-dist.asar`), so the Svg leaf could be read:
+
+- An interactive Svg is `<iframe sandbox="" referrerpolicy="no-referrer"
+  srcdoc>` styled `display:block;max-width:100%;border:0` plus `width`/`height`
+  from the props, nothing else. The srcdoc is a CSP meta (`default-src 'none';
+  style-src 'unsafe-inline'; img-src data:; font-src data:; script-src 'none';
+  form-action 'none'`), a base sheet (`body>svg{display:block;width:100%;
+  height:100%}`) and the scrubbed source. An image Svg is `<img src=data:>`.
+- The scrub is DOMPurify 3.4.13: svg and svgFilters profiles, `animate`,
+  `set`, `use` and `from`/`to`/`calcMode` added, `script`, `foreignObject`,
+  `image`, `a`, `iframe` forbidden, no `data-*`, no `on*`, `href` only to
+  `#ids`, and exactly one svg root, else the Desktop draws the alt text alone.
+- **Defect found and fixed (R28):** an iframe has no size of its own, so the
+  unsized live frame was as wide as the pane and 150 px tall, the 860×820 map
+  drawn 157 px wide inside it. The live Svg now carries `width`/`height`
+  (`frameSize`, hooks/layout.ts): the field at the slot's width, never wider
+  than its own, at its aspect, within the engine's 4096 px. The Clicks image
+  stays unsized (it takes the svg's own size).
+- `tests/e2e/frame.mjs` puts the real engine's pictures through that frame in
+  Chromium: size, scrub, hover trace and caption, the idle cycle (R16's soft
+  fade works there: parts ease 1 → 0.49 → 0.40 over the slot change), the
+  running ring and ripple, focus and narrow. In headless Chromium a synthetic
+  pointer that leaves the sandboxed frame leaves its `:hover` set (an
+  unsandboxed frame clears it); whether the Desktop's real pointer clears it
+  is not measured.
+- The Desktop starts a session's Claude Code when its first message is sent
+  (main.log: `LocalSessions.start` on `trigger=first_turn`; the new-session
+  screen runs only short "temporary query" engines and a spare with no
+  folder), so no mod draws before that message: the band comes with the first
+  reply. The README says so, with `/topic` first as the way to choose before.
+
 ## Release checklist
 
 1. `/plugin install constellation --marketplace nrzz/constellation` in any

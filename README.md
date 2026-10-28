@@ -22,8 +22,8 @@ Desktop sidebar and nothing is lost between them.
 
 Status: built against Claude Code 2.1.310, run end to end on 2.1.311 and
 re-run on Windows 11 with 2.1.308, every picture on this page drawn by the
-real engine. `claude plugin validate --strict`, `claude plugin test` (255
-tests, including an edge-case suite), `tsc` and three end-to-end suites pass:
+real engine. `claude plugin validate --strict`, `claude plugin test` (260
+tests, including an edge-case suite), `tsc` and four end-to-end suites pass:
 
 - `tests/e2e/tui.sh` drives the real Claude Code TUI in tmux with real mouse
   events: hover, clicks on topics, steps, dots and buttons, a drag, the
@@ -41,8 +41,14 @@ tests, including an edge-case suite), `tsc` and three end-to-end suites pass:
   empty folder, and new sessions opening the map on Desktop, VS Code and
   mobile; it checks that the layer matches the picture node for node, and
   that the live picture arrives in its frame with a hover rule per topic, no
-  script, the running topic's ring and ripple, and under the size cap (265
+  script, the running topic's ring and ripple, and under the size cap (267
   checks).
+- `tests/e2e/frame.mjs` puts the live pictures through the Desktop's own
+  frame in Chromium: its scrub (DOMPurify as the Desktop calls it), its
+  sandboxed frame sized by the Svg's width and height, and a real pointer;
+  it checks the frame is the picture's size, the scrub keeps it whole, hover
+  traces a topic and swaps the caption, and the idle cycle eases the rest to
+  about 0.4 topic after topic (24 checks).
 - `tests/e2e/installers.sh` runs `install.sh` under sh, dash and bash against
   stand-in `claude` commands laid out as on macOS, Linux and Windows (78
   checks); `tests/e2e/installers.ps1` runs the same cases against
@@ -135,7 +141,11 @@ constellation --marketplace <path to this repo>`.
    nine of the folder's topics by recent activity, on the digit hotkeys, plus
    **+N more in the map** when there are more, then, apart from the topics,
    **+ New topic**, **Open map** (`o`) and **Dismiss**. (The pane's chooser
-   card lists every topic, as the same chips.)
+   card lists every topic, as the same chips.) On the Desktop the band comes
+   with your first message's reply: the Desktop starts a session's Claude
+   Code, and with it every mod, when you send that message. To choose first,
+   send `/topic` as the first message; the topic you pick then hands its note
+   to your first real prompt.
 2. If you type a prompt first, Constellation scores it against each topic's
    titles, goal, notes and file names and marks the best match **suggested**.
    With `autoJoin: auto`, a clear match joins at once and the note rides along
@@ -463,6 +473,7 @@ bash tests/e2e/tui.sh                    # the real Claude Code TUI in tmux, thr
 E2E_INSTALL=1 bash tests/e2e/tui.sh      # the same after the one-line install from this checkout, run as installed
 E2E_SKIP_MODEL=1 bash tests/e2e/tui.sh   # the same without the model turn
 node tests/e2e/desktop.mjs               # the Desktop's wire against the real engine, the map's Client clicked (about a minute)
+node tests/e2e/frame.mjs                 # the live pictures in the Desktop's own frame (Playwright, dompurify@3.4.13 on NODE_PATH)
 bash tests/e2e/installers.sh             # install.sh against stand-in claude commands, under sh, dash and bash
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\e2e\installers.ps1   # install.ps1, the same cases (Windows)
 node tests/e2e/shots.mjs                 # this page's Desktop pictures, drawn by the real engine (Playwright)
