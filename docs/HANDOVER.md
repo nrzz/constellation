@@ -9,17 +9,16 @@ API facts and every pass's record; `README.md` is what users read.
 
 ## 1. Start here
 
-1. **Find the code.** The work is on the branch `fix/windows-retest`
-   (worktree `D:\Projects\constellation-fixes` on the owner's Windows 11
-   machine; section 2), and `main` (`D:\Projects\constellation`, pushed) is
-   the same commit. The 28 October session checked the live pane in the
+1. **Find the code.** Everything is on `main` in `D:\Projects\constellation`
+   on the owner's Windows 11 machine (section 2), pushed; the working
+   branches and their worktrees were merged and removed on 28 October. The 28 October session checked the live pane in the
    Desktop's own frame code (section 3), found the live picture drawn 150 px
    tall, fixed it (R28, 894c250) and pushed. The owner does not do hand
    checks: what no tool here can see is listed in section 4.
 
    ```bash
-   git -C /d/Projects/constellation-fixes log --oneline -1
-   git -C /d/Projects/constellation-fixes merge-base --is-ancestor 894c250 HEAD && echo ok
+   git -C /d/Projects/constellation log --oneline -1
+   git -C /d/Projects/constellation merge-base --is-ancestor 894c250 HEAD && echo ok
    ```
 
 2. **Point the tools at the Desktop's own Claude Code** (section 5). Neither
@@ -47,7 +46,7 @@ API facts and every pass's record; `README.md` is what users read.
 | PowerShell | 5.1 only (no pwsh 7) | 5.1 |
 | Shells for sessions | Git Bash (with `dash`), conhost, Windows Terminal | Git Bash, conhost |
 | WSL | only `docker-desktop`, no Linux distro | not recorded |
-| Repo | `D:\Projects\constellation` (`main`, the marketplace the plugin is installed from, user scope) and the worktrees `-fixes`, `-fixes-b`, `-fixes-c` | `C:\Users\Lenovo\.claude\local-plugins\constellation`; real folder `E:\GIT` (163 sessions) |
+| Repo | `D:\Projects\constellation` (`main`, the marketplace the plugin is installed from, user scope) | `C:\Users\Lenovo\.claude\local-plugins\constellation`; real folder `E:\GIT` (163 sessions) |
 | Real folders | `D:\Sensus-Design` 369 sessions (97 over 4 MiB, 316 scheduled runs), `D:\Projects` (many, the build lanes among them) | `E:\GIT` |
 | Push | `git push --dry-run origin HEAD:main` works (user.email nareshprabu18@gmail.com) | not recorded |
 
@@ -249,10 +248,8 @@ pictures and `tui.sh` are dropped, not open.
 3. **The release checklist** (PLAN.md, last section; the owner's call):
    install from the marketplace on a clean machine, watch the first real
    folder, tag v0.1.0.
-4. Optional cleanup (the owner's call): the worktrees
-   `D:\Projects\constellation-fixes-b` and `-c` hold nothing beyond main
-   (`git worktree remove` each, then delete `fix/lane-b` and `fix/lane-c`);
-   the three disabled scheduled tasks can be deleted.
+4. Optional cleanup (the owner's call): the three disabled scheduled tasks
+   can be deleted. (The worktrees and the fix/* branches went on 28 October.)
 
 ## 7. Facts to code against (measured or read; details in PLAN.md)
 
@@ -386,14 +383,13 @@ the picture's width and height).
 ## 10. Prompt to continue
 
 Paste this into a new Claude Code session on the Windows 11 machine, opened in
-`D:\Projects` (where the context guard reads the folder's handover) or in the
-worktree.
+`D:\Projects` (where the context guard reads the folder's handover) or in
+`D:\Projects\constellation`.
 
 ```text
 You are continuing the Constellation mod (github.com/nrzz/constellation) on my
-Windows 11 machine with Claude Desktop (installer app). The work is on branch
-fix/windows-retest in D:\Projects\constellation-fixes, the same commit as main
-in D:\Projects\constellation (pushed), which the plugin is installed from at
+Windows 11 machine with Claude Desktop (installer app). The work is on main in
+D:\Projects\constellation (pushed), which the plugin is installed from at
 user scope; the engine copies it to
 ~/.claude/plugins/cache/constellation/constellation/0.1.0.
 
