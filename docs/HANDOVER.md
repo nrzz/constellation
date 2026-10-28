@@ -11,9 +11,10 @@ API facts and every pass's record; `README.md` is what users read.
 
 1. **Find the code.** The work of 27-28 October is on the branch
    `fix/windows-retest` (worktree `D:\Projects\constellation-fixes` on the
-   owner's Windows 11 machine; section 2). Until item L9 of the build queue
-   fast-forwards it, `main` is still 4c378de, the build the re-test ran on.
-   Nothing of this pass is pushed yet (L10 pushes `main`).
+   owner's Windows 11 machine; section 2). Item L9 fast-forwarded `main` to
+   it and L10 pushed `main` to origin on 28 October, on the harness's
+   evidence: the Desktop check of section 4 was not done by hand (the
+   owner's word at 09:06 IST; computer use cannot drive Claude's own window).
 
    ```bash
    git -C /d/Projects/constellation-fixes log --oneline -1
@@ -120,7 +121,9 @@ all green, nothing to fix.
 The harness models the Desktop; these need a real Desktop window. L9 writes
 them as steps for the monitor session (the owner's word: it drives the mouse
 itself) into `analysis-4c378de\OWNER-CHECK.md`, in a NEW Desktop session on
-`D:\Projects` after the plugin update.
+`D:\Projects` after the plugin update. Not done by hand: the owner said at
+09:06 IST on 28 October to push without it, so every check below is still
+open for the next person with a Desktop window in front of them.
 
 1. **Hover** a topic: instant trace in its colour, the rest fades, the caption
    swaps to its goal (else its latest note, else count and last activity).
@@ -199,12 +202,8 @@ $env:CLAUDE_BIN = (@(Get-Item "$env:LOCALAPPDATA\Claude-Data\*\claude-code\*\*\c
 
 ## 6. Open items, most important first
 
-Queue items (in `analysis-4c378de\QUEUE.md`) still open when this was written:
-
-| Item | Lane | What |
-| --- | --- | --- |
-| L9 | A | Fast-forward `main`, `plugin update`, OWNER-CHECK.md (section 4), the monitor's check |
-| L10 | A | Fix what the check finds, push `main`, BUILD-DONE.md, disable the tasks |
+The build queue (`analysis-4c378de\QUEUE.md`) is finished: L10 pushed `main`.
+Open: the Desktop check of section 4, by hand in a real Desktop window.
 
 To verify elsewhere (fixed from the code with a test; nobody here can see it):
 
@@ -352,8 +351,8 @@ at user scope from D:\Projects\constellation (main), which the engine copies to
 4. Work the open items in handover section 6, most important first. Every fix
    gets a test that fails without it; conventional commits ending with the
    attribution lines Claude Code gives, no model named elsewhere.
-5. Push main only when every gate passes and the Desktop check (section 4) is
-   clean. When the stretch ends, rewrite docs/HANDOVER.md and this prompt.
+5. Do the Desktop check of section 4 by hand first (main was pushed without
+   it). Push main only when every gate passes and that check is clean. When the stretch ends, rewrite docs/HANDOVER.md and this prompt.
    Past 35 % context: finish the step, write the handover, continue fresh.
 
 Short progress reports; decide by evidence; never skip a check.
